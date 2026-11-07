@@ -8,7 +8,7 @@ independently.
 ## Start here
 
 For development, start with the [reproducible offline workflow](docs/DEVELOPMENT.md)
-and [current development status](docs/DEVELOPMENT_STATUS.md). Each feature branch
+and [current development status](docs/history/plans/DEVELOPMENT_STATUS.md). Each feature branch
 uses its own worktree, Python environment and native build outputs. Run
 `python scripts/dev.py setup` once, then `python scripts/dev.py check` before
 integration. Historical test counts below are evidence from their stated dates.
@@ -38,7 +38,7 @@ robot-platform run collect --robot minerva --settings simulation_runs/minerva-00
 Use `--robot aizee` in both commands for Aizee. Every run needs a new output
 directory. Motors start disabled; simulation uses loopback endpoints and
 suppresses physical leader/serial discovery. See the
-[simulation guide](docs/architecture/SIMULATION_IMPLEMENTATION.md) for faults,
+[simulation guide](docs/simulation/SIMULATION_IMPLEMENTATION.md) for faults,
 recording, trace reports, and current limitations.
 
 The [guarded controller harness](docs/architecture/GUARDED_CONTROLLER.md) separately
@@ -46,7 +46,7 @@ tests the new Rust command ownership, expiry and stopping core through the share
 Python session. Build it with `./scripts/test_control_core.ps1` on the configured
 Windows host, then run `python -m pytest tests/contract/test_guarded_controller.py -q`.
 The Linux commissioning entry point now runs that core through SocketCAN and
-acknowledged ZMQ. See [powered commissioning](docs/POWERED_COMMISSIONING.md) for
+acknowledged ZMQ. See [powered commissioning](docs/operator/POWERED_COMMISSIONING.md) for
 virtual-CAN results, all 14 motor watchdog passes, mandatory startup verification
 and bounded gripper trials. General physical motion remains blocked pending commissioning.
 
@@ -60,7 +60,7 @@ robot-platform view --robot minerva
 Open `http://127.0.0.1:8765`. The same viewer selects Aizee, Minerva or an
 external URDF/model profile. It provides joint jogging, coupled jaws, pose
 files and collision inspection without connecting to hardware. See the
-[model tools guide](docs/MODEL_VIEWER.md) to add another robot.
+[model tools guide](docs/simulation/MODEL_VIEWER.md) to add another robot.
 
 Build the optional native collision library with
 `./scripts/build_collision.ps1 -Test` on the configured Windows development
@@ -76,7 +76,7 @@ checks do not drive or stop hardware. See the
 For the dual GELLO inputs, run `./scripts/view_leaders.ps1` and open
 `http://127.0.0.1:8767/`. The shared leader viewer provides live encoder positions,
 schematic arms and software direction/reference controls. See
-[dual GELLO setup](docs/GELLO_TELEOP.md) for virtual teleop testing and hardware gates.
+[dual GELLO setup](docs/architecture/GELLO_TELEOP.md) for virtual teleop testing and hardware gates.
 
 ### Train
 
@@ -134,7 +134,7 @@ boundaries. `python/` contains active application code and compatibility shims.
 | Minerva right | Six arm joints and gripper | `config/hardware_minerva_right.yaml` | `5575 / 5576` |
 
 Helm's task capture records Minerva's 16 axes, both arms, both grippers and the
-neck's pan/tilt, with effort and the head camera's pose ([episode format 9](docs/EPISODE_FORMAT.md)).
+neck's pan/tilt, with effort and the head camera's pose ([episode format 9](docs/data/EPISODE_FORMAT.md)).
 The legacy collector's 17-slot schema keeps head and lift as reserved, inactive slots.
 Wrist cameras use ports 5563/5565; scene/head uses 5564.
 Shared settings select endpoints explicitly. Direct older tools may still use
@@ -152,7 +152,7 @@ Windows ARM64 cross-builds use `scripts/build_jetson.ps1`; see the
 Manual controller launches require `AIZEE_CONFIG` set to the chosen profile.
 Existing service units already set it.
 
-The [Jetson setup guide](docs/quickstart/FRESH_JETSON_SETUP.md) distinguishes the
+The [Jetson setup guide](docs/robots/aizee/FRESH_JETSON_SETUP.md) distinguishes the
 new development device from robot-service installation. Physical deployments
 remain explicit operations.
 
@@ -171,18 +171,18 @@ Jetson now builds and tests the native collision backend. Its 1,000-cycle
 synthetic arm-to-arm keep-out replay completed at 25 Hz without deadline misses;
 this is partial coverage with finger exclusions. Whole-robot motion, virtual
 CAN, CAD dynamics and measured actuator calibration remain open. See the
-[25 Hz acceptance plan](docs/architecture/COLLISION_25HZ_HARDWARE_PLAN.md),
+[25 Hz acceptance plan](docs/history/plans/COLLISION_25HZ_HARDWARE_PLAN.md),
 [device log](docs/devices/JETSON_DEV_01.md) and
-[September 21 checkpoint](docs/architecture/DEVELOPMENT_CHECKPOINT_2026-09-21.md).
+[September 21 checkpoint](docs/history/plans/DEVELOPMENT_CHECKPOINT_2026-09-21.md).
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Package installation and launch settings](docs/architecture/MONOREPO_IMPLEMENTATION.md)
-- [Shared session integration](docs/architecture/SESSION_BACKEND_MIGRATION.md)
-- [Simulation and physical validation plan](docs/architecture/SIMULATION_VALIDATION_PLAN.md)
-- [Minerva bring-up](docs/MINERVA_BRINGUP.md)
-- [Aizee learning pipeline](docs/LEARNING_PIPELINE.md)
+- [Package installation and launch settings](docs/architecture/OVERVIEW.md)
+- [Shared session integration](docs/history/plans/SESSION_BACKEND_MIGRATION.md)
+- [Simulation and physical validation plan](docs/history/plans/SIMULATION_VALIDATION_PLAN.md)
+- [Minerva bring-up](docs/history/plans/MINERVA_BRINGUP.md)
+- [Aizee learning pipeline](docs/robots/aizee/LEARNING_PIPELINE.md)
 - [Cleanup record](docs/architecture/REPOSITORY_CLEANUP.md)
 
 ![Aizee](image.png)

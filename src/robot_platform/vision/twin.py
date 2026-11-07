@@ -1,4 +1,4 @@
-"""The digital twin's correction, for drawing only (docs/development/HEADSET_3D_PLAN.md, Twin correction): where the
+"""The digital twin's correction, for drawing only (docs/architecture/HEADSET_3D_PLAN.md, Twin correction): where the
 arms and the head are, from what their joints report and the table's board.
 
 - The arms: the joint zero offsets the wrist calibration fitted (vision.solve's 'joint_offsets' model, J1-J5 of each

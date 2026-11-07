@@ -32,7 +32,7 @@ class Register:
     sign_bit: int | None = None  # Sign-magnitude registers: the bit that holds the sign.
 
 
-# The STS/SMS control table (shared by the STS3215 and STS3250); sources in docs/development/NECK_FEETECH.md.
+# The STS/SMS control table (shared by the STS3215 and STS3250); sources in docs/robots/minerva/NECK_FEETECH.md.
 REGISTERS = {
     "Firmware_Major_Version": Register(0, 1, False), "Firmware_Minor_Version": Register(1, 1, False),
     "Model_Number": Register(3, 2, False), "ID": Register(5, 1), "Baud_Rate": Register(6, 1),

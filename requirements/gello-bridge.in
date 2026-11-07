@@ -1,6 +1,6 @@
 # The GELLO bridge on the operator PC (teleop.gello_bridge), for Helm on Minerva: the leader arms' USB, the pinned
 # SSH relay and the link's frames. Same versions as requirements/dev.lock.
-# Regenerate (docs/development/HELM_ON_JETSON.md):
+# Regenerate (docs/architecture/HELM_ON_JETSON.md):
 #   uv pip compile requirements/gello-bridge.in --python-version 3.12 --python-platform x86_64-pc-windows-msvc --generate-hashes -o requirements/gello-bridge.lock
 msgpack==1.2.3
 paramiko==5.0.0

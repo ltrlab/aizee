@@ -4,7 +4,7 @@ Each trial runs exactly as the evaluation harness runs it (runner.TrialRunner: t
 joints, the contact scene), and an EpisodeRecorder writes what a real capture would: the receiver's measured and
 commanded motor coordinates, its efforts, and the head and wrist cameras, through the shared TaskEpisodeWriter
 (format 9; the simulated head stays at the neck's zero, task_scene.SIMULATED_HEAD). Only a trial the scene's own events call a success (pickup, then handoff, then the cube settled in the
-bucket, eligible) is published; anything else is discarded. See docs/development/SIM_GENERATION.md.
+bucket, eligible) is published; anything else is discarded. See docs/simulation/SIM_GENERATION.md.
 
 Generated episodes say what they are: data_source 'simulation', authority 'policy', collection_mode
 'scripted_demonstrator', the demonstrator's description, the scene's capabilities (workcell, gripper drives) and the

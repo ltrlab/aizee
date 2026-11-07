@@ -1,6 +1,6 @@
 # Working on Aizee / Minerva
 
-Read `docs/DEVELOPMENT_STATUS.md` and `docs/DEVELOPMENT.md` before changing code.
+Read `docs/history/plans/DEVELOPMENT_STATUS.md` and `docs/DEVELOPMENT.md` before changing code.
 Both Codex and Claude Code use these instructions. Detailed history stays in the
 device and architecture documents; current work and blockers go in the status file.
 

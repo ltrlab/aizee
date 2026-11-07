@@ -5,7 +5,7 @@
 
 For each cube position on a grid it plans the demonstration (evaluation.demonstrator) and checks every planned move's
 clearance to the table and bucket. '#': plans and clears by more than 1 mm; 'c': plans but closer; '.': no plan.
-Use it to choose a workcell's cube region (docs/development/SIM_DEMONSTRATOR.md). With --yaws, one map per cube yaw
+Use it to choose a workcell's cube region (docs/simulation/SIM_DEMONSTRATOR.md). With --yaws, one map per cube yaw
 (degrees). Each worker samples the arms' poses once (about 10 s); keep the workers within memory (8 ran out on 16 GB).
 """
 from __future__ import annotations

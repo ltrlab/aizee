@@ -1,4 +1,4 @@
-"""python -m robot_platform.evaluation {run,report,grid,compare,power}. See docs/development/MINERVA_EVAL.md."""
+"""python -m robot_platform.evaluation {run,report,grid,compare,power}. See docs/simulation/MINERVA_EVAL.md."""
 from __future__ import annotations
 
 import argparse

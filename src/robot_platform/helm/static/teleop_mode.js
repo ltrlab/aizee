@@ -14,7 +14,7 @@ export const STILL_PENDING = 'Taking a still: resume once it is saved';
 
 export const knownMode = mode => (MODES.includes(mode) ? mode : 'direct');
 
-// Teleop's input, its own switch beside the mode (docs/development/VR_ARM_TELEOP_PLAN.md): the GELLO leaders, or
+// Teleop's input, its own switch beside the mode (docs/architecture/VR_ARM_TELEOP_PLAN.md): the GELLO leaders, or
 // the headset's controllers by grab and drag (helm/teleop.py's headset source). Direct and Calibrate take either; a
 // headset session is not recorded yet, so Direct with the headset only drives the arms.
 export const INPUTS = ['gello', 'headset'];

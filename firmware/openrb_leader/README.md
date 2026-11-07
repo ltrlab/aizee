@@ -2,7 +2,7 @@
 
 Reads 7× Dynamixel XL330-M077-T servos and exposes them to the host over
 USB-CDC for use as the AIZEE leader arm. See
-[../../docs/subsystems/OPENRB_LEADER.md](../../docs/subsystems/OPENRB_LEADER.md)
+[../../docs/robots/OPENRB_LEADER.md](../../docs/robots/OPENRB_LEADER.md)
 for full documentation including wire protocol and setup procedure.
 
 The guarded shared input driver is `src/robot_platform/teleop/openrb.py`. It uses

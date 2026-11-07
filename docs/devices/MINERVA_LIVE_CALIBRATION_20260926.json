@@ -6,7 +6,7 @@
   "viewer_url": "http://127.0.0.1:8766/",
   "local_pid": 9160,
   "local_exec_session_id": 15297,
-  "session_directory": "C:\\Users\\ltr\\Workspace\\aizee\\calibration_runs\\minerva-production-01-directions",
+  "session_directory": "<workspace>/aizee\\calibration_runs\\minerva-production-01-directions",
   "stream_id": "6c69063595e64fed94e4c469dd71c323",
   "observed_sequence": 530,
   "source_age_seconds": 0.29500519999965036,

@@ -1,5 +1,5 @@
 """The operator's headset as the teleop loop's target, in place of the leaders (Helm's Headset input; VR arm control,
-docs/development/VR_ARM_TELEOP_PLAN.md, phase 4).
+docs/architecture/VR_ARM_TELEOP_PLAN.md, phase 4).
 
 The controllers grab and drag the arms in a worker process (teleop.vr_worker runs teleop.vr_arms); this side turns
 each arm's commanded CAD angles into the receiver's motor positions (cad = scale * motor + offset, the derived

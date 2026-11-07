@@ -13,7 +13,7 @@ rose). The service reads it once a second without touching the chip's configurat
 Helm end any session (the loop lowers the arm first), signals a loop still running after the grace period
 (robot_platform.helm.edge lowers the arm on SIGTERM too), then powers the Jetson off. The charger coming back
 cancels it. Transitions go to /var/log/minerva-ups/events.jsonl, which survives the power cut the journal does
-not (docs/development/UPS_MONITOR.md).
+not (docs/robots/minerva/UPS_MONITOR.md).
 
 Standard library only: the installed copy runs without a release (python3 -I).
 """

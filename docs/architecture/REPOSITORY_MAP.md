@@ -2,14 +2,14 @@
 
 Updated 2026-09-24 after the guarded controller core and native fault harness work.
 The [generated inventory](REPOSITORY_INVENTORY.md) enumerates tracked files;
-the [implementation guide](MONOREPO_IMPLEMENTATION.md) explains installation.
+the [implementation guide](OVERVIEW.md) explains installation.
 
 Shared guarded teleoperation now lives in `src/robot_platform/teleop/` (OpenRB
 input/bridge, profile-driven mapping and collision supervisor), with the envelope
 compiler in `control/collision_envelope.py` and receiver enforcement in
 `rust/control_core/src/collision.rs`. Mechanical-reference maintenance is in
 `control/mechanical_zero.py`; the physical adapter startup gate is in
-`rust/control_core/src/reference.rs`. See [current status](../GUARDED_TELEOP.md).
+`rust/control_core/src/reference.rs`. See [current status](GUARDED_TELEOP.md).
 
 ## Runtime
 
@@ -44,7 +44,7 @@ physical network movement remains blocked during commissioning. The adapter now
 requires fresh watchdog verification before physical enable. The separate finite
 trial tool has passed four small right-gripper trials with damped stops. Manual
 caliper/encoder pairs provide a coarse unloaded aperture estimate; powered jaw
-accuracy and CAD mapping remain open. See [powered commissioning](../POWERED_COMMISSIONING.md).
+accuracy and CAD mapping remain open. See [powered commissioning](../operator/POWERED_COMMISSIONING.md).
 
 | Deployment | CAN bus | Command / telemetry | Cameras |
 |---|---|---|---|
@@ -112,7 +112,7 @@ robot. Head/lift slots are inactive and have no shared-session command routes.
 3. Gains, calibration, camera sizing and GUI preferences remain split between
    application code and config files. See [config ownership](../../config/README.md).
 4. The production-controller simulation tier, measured actuator profiles and
-   coupled CAD model remain planned work. See [validation plan](SIMULATION_VALIDATION_PLAN.md).
+   coupled CAD model remain planned work. See [validation plan](../history/plans/SIMULATION_VALIDATION_PLAN.md).
 5. CAD and keep-out are explicit geometry policies. The 25 Hz Jetson replay
    covers inter-arm motion with fingers omitted. Unapproved assembly contacts,
    receiver-side expiry and measured stopping still block hardware enforcement.

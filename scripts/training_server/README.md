@@ -21,7 +21,7 @@ files into `$AIZEE_SIM/bin`: the launchers call their helpers there.
 ## Real demonstrations: LeRobot and ACT
 
 1. Export kept episodes on any machine with the repository: `python -m robot_platform.data.lerobot_export`
-   ([DATASET_PIPELINE.md](../../docs/development/DATASET_PIPELINE.md), [EPISODE_FORMAT.md](../../docs/EPISODE_FORMAT.md)).
+   ([DATASET_PIPELINE.md](../../docs/data/DATASET_PIPELINE.md), [EPISODE_FORMAT.md](../../docs/data/EPISODE_FORMAT.md)).
 2. `setup_lerobot.sh` builds `.venv-lerobot`: LeRobot at openpi's pinned revision `0cf8648` (dataset format v2.1), with
    the av, datasets and huggingface-hub versions that revision needs.
 3. `check_lerobot_dataset.py <dataset> <source episode>` loads the export with LeRobot itself and compares sampled frames

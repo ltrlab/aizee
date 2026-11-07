@@ -4,23 +4,23 @@ Guides for the shared platform, robot applications and device deployments.
 
 ## Repository architecture
 
-- **[Platform consolidation plan](architecture/PLATFORM_CONSOLIDATION_PLAN.md)** — integration order and acceptance for the bimanual learning/correction loop
-- **[October 16 integration record](development/PLATFORM_INTEGRATION_20261016.md)** — accepted source, CI, task scene, capture and physical validation
-- **[Minerva policy evaluation](development/MINERVA_EVAL.md)** — N-trial closed-loop task harness, shared sim/real report, success intervals and trial-count planning
+- **[Platform consolidation plan](history/plans/PLATFORM_CONSOLIDATION_PLAN.md)** — integration order and acceptance for the bimanual learning/correction loop
+- **[October 16 integration record](history/features/PLATFORM_INTEGRATION_20261016.md)** — accepted source, CI, task scene, capture and physical validation
+- **[Minerva policy evaluation](simulation/MINERVA_EVAL.md)** — N-trial closed-loop task harness, shared sim/real report, success intervals and trial-count planning
 
-- **[Implemented monorepo guide](architecture/MONOREPO_IMPLEMENTATION.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
-- **[Session backend migration](architecture/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
+- **[Implemented monorepo guide](architecture/OVERVIEW.md)** — package installation, interchangeable profiles/settings, application launchers, shared backend APIs, and current migration status
+- **[Session backend migration](history/plans/SESSION_BACKEND_MIGRATION.md)** — collector/inference integration, command lifecycle, freshness and remaining legacy tools
 - **[Guarded controller core](architecture/GUARDED_CONTROLLER.md)** — receiver-owned permits, explicit recovery, CAN adapter, Linux commissioning service and protocol/fault tests
-- **[Existing GUI teleop integration](architecture/TELEOP_GUI_INTEGRATION.md)** — preserve Idle, Enable, Engage/Align and slow Shutdown while migrating shared input and collision checks
-- **[Simulation and hardware validation plan](architecture/SIMULATION_VALIDATION_PLAN.md)** — staged simulator design, actuator measurements, real-world calibration, and acceptance gates
-- **[Collision and limit calibration](architecture/COLLISION_AND_LIMIT_CALIBRATION.md)** — independent arm limits, shared inter-arm scene checks and powered-probe prerequisites
-- **[Real-time collision research](architecture/COLLISION_RUNTIME_RESEARCH.md)** — MoveIt internals, measured bottlenecks, standalone backend options and the proposed runtime collision path
+- **[Existing GUI teleop integration](history/plans/TELEOP_GUI_INTEGRATION.md)** — preserve Idle, Enable, Engage/Align and slow Shutdown while migrating shared input and collision checks
+- **[Simulation and hardware validation plan](history/plans/SIMULATION_VALIDATION_PLAN.md)** — staged simulator design, actuator measurements, real-world calibration, and acceptance gates
+- **[Collision and limit calibration](history/plans/COLLISION_AND_LIMIT_CALIBRATION.md)** — independent arm limits, shared inter-arm scene checks and powered-probe prerequisites
+- **[Real-time collision research](history/plans/COLLISION_RUNTIME_RESEARCH.md)** — MoveIt internals, measured bottlenecks, standalone backend options and the proposed runtime collision path
 - **[Collision implementation status](architecture/COLLISION_RUNTIME_IMPLEMENTATION.md)** — CAD and conservative keep-out modes, finger exclusions, native hierarchy, simulation command gate and benchmark evidence
-- **[September 21 development checkpoint](architecture/DEVELOPMENT_CHECKPOINT_2026-09-21.md)** — accumulated implementation, CAD sources, validation and remaining hardware gates
-- **[Keep-out results](architecture/COLLISION_KEEPOUT_RESULTS.json)** — desktop/Jetson timings, 25 Hz scoped replay, audits and source/binary hashes
-- **[25 Hz supervisor and hardware plan](architecture/COLLISION_25HZ_HARDWARE_PLAN.md)** — intermediate timing milestone, controller/calibration blockers, observation-only hardware tests and staged powered validation
-- **[Known-load calibration plan](architecture/KNOWN_LOAD_CALIBRATION.md)** — paired poses and calibration masses, motor-reported torque and later independent measurements
-- **[Simulation implementation](architecture/SIMULATION_IMPLEMENTATION.md)** — runnable loopback simulator, launch commands, measurement safeguards, gap disposition, and remaining hardware evidence
+- **[September 21 development checkpoint](history/plans/DEVELOPMENT_CHECKPOINT_2026-09-21.md)** — accumulated implementation, CAD sources, validation and remaining hardware gates
+- **[Keep-out results](history/plans/COLLISION_KEEPOUT_RESULTS.json)** — desktop/Jetson timings, 25 Hz scoped replay, audits and source/binary hashes
+- **[25 Hz supervisor and hardware plan](history/plans/COLLISION_25HZ_HARDWARE_PLAN.md)** — intermediate timing milestone, controller/calibration blockers, observation-only hardware tests and staged powered validation
+- **[Known-load calibration plan](history/plans/KNOWN_LOAD_CALIBRATION.md)** — paired poses and calibration masses, motor-reported torque and later independent measurements
+- **[Simulation implementation](simulation/SIMULATION_IMPLEMENTATION.md)** — runnable loopback simulator, launch commands, measurement safeguards, gap disposition, and remaining hardware evidence
 
 - **[Aizee / Minerva repository map](architecture/REPOSITORY_MAP.md)** — current ownership, runtime topology, dependency tangles, and source evidence
 - **[Monorepo organization plan](architecture/MONOREPO_PLAN.md)** — proposed shared-platform layout, dependency rules, and staged migration gates
@@ -29,14 +29,14 @@ Guides for the shared platform, robot applications and device deployments.
 - **[Cleanup record](architecture/REPOSITORY_CLEANUP.md)** — removed files, replacements and retained assets
 
 ## Getting started
-- **[Helm](HELM.md)** — the robot operator web UI: live model, stopped-only robot connection, hand-swept joint limits and leader ranges, and virtual-receiver teleop
-- **[Dual GELLO setup](GELLO_TELEOP.md)** — live leader schematics, display reference/direction controls, virtual collision-checked teleop and the path to Quest Pro input
-- **[Guarded teleoperation](GUARDED_TELEOP.md)** — shared leader inputs, collision expiry, measured 25 Hz vcan result and physical readiness gaps
-- **[Mechanical reference](MECHANICAL_REFERENCE.md)** — disabled-only hardware zero, persistence checks and startup reference validation
-- **[Live joint calibration](JOINT_CALIBRATION.md)** — move disabled joints by hand, compare live CAD, correct signs/offsets and resume saved checks
+- **[Helm](operator/HELM_MANUAL.md)** — the robot operator web UI: live model, stopped-only robot connection, hand-swept joint limits and leader ranges, and virtual-receiver teleop
+- **[Dual GELLO setup](architecture/GELLO_TELEOP.md)** — live leader schematics, display reference/direction controls, virtual collision-checked teleop and the path to Quest Pro input
+- **[Guarded teleoperation](architecture/GUARDED_TELEOP.md)** — shared leader inputs, collision expiry, measured 25 Hz vcan result and physical readiness gaps
+- **[Mechanical reference](operator/MECHANICAL_REFERENCE.md)** — disabled-only hardware zero, persistence checks and startup reference validation
+- **[Live joint calibration](operator/JOINT_CALIBRATION.md)** — move disabled joints by hand, compare live CAD, correct signs/offsets and resume saved checks
 - **[Minerva mechanical-zero evidence](devices/MINERVA_MECHANICAL_ZERO_20260924.json)** — one zero/save attempt per motor, reference readback and pending power-cycle check
-- **[Powered commissioning](POWERED_COMMISSIONING.md)** — 14-motor diagnostics, command-loss results, bounded gripper trials and remaining movement gates
-- **[Gripper transmission calibration](GRIPPER_TRANSMISSION_CALIBRATION.md)** — stopped encoder/caliper pairs, directional fits, interpolation candidates and remaining CAD/force mapping
+- **[Powered commissioning](operator/POWERED_COMMISSIONING.md)** — 14-motor diagnostics, command-loss results, bounded gripper trials and remaining movement gates
+- **[Gripper transmission calibration](history/plans/GRIPPER_TRANSMISSION_CALIBRATION.md)** — stopped encoder/caliper pairs, directional fits, interpolation candidates and remaining CAD/force mapping
 - **[Minerva motor evidence](devices/MINERVA_MOTOR_COMMISSIONING_20260924.json)** — motor UID/firmware roster, watchdog traces, jog measurements and final stopped state
 - **[Left RS00 firmware retest](devices/MINERVA_RS00_FIRMWARE_RETEST_20260924.json)** — updated j6/gripper identities and successful command-loss tests
 - **[Left RS02 firmware retest](devices/MINERVA_RS02_FIRMWARE_RETEST_20260924.json)** — updated j4/j5 and all 14 individual watchdog behavior tests passed
@@ -44,29 +44,29 @@ Guides for the shared platform, robot applications and device deployments.
 - **[Damped gripper trials](devices/MINERVA_DAMPED_GRIPPER_20260924.json)** — four passing bounded trials, gradual drive/damping removal, raw traces and latest stopped state
 - **[Minerva production computer 01](devices/MINERVA_PRODUCTION_01.md)** — verified identity of `aizee-rover`, confirmed CAN arm mapping, service state and deployment log
 - **[Jetson development device 01](devices/JETSON_DEV_01.md)** — hardware identity, permanent MAC addresses, software inventory and provisioning/change log
-- **[MODEL_VIEWER.md](MODEL_VIEWER.md)** — unified URDF rendering/jogging, collision inspection and adding arbitrary robot models
-- **[quickstart/FRESH_JETSON_SETUP.md](quickstart/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning
-- **[MINERVA_BRINGUP.md](MINERVA_BRINGUP.md)** — existing Minerva deployment, buses, leaders and calibration
-- **[MINERVA_CAD.md](MINERVA_CAD.md)** — frozen Onshape source, intended onshape-to-robot workflow and CAD preparation
+- **[MODEL_VIEWER.md](simulation/MODEL_VIEWER.md)** — unified URDF rendering/jogging, collision inspection and adding arbitrary robot models
+- **[quickstart/FRESH_JETSON_SETUP.md](robots/aizee/FRESH_JETSON_SETUP.md)** — development-host setup, then separate Aizee robot provisioning
+- **[MINERVA_BRINGUP.md](history/plans/MINERVA_BRINGUP.md)** — existing Minerva deployment, buses, leaders and calibration
+- **[MINERVA_CAD.md](robots/minerva/MINERVA_CAD.md)** — frozen Onshape source, intended onshape-to-robot workflow and CAD preparation
 - **[Minerva import audit](../urdf/minerva/README.md)** — native-export findings, successful intended export and physical-property checks
-- **[quickstart/JETSON_QUICK_START.md](quickstart/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
-- **[quickstart/QUICK_START_AFTER_REBOOT.md](quickstart/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
+- **[quickstart/JETSON_QUICK_START.md](robots/aizee/JETSON_QUICK_START.md)** — connect to the robot and run teleop / data collection (daily reference)
+- **[quickstart/QUICK_START_AFTER_REBOOT.md](robots/aizee/QUICK_START_AFTER_REBOOT.md)** — post-reboot verification, service management, troubleshooting
 
 > First check after connecting: the **heartbeat dashboard** at `http://<jetson-ip>:8088`
 > (e.g. `http://10.42.0.1:8088` over USB-C, `http://192.168.50.1:8088` over the `aizee` AP) —
 > service status, recent logs, host metrics, and live robot telemetry on one page.
 
 ## Subsystems
-- **[subsystems/MOTORS.md](subsystems/MOTORS.md)** — 9× ROBSTRIDE on `can1`; roster/CAN IDs, control loops, parameter read/write protocol
-- **[subsystems/CAMERAS.md](subsystems/CAMERAS.md)** — gripper UVC (primary) + optional RealSense scene cam, both on the Jetson
-- **[subsystems/OPENRB_LEADER.md](subsystems/OPENRB_LEADER.md)** — OpenRB-150 + Dynamixel XL330 leader: firmware, setup, wire protocol
-- **[subsystems/UPS.md](subsystems/UPS.md)** — INA219 battery monitoring
-- **[subsystems/TUFTY2040.md](subsystems/TUFTY2040.md)** — Tufty2040 status display
-- **[subsystems/LIDAR.md](subsystems/LIDAR.md)** — 2× RPLiDAR A1M8 (optional)
+- **[subsystems/MOTORS.md](robots/aizee/MOTORS.md)** — 9× ROBSTRIDE on `can1`; roster/CAN IDs, control loops, parameter read/write protocol
+- **[subsystems/CAMERAS.md](robots/aizee/CAMERAS.md)** — gripper UVC (primary) + optional RealSense scene cam, both on the Jetson
+- **[subsystems/OPENRB_LEADER.md](robots/OPENRB_LEADER.md)** — OpenRB-150 + Dynamixel XL330 leader: firmware, setup, wire protocol
+- **[subsystems/UPS.md](robots/aizee/UPS.md)** — INA219 battery monitoring
+- **[subsystems/TUFTY2040.md](robots/aizee/TUFTY2040.md)** — Tufty2040 status display
+- **[subsystems/LIDAR.md](robots/aizee/LIDAR.md)** — 2× RPLiDAR A1M8 (optional)
 
 ## Learning
-- **[LEARNING_PIPELINE.md](LEARNING_PIPELINE.md)** — end-to-end guide: calibration → data collection → training → evaluation → deployment
-- **[learning/RESEARCH_PLAN.md](learning/RESEARCH_PLAN.md)** — dated Aizee learning research proposal; not the current migration roadmap
+- **[LEARNING_PIPELINE.md](robots/aizee/LEARNING_PIPELINE.md)** — end-to-end guide: calibration → data collection → training → evaluation → deployment
+- **[learning/RESEARCH_PLAN.md](history/plans/RESEARCH_PLAN.md)** — dated Aizee learning research proposal; not the current migration roadmap
 
 ## Roadmap
 - **[PHASES.md](PHASES.md)** — implementation status and roadmap

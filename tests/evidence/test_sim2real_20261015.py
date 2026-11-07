@@ -1,5 +1,5 @@
 """helm --sim with this checkout's actuator file, replayed on the real teleop it was fitted on, reproduces the
-2026-10-15 report's held-out scores (docs/development/SIM2REAL.md).
+2026-10-15 report's held-out scores (docs/simulation/SIM2REAL.md).
 
 The recordings, the report and Helm's operator runs folder (with the verified directions the fit used) are not in
 the repository, so this is not part of the development gate. Run it by name:

@@ -2,7 +2,7 @@
 
 For the current required development gate, use `python scripts/dev.py check`.
 See [development workflow](../docs/DEVELOPMENT.md) and
-[current status](../docs/DEVELOPMENT_STATUS.md). Counts and commissioning notes
+[current status](../docs/history/plans/DEVELOPMENT_STATUS.md). Counts and commissioning notes
 below are historical evidence from their stated dates, not the current gate.
 
 GELLO viewer/input increment (September 26 UTC): **110 focused Python tests
@@ -20,7 +20,7 @@ Direction/offset candidates, rejected
 partial or stale reads, identity mismatches, return-to-reference, resumable steps,
 Windows file replacement and live viewer revision checks are covered in
 `unit/test_joint_calibration.py`. The stopped reader was also exercised on all
-14 Minerva motors. See [calibration workflow](../docs/JOINT_CALIBRATION.md).
+14 Minerva motors. See [calibration workflow](../docs/operator/JOINT_CALIBRATION.md).
 
 September 24 guarded teleop/reference increment: **512 Python unit/contract
 tests and 47 portable Rust tests passed**, including collision-envelope expiry,
@@ -29,7 +29,7 @@ checks and disabled-only mechanical-zero failure handling. ARM64 control binarie
 cross-compiled; Clippy passed with warnings denied. The production-host vcan
 collision run passed 1,000 cycles at 25 Hz. USB/network timing failures remain
 recorded and do not qualify live hardware teleoperation. See
-[current evidence and limits](../docs/GUARDED_TELEOP.md).
+[current evidence and limits](../docs/architecture/GUARDED_TELEOP.md).
 
 Collision-limit review tests in `unit/test_limit_sweep.py` cover independent
 branches versus the shared body, coupled jaw motion, first-contact refinement,
@@ -42,7 +42,7 @@ inward margins, unresolved-contact locking, and revision-bound viewer ranges.
 The Linux commissioning tier also runs the actual SocketCAN/ZMQ receiver:
 `scripts/guarded_vcan_bench.py` exercises startup gates, expiry, stale feedback,
 replay, invalid batches, scheduler stalls, SIGTERM and restart epochs on vcan.
-See [commissioning instructions](../docs/POWERED_COMMISSIONING.md). It never opens
+See [commissioning instructions](../docs/operator/POWERED_COMMISSIONING.md). It never opens
 a physical bus for motor emulation. These are synthetic protocol/timing tests,
 not motor-dynamics or collision-supervisor qualification.
 
@@ -109,7 +109,7 @@ camera-loss and emergency-stop scenarios. The output directory must be new.
 Reports include traces, camera decoding, lease expiry/renewal, source freshness,
 and stop/clear behavior. This is a short functional matrix, not the planned
 60-minute soak or physical calibration. See the
-[simulation guide](../docs/architecture/SIMULATION_IMPLEMENTATION.md).
+[simulation guide](../docs/simulation/SIMULATION_IMPLEMENTATION.md).
 
 ## CAD import audit
 
@@ -146,7 +146,7 @@ Hardware diagnostics are separate, explicitly invoked tools: passive discovery
 in `python/nodes/find_motors.py`, targeted diagnosis in
 `python/scripts/minerva_motor_probe.py`, and acquisition through
 `python/scripts/characterize_actuator.py`. Use the
-[measurement plan](../docs/architecture/SIMULATION_VALIDATION_PLAN.md) and
+[measurement plan](../docs/history/plans/SIMULATION_VALIDATION_PLAN.md) and
 `settings/examples/bench-profile.template.json` to establish the actual device,
 firmware, codec, limits, and stop behavior first. The template intentionally
 does not authorize a powered run.
@@ -179,7 +179,7 @@ These cover whole-robot geometry, jaw mimic/frames, synchronized sampled paths,
 missing geometry/state rejection, source freshness and sustained torque/stall
 classification. They send no hardware commands and do not validate physical
 limits or runtime collision prevention. See the
-[implementation and remaining gates](../docs/architecture/COLLISION_AND_LIMIT_CALIBRATION.md).
+[implementation and remaining gates](../docs/history/plans/COLLISION_AND_LIMIT_CALIBRATION.md).
 
 ## Native collision, keep-out and viewer scheduling
 
@@ -187,7 +187,7 @@ Build the native library before testing so native cases run rather than skip:
 
 ```powershell
 ./scripts/build_collision.ps1 -Test
-.venv-platform/Scripts/python.exe -m pytest -q
+.venv-dev/Scripts/python.exe -m pytest -q
 node --test tests/viewer/collision-checks.test.mjs
 ```
 

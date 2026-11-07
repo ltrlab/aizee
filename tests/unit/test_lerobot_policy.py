@@ -1,6 +1,6 @@
 """An exported LeRobot policy on the robot: its description is checked, it warms up before it reports ready, it takes
 the cameras in its own order at the recorded size, and it refuses a receiver with other joints. The TorchScript call
-itself needs torch (checked on the Jetson and coolserver, docs/development/POLICY_MODE.md); a stand-in runs here."""
+itself needs torch (checked on the Jetson and coolserver, docs/operator/POLICY_MODE.md); a stand-in runs here."""
 import json
 from types import SimpleNamespace
 

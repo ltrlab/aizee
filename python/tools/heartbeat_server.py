@@ -1012,7 +1012,7 @@ SETUP_PAGE = r"""<!DOCTYPE html>
     <p>Register the leaders with <code>Z</code> (leader-zero) or <code>M</code> (mirror),
     <code>E</code> to track, <code>K</code> for RobStride mechanical zero (disable first),
     <code>R</code> to record, <code>Q</code> to quit. Details in
-    <code>docs/MINERVA_BRINGUP.md</code>.</p>
+    <code>docs/history/plans/MINERVA_BRINGUP.md</code>.</p>
   </div></details>
 </main>
 <script>

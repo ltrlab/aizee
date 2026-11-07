@@ -74,7 +74,7 @@ use this command from PowerShell; it skips public-key authentication without
 changing the key file or disabling server identity verification:
 
 ```powershell
-ssh -t -o PubkeyAuthentication=no ltr@192.168.8.180 "sudo python3 /home/ltr/aizee/device-maintenance/gs-usb-backport-20260925/maintenance/maintain_minerva.py install && sudo reboot"
+ssh -t -o PubkeyAuthentication=no ltr@<robot-address> "sudo python3 /home/ltr/aizee/device-maintenance/gs-usb-backport-20260925/maintenance/maintain_minerva.py install && sudo reboot"
 ```
 
 Enter the Jetson login and sudo passwords only in that terminal. Keep motor

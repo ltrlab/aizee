@@ -1,4 +1,4 @@
-"""A head scene capture for a splat map (docs/development/HEADSET_3D_PLAN.md, phase 4), run on the robot: the head
+"""A head scene capture for a splat map (docs/architecture/HEADSET_3D_PLAN.md, phase 4), run on the robot: the head
 camera's colour pictures and depth with the head camera's pose in Minerva's frame, as the splat trainer reads them
 (scripts/splat/train_head_scene.py).
 

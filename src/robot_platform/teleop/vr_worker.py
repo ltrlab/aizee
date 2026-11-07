@@ -1,6 +1,6 @@
 """The headset's grab and drag in its own process, for Helm's Headset input: the controllers in, each arm's commanded
 CAD angles and gripper closure out (teleop.vr_arms), on a grid of the arms' loop period (VR arm control,
-docs/development/VR_ARM_TELEOP_PLAN.md, phase 4).
+docs/architecture/VR_ARM_TELEOP_PLAN.md, phase 4).
 
 The teleop loop never waits on it. Hand samples and seeds go to a sender thread that sends only the newest of each;
 the worker's answers come back on a reader thread that keeps only the newest (teleop.headset_source takes it). The

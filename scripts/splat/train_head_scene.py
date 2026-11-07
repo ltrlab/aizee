@@ -1,4 +1,4 @@
-"""Train a 3D Gaussian Splatting scene from a head scene capture (docs/development/HEADSET_3D_PLAN.md, phase 4).
+"""Train a 3D Gaussian Splatting scene from a head scene capture (docs/architecture/HEADSET_3D_PLAN.md, phase 4).
 
 Runs on the operator station soliloquy, in its Ubuntu (WSL2) venv with CUDA PyTorch and gsplat (install_wsl.sh), not in
 the platform: the robot never trains. The capture is a folder:

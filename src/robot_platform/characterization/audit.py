@@ -19,7 +19,7 @@ def audit_repository(repo):
     repo = Path(repo)
     issues, manuals, controllers = [], {}, {}
     for model, reference in DOCUMENTED.items():
-        path = repo / "docs" / f"{model}User Manual260112.pdf"
+        path = repo / "docs" / "vendor" / f"{model}User Manual260112.pdf"
         manuals[model] = {**reference, "path": str(path.relative_to(repo)),
                           "sha256": hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None}
     # Keep mismatch evidence explicit; do not silently alter a deployed codec.

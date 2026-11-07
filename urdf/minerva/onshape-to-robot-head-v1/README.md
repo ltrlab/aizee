@@ -5,7 +5,7 @@ This directory holds the **Head V1+urdf** version of the `minerva_urdf` assembly
 It is a source and preview model. The active model ([../model.json](../model.json))
 still composes the 1.1 visuals with the 1.2 collision geometry. It gains the neck
 only once its collision model covers the head; see the
-[head and neck handoff](../../../docs/development/HEAD_NECK_MODEL.md).
+[head and neck handoff](../../../docs/robots/minerva/HEAD_NECK_MODEL.md).
 
 - Source: [Head V1+urdf](https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/349129ac06492b67378d6724/e/f4466d56fce7b6028aae0a06),
   pinned in [config.json](config.json); `onshape-to-robot==1.8.2`.

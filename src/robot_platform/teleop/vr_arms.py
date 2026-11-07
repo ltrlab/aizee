@@ -1,5 +1,5 @@
 """The headset's controllers as targets for Minerva's arms: a grab and drag per arm (VR arm control,
-docs/development/VR_ARM_TELEOP_PLAN.md, phase 2).
+docs/architecture/VR_ARM_TELEOP_PLAN.md, phase 2).
 
 Holding a controller's grip attaches that hand to its arm. From the grip on, the arm's tool point (teleop.arm_ik) moves
 as the hand has moved since the grip, turned into the robot's frame and scaled, and turns as the hand has turned, about

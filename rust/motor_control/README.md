@@ -50,7 +50,7 @@ cargo test --locked -p comms
 python -m pytest
 ```
 
-See [simulation validation](../../docs/architecture/SIMULATION_IMPLEMENTATION.md)
+See [simulation validation](../../docs/simulation/SIMULATION_IMPLEMENTATION.md)
 for source freshness, trace completeness, the synthetic test suite and the
 pending virtual-CAN integration tier. See the
 [cross-build guide](../JETSON_CROSS_BUILD.md) for Windows-to-Jetson builds.
@@ -63,6 +63,6 @@ manuals. Do not treat matching Python/Rust implementations as physical proof.
 The audit and evidence requirements are in the simulation guide above.
 
 For bus setup and robot-specific inventory, use
-[Minerva bring-up](../../docs/MINERVA_BRINGUP.md),
-[Aizee motors](../../docs/subsystems/MOTORS.md), and the selected service unit.
+[Minerva bring-up](../../docs/history/plans/MINERVA_BRINGUP.md),
+[Aizee motors](../../docs/robots/aizee/MOTORS.md), and the selected service unit.
 No hardware test is part of the default offline test command.

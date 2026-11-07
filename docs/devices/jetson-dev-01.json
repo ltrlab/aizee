@@ -5,7 +5,7 @@
   "collected_at": "2026-09-21T00:46:23.894248+00:00",
   "hostname": "minerva",
   "ssh_user": "ltr",
-  "observed_ssh_address": "192.168.8.118",
+  "observed_ssh_address": "<dev-jetson-address>",
   "board_model": "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super",
   "board_serial": "1421225029686",
   "os_machine_id": "5dbfb12414a3456d9014d88183e338b1",
@@ -26,8 +26,8 @@
     {
       "interface": "enP8p1s0",
       "kind": "ethernet_or_other",
-      "current_mac": "3c:6d:66:1e:be:d3",
-      "permanent_mac_report": "Permanent address: 3c:6d:66:1e:be:d3",
+      "current_mac": "<mac-address>",
+      "permanent_mac_report": "Permanent address: <mac-address>",
       "address_assignment_type": "0",
       "device_path": "/sys/devices/platform/bus@0/140a0000.pcie/pci0008:00/0008:00:00.0/0008:01:00.0",
       "link_state": "down"
@@ -35,7 +35,7 @@
     {
       "interface": "usb0",
       "kind": "ethernet_or_other",
-      "current_mac": "ee:b0:fc:b4:b9:b5",
+      "current_mac": "<mac-address>",
       "permanent_mac_report": "Permanent address: not set",
       "address_assignment_type": "3",
       "device_path": "/sys/devices/platform/bus@0/3550000.usb/gadget",
@@ -44,7 +44,7 @@
     {
       "interface": "usb1",
       "kind": "ethernet_or_other",
-      "current_mac": "ee:b0:fc:b4:b9:b7",
+      "current_mac": "<mac-address>",
       "permanent_mac_report": "Permanent address: not set",
       "address_assignment_type": "3",
       "device_path": "/sys/devices/platform/bus@0/3550000.usb/gadget",
@@ -53,8 +53,8 @@
     {
       "interface": "wlP1p1s0",
       "kind": "wifi",
-      "current_mac": "a8:e2:91:d9:9b:39",
-      "permanent_mac_report": "Permanent address: a8:e2:91:d9:9b:39",
+      "current_mac": "<mac-address>",
+      "permanent_mac_report": "Permanent address: <mac-address>",
       "address_assignment_type": "0",
       "device_path": "/sys/devices/platform/bus@0/14100000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0",
       "link_state": "up"
@@ -75,8 +75,8 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "loopback",
-      "address": "00:00:00:00:00:00",
-      "broadcast": "00:00:00:00:00:00",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": [
         {
           "family": "inet",
@@ -127,14 +127,14 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "ether",
-      "address": "a8:e2:91:d9:9b:39",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": [
         {
           "family": "inet",
-          "local": "192.168.8.118",
+          "local": "<dev-jetson-address>",
           "prefixlen": 24,
-          "broadcast": "192.168.8.255",
+          "broadcast": "<LAN-broadcast>",
           "scope": "global",
           "dynamic": true,
           "noprefixroute": true,
@@ -144,7 +144,7 @@
         },
         {
           "family": "inet6",
-          "local": "fe80::aa31:eca2:5fb:f99a",
+          "local": "<link-local-address>",
           "prefixlen": 64,
           "scope": "link",
           "noprefixroute": true,
@@ -168,8 +168,8 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "ether",
-      "address": "3c:6d:66:1e:be:d3",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": []
     },
     {
@@ -186,14 +186,14 @@
       "operstate": "DOWN",
       "group": "default",
       "link_type": "ether",
-      "address": "42:f4:3b:6a:4c:af",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": [
         {
           "family": "inet",
-          "local": "172.17.0.1",
+          "local": "<docker-address>",
           "prefixlen": 16,
-          "broadcast": "172.17.255.255",
+          "broadcast": "<docker-address>",
           "scope": "global",
           "label": "docker0",
           "valid_life_time": 4294967295,
@@ -214,8 +214,8 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "ether",
-      "address": "3e:c7:e7:79:f3:87",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": []
     },
     {
@@ -234,8 +234,8 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "ether",
-      "address": "ee:b0:fc:b4:b9:b5",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": []
     },
     {
@@ -254,12 +254,12 @@
       "group": "default",
       "txqlen": 1000,
       "link_type": "ether",
-      "address": "ee:b0:fc:b4:b9:b7",
-      "broadcast": "ff:ff:ff:ff:ff:ff",
+      "address": "<mac-address>",
+      "broadcast": "<mac-address>",
       "addr_info": []
     }
   ],
-  "ssh_host_ed25519_fingerprint": "256 SHA256:TKFnMn4zf9eKCL7iiOF8QVjCebjoAssMmU6uzCTOpVE root@minerva (ED25519)",
+  "ssh_host_ed25519_fingerprint": "256 SHA256:<host-key> root@minerva (ED25519)",
   "root_storage": "/dev/mmcblk0p1 ext4   752d27c0-5370-43a2-9666-6f6c7e937dce",
   "sd_card_cid": "0353445344313238852a34d503014b00",
   "power_mode": "NV Power Mode: 25W\n1",

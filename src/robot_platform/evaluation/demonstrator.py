@@ -2,9 +2,9 @@
 
 It plans from privileged simulation state (the cube's start pose and the workcell) and then holds each grasp pose
 on the receiver's feedback. It exists to generate demonstrations and to show the task can be done through the
-simulated receiver; it is never a learned policy. See docs/development/SIM_DEMONSTRATOR.md.
+simulated receiver; it is never a learned policy. See docs/simulation/SIM_DEMONSTRATOR.md.
 
-The grasp orientations are the ones the arms reach on the measured bench (docs/development/SIM_WORKCELL.md): the
+The grasp orientations are the ones the arms reach on the measured bench (docs/simulation/SIM_WORKCELL.md): the
 fingers roughly level, never straight down. The left takes the cube with its fingers pointing forward and tilted
 down, and lifts it. At the handoff, the left's fingers point forward-right and the right's forward-left, both jaws
 closing horizontally on perpendicular pairs of faces. The right lifts the cube, carries it over the bucket with its

@@ -1,5 +1,5 @@
 """Inverse kinematics for Minerva's arms: the joint angles that put an arm's tool point at a pose, for driving the
-arms from the headset's controllers (docs/development/VR_ARM_TELEOP_PLAN.md).
+arms from the headset's controllers (docs/architecture/VR_ARM_TELEOP_PLAN.md).
 
 Each arm is its URDF chain from the robot's root to its gripper link (the child of `<arm>_arm_j6`). The tool point
 sits midway between the two finger carriages in that link (their slide joints' origins) until the fingertip pads are

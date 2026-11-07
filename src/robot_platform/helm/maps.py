@@ -1,4 +1,4 @@
-"""Minerva's splat maps for the headset (docs/development/HEADSET_3D_PLAN.md, phase 4): the head scene captures they
+"""Minerva's splat maps for the headset (docs/architecture/HEADSET_3D_PLAN.md, phase 4): the head scene captures they
 are trained from, the trained maps Helm serves to the headset (xr_splat.js), and Minerva's pose in each map's world.
 
 Under <root> (on Minerva ~/minerva/helm/maps):

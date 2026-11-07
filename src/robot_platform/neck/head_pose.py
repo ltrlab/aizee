@@ -1,4 +1,4 @@
-"""Where the head camera looks, for the headset's world-locked 3D view (docs/development/HEADSET_3D_PLAN.md).
+"""Where the head camera looks, for the headset's world-locked 3D view (docs/architecture/HEADSET_3D_PLAN.md).
 
 The colour camera's pose in the robot frame from the neck's CAD angles: forward kinematics on the head model's URDF,
 then the camera's mount in the head link. The mount is the one measured on the table's tags (Helm's head camera

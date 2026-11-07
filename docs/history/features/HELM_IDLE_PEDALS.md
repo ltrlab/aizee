@@ -1,0 +1,43 @@
+# Feature task: the pedals in Idle
+- **Base commit:** `1178729a3129d0160fa3825b2a909a09cdfd52cd` (`claude/jetson-core-split`, the deployed release `ce086c5` plus its records).
+- **Problem / saved reproducer.**
+  - Live on the terminal, 2026-10-18: after C (Idle) the pedal bar showed "State unavailable", and the pedals stayed locked until the touch screen's Enable. The touch buttons kept working.
+  - In direct mode an Idle cycle makes three receiver exchanges: a freshness offer, a lease renewal and `idle()`. It runs about 9.2 ms of its 10 ms; in `live-20261019T004951Z`, Idle's median was 9.24 ms over 754 cycles.
+  - So `run_loop` never has the 3.5 ms a full view needs (its cost, at least 3 ms, plus 0.5 ms). While nothing changed it sent no status either.
+  - Helm's observation age therefore grew without bound: 35–38 s, read in Idle at 20:46. The pedals lock at 750 ms.
+  - Reproducers:
+    - `tests/ui/test_helm_pedals.mjs`: a quiet Idle reads "State unavailable" before the fix and "Idle" after it.
+    - `tests/unit/test_teleop_ui_budget.py::test_a_loop_with_no_time_to_observe_still_sends_status_at_the_heartbeat`: the old loop is silent for 0.63 s before it ends.
+- **Hypothesis.**
+  - The pedals act on the lifecycle state and the backend's offers, which the status carries and the backend checks again by revision.
+  - Joint observations can lag without making those stale, and the touch buttons never asked for them.
+- **Owned files:**
+  - `src/robot_platform/helm/teleop.py`: `run_loop`'s status heartbeat, and `TeleopSession.snapshot`'s `status_age_ms`.
+  - `src/robot_platform/helm/static/pedals.js`: freshness from the status age.
+  - Their tests.
+- **Shared interfaces held fixed:**
+  - The receiver and the lifecycle: Idle still makes its three exchanges.
+  - The pedals' 750 ms bound.
+  - The rule that UI work never takes a control slot: full views stay inside the cycle budget, and status costs nothing extra because it is built every cycle anyway.
+  - `observation_age_ms`, which keeps its meaning: Helm still says how old the joint display is.
+- **Dependencies / integration order:** the Jetson release (the heartbeat) and the terminal package (`status_age_ms` and `pedals.js`) go out together. Either alone leaves the pedals locked in Idle as before. A page without `status_age_ms` falls back to the observation age.
+- **Required behavior and bounds:**
+  - The loop queues a status view at least every 250 ms (`STATUS_HEARTBEAT_S`) in every state, and never skips a slot for it.
+  - `status_age_ms` is the time since the loop's latest view of either kind reached Helm.
+  - The pedals lock when that age reaches 750 ms.
+- **Acceptance command and expected result:**
+  - `python scripts/dev.py check --offline`, zero skips.
+  - Live: in Idle the pedal bar shows Idle, and C goes on to Hold.
+- **Source/model identity and seed:** base `1178729`. Physical inputs: none.
+- **Results / evidence:**
+  - **The full gate passed at `90b65a7`** on 2026-10-18 on the laptop: 1139 passed, none failed or skipped (the ARM64 release test included), and the 132 Rust tests, with the source unchanged (`build/dev-check/20261019T014213Z-af22bb37/report.json` in `aizee-helm-pedals`). The commit after it changes only this doc.
+  - The two reproducers fail on the base, and pass five runs of five with the fix.
+  - Focused suites with the fix: `test_teleop_ui_budget`, `test_helm_pedals` (unit and contract), `test_helm_teleop`, `test_helm_edge`, `test_browser_scripts`, `test_direct_teleop` (unit) and `test_manual_tuning_api` passed. The contract `test_direct_teleop` needs the native harness, which this worktree had not built; it is left to the gate.
+  - **Deployed 2026-10-19 at about 02:13Z** with the user's approval ("go ahead and deploy it"), by the process in `build/terminal-deploy-20261017/`:
+    - The Jetson's `current` is `20261019T015445Z-3d5343b`, built from `3d5343b` (this doc's commit before this line). It was staged, verified and smoke-tested, then activated with both CAN links down and no receiver running. `20261017T224256Z-ce086c5` is kept.
+    - The terminal runs `helm-recording-3d5343b04e`; `helm-recording-ce086c58a5` is kept, with the launchers in `helm-recording-activation-20261019T021314Z`. Helm reports `status_age_ms`, and serves the new `helm/pedals.js`.
+    - The terminal's Edge tab was hard-refreshed. The restart reset the receiver choice to virtual; it was set back to live on both arms.
+    - The live check (Idle shows Idle, and C goes on to Hold) is the user's next session.
+- **Remaining uncertainty:**
+  - Idle's three exchanges, about 9 ms, still leave no time for joint observations, so the joint display in Idle is stale. `helm.js` says so.
+  - Fewer Idle exchanges would be a lifecycle and receiver change, which belongs to the motion-contract owner.

@@ -2,7 +2,7 @@
 neck, so the view shows the head.
 
 The view only draws it. The guard, the receivers and every guide keep the active model, whose collision model has no
-head yet (docs/development/HEAD_NECK_MODEL.md: that is the motion-contract owner's). Each guide (the stopped
+head yet (docs/robots/minerva/HEAD_NECK_MODEL.md: that is the motion-contract owner's). Each guide (the stopped
 reader's, a session's, a sweep's) is drawn on the head model by joint name: the arms as the guide has them, the neck
 at the head's measured angles while a session drives it, else at its zero. The joint telemetry the page hands the
 view is stamped for the head model the same way: its rows name joints both models have.

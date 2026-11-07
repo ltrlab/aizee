@@ -1,4 +1,4 @@
-"""Helm's head camera alignment (docs/development/HEADSET_3D_PLAN.md, Alignment): stills of the table's tags from the
+"""Helm's head camera alignment (docs/architecture/HEADSET_3D_PLAN.md, Alignment): stills of the table's tags from the
 head camera in a session running the live head, the solve, and saving the measured mount for the head's pose feed.
 
 A still needs the live head held where its camera sees the board (T holds it). helm.calibration_still on the robot

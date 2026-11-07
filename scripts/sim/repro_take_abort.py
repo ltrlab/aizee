@@ -1,5 +1,5 @@
 """Reproduce the right's take aborting on a large held block: layout trial attempt 23 of seed 2000 at 0789f74, saved as
-a fixture (2026-10-18; docs/development/SIM_DEMONSTRATOR.md, "Follow-ups").
+a fixture (2026-10-18; docs/simulation/SIM_DEMONSTRATOR.md, "Follow-ups").
 
     .venv-dev/Scripts/python.exe scripts/sim/repro_take_abort.py [--fixture <file>] [--plant-seed 5]
 

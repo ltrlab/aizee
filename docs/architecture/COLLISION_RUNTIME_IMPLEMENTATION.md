@@ -2,8 +2,8 @@
 
 Updated 2026-09-20 EDT. The viewer checks CAD contacts or explicit conservative
 keep-out boundaries. The next milestone is a
-[25 Hz supervisor and staged hardware validation](COLLISION_25HZ_HARDWARE_PLAN.md);
-the eventual 100 Hz whole-robot target remains open. See [research](COLLISION_RUNTIME_RESEARCH.md) for
+[25 Hz supervisor and staged hardware validation](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md);
+the eventual 100 Hz whole-robot target remains open. See [research](../history/plans/COLLISION_RUNTIME_RESEARCH.md) for
 the design rationale and primary sources.
 
 ## Geometry and contact decisions
@@ -104,9 +104,9 @@ counts, scope coverage and 40 ms deadline misses alongside the existing audits.
 ## Build and use
 
 ```powershell
-.venv-platform/Scripts/python.exe -m pip install -e ".[viewer,collision]"
+.venv-dev/Scripts/python.exe -m pip install -e ".[viewer,collision]"
 ./scripts/build_collision.ps1 -Test
-.venv-platform/Scripts/python.exe -m robot_platform view --robot minerva
+.venv-dev/Scripts/python.exe -m robot_platform view --robot minerva
 ```
 
 Select **Accelerated CAD** for the two-stage query, or **Source CAD** for the
@@ -125,7 +125,7 @@ detailed visuals in a composed URDF. Its current bounds are
 Regenerate bounds to a **new** file after changing CAD:
 
 ```powershell
-.venv-platform/Scripts/python.exe -m robot_platform sim build-collision-model --model urdf/minerva/model.json --output urdf/minerva/collision/broadphase-v2.json
+.venv-dev/Scripts/python.exe -m robot_platform sim build-collision-model --model urdf/minerva/model.json --output urdf/minerva/collision/broadphase-v2.json
 ```
 
 Then update the profile's `collision_model` path and restart the viewer.
@@ -134,7 +134,7 @@ This command operates entirely on local files. It never fetches Onshape data.
 Run an offline contact benchmark:
 
 ```powershell
-.venv-platform/Scripts/python.exe scripts/benchmark_collision.py --model urdf/minerva/model.json --output simulation_runs/minerva-benchmark.json --samples 1000 --reference-samples 100 --audit-samples 100
+.venv-dev/Scripts/python.exe scripts/benchmark_collision.py --model urdf/minerva/model.json --output simulation_runs/minerva-benchmark.json --samples 1000 --reference-samples 100 --audit-samples 100
 ```
 
 `--threshold 0` is the default and measures contact queries. A positive value
@@ -181,7 +181,7 @@ expiry between arm sends and whole-robot background dispatch.
 In the detailed Minerva 1.1 baseline reference pose, 140 bound overlaps reduce to 42 source CAD
 assembly-interface contacts; the other 98 are not collisions. Seeded comparisons
 against the independent source checker are recorded alongside latency results
-in [benchmark results](COLLISION_BENCHMARK_RESULTS.json).
+in [benchmark results](../history/plans/COLLISION_BENCHMARK_RESULTS.json).
 
 Desktop contact timings (1,000 seeded poses, milliseconds; loading excluded):
 
@@ -207,7 +207,7 @@ or real-time qualification. The verification run passed 231 Python, 3 Rust and
 5 JavaScript tests. The viewer also reported the four expected different-arm
 link contacts in a deliberately intersecting Minerva pose.
 
-Remaining acceptance work (the [25 Hz plan](COLLISION_25HZ_HARDWARE_PLAN.md)
+Remaining acceptance work (the [25 Hz plan](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md)
 defines the intermediate milestone and implementation order):
 
 - Achieve the 100 Hz/p99-under-5-ms compute target with accurate geometry.
@@ -228,7 +228,7 @@ defines the intermediate milestone and implementation order):
 
 The new runs use the identical seeded poses as the earlier Minerva 1.2 baseline.
 Full results, stage timings, pruning counters and source/binary hashes are in
-[the hierarchy report](COLLISION_HIERARCHY_RESULTS.json).
+[the hierarchy report](../history/plans/COLLISION_HIERARCHY_RESULTS.json).
 
 | Host / scope | Samples | Median | p99 | Maximum | Over 40 ms |
 |---|---:|---:|---:|---:|---:|
@@ -282,8 +282,8 @@ finger-pair occurrences. Whole-robot replay still rejects every sampled cycle
 because of unapproved assembly interfaces. That is not successful whole-robot
 motion supervision. This short synthetic workload excludes physical braking,
 cameras, transport and controller load. Full 25 Hz qualification remains open.
-See [keep-out results](COLLISION_KEEPOUT_RESULTS.json) and the
-[acceptance plan](COLLISION_25HZ_HARDWARE_PLAN.md).
+See [keep-out results](../history/plans/COLLISION_KEEPOUT_RESULTS.json) and the
+[acceptance plan](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md).
 
 Validation: 98 selected Python tests and six Rust tests pass on the Jetson;
 seven viewer JavaScript tests pass on the desktop. Regressions exercise omitted

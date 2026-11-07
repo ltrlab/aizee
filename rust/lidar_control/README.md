@@ -156,7 +156,7 @@ print(f"Received {len(msg['lidar_scans'])} scans")
 
 ## Deployment
 
-See `docs/subsystems/LIDAR.md` for complete deployment guide.
+See `docs/robots/aizee/LIDAR.md` for complete deployment guide.
 
 ## Performance
 

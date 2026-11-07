@@ -15,7 +15,7 @@ point is separate from the legacy service. Physical modes allow observation,
 explicit parameter/identity/version reads or a bounded single-actuator nominal
 zero-torque trial; physical network movement commands are rejected. The separate
 `motor_watchdog_trial` requires a pinned UID/firmware and explicit flags. See
-[powered commissioning](../POWERED_COMMISSIONING.md).
+[powered commissioning](../operator/POWERED_COMMISSIONING.md).
 
 ## Code ownership
 
@@ -126,7 +126,7 @@ Windows with the existing repository-local toolchain:
 
 ```powershell
 ./scripts/test_control_core.ps1
-./.venv-platform/Scripts/python.exe -m pytest tests/contract/test_guarded_controller.py -q
+./.venv-dev/Scripts/python.exe -m pytest tests/contract/test_guarded_controller.py -q
 ./scripts/build_jetson.ps1 -Offline -Package robot_control
 ```
 

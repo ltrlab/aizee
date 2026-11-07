@@ -5,21 +5,21 @@ pinned USB identities, illustrative link geometry and display axes. Saved displa
 offsets/signs live separately in `calibration_runs/gello-dual/display.json`.
 `devices/minerva-gello-shadow.json` contains simulation-only channel-to-CAD routes
 for the virtual teleop test; it is not a physical motor profile.
-See [dual GELLO setup](../docs/GELLO_TELEOP.md).
+See [dual GELLO setup](../docs/architecture/GELLO_TELEOP.md).
 
 `devices/simulation/minerva-production-01-actuators.json` holds the actuator values the
 simulated Minerva (`robot-platform helm --sim`) runs on. They were fitted on real teleop
 and written by `characterization.sim2real --write-sim-params`, and each is bound to its
 motor's UID and firmware. It is simulation-only: robot releases leave `devices/simulation/`
 out, and nothing on the robot reads it. See
-[sim-to-real](../docs/development/SIM2REAL.md#into-the-simulator-sim-only-actuator-file).
+[sim-to-real](../docs/simulation/SIM2REAL.md#into-the-simulator-sim-only-actuator-file).
 
 `devices/minerva-leaders-01.json` pins the dual GELLO/OpenRB USB serials and input
 age/skew limits. It contains no motor-to-CAD calibration or enable permission.
 The guarded physical zero-torque service now requires ordered
 `reference_positions` (name, raw_position_rad, tolerance_rad) and explicit
 operator pose confirmation; old profiles without this gate are rejected. See
-[mechanical reference](../docs/MECHANICAL_REFERENCE.md).
+[mechanical reference](../docs/operator/MECHANICAL_REFERENCE.md).
 
 `devices/minerva-reference-20260924.json` records the manually aligned arm pose,
 fully closed jaw reference, pinned motor identities and post-zero readings.
@@ -58,7 +58,7 @@ all interchangeable schemas.
 | `devices/minerva-production-01.json` | Verified host/adapter identity and model labels, legacy-service conflicts and unresolved motion gates; generates observation/diagnostic profiles |
 
 The ESP-NOW/serial stop bridge was retired on 2026-09-24. Its service, receiver
-rule and deployment helper are removed. See [guarded commissioning](../docs/POWERED_COMMISSIONING.md)
+rule and deployment helper are removed. See [guarded commissioning](../docs/operator/POWERED_COMMISSIONING.md)
 for physical diagnostic results and the remaining powered-motion gates.
 
 ## Launch selection
@@ -83,7 +83,7 @@ shared settings also describe the robot.
 For stopped motor-to-CAD direction and alignment work, use
 [`scripts/calibrate_minerva.ps1`](../scripts/calibrate_minerva.ps1) and
 [`devices/minerva-joint-calibration.json`](devices/minerva-joint-calibration.json).
-The shared [live calibration workflow](../docs/JOINT_CALIBRATION.md) stores
+The shared [live calibration workflow](../docs/operator/JOINT_CALIBRATION.md) stores
 candidate mappings in ignored `calibration_runs/`, independently of legacy limits.
 
 The following files have runtime readers, beyond tools that merely write them:
@@ -101,7 +101,7 @@ The following files have runtime readers, beyond tools that merely write them:
 
 These inputs do not establish approved limits for new hardware. The simulation
 audit identifies unresolved actuator scales and reversed directional bounds;
-see [measurement requirements](../docs/architecture/SIMULATION_IMPLEMENTATION.md).
+see [measurement requirements](../docs/simulation/SIMULATION_IMPLEMENTATION.md).
 Head/lift slots are inactive in Minerva's shared definition.
 
 Use `config/local_hardware.yaml` for a local hardware override (Git-ignored).

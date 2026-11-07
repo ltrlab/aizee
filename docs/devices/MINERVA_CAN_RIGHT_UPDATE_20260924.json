@@ -12,7 +12,7 @@
     "machine_id": "661607618a944c90a32de217d0c92476",
     "module_serial": "1421623029971",
     "remote": "/home/ltr/aizee/device-maintenance/rh02-firmware-85e5b3352db7/right-original-20260925T004842Z",
-    "local": "C:\\Users\\ltr\\Workspace\\aizee\\simulation_runs\\rh02-right-original-20260925T004842Z",
+    "local": "<workspace>/aizee\\simulation_runs\\rh02-right-original-20260925T004842Z",
     "usb_path": "1-2.3.4",
     "dfu_serial": "FFFFFFFEFFFF",
     "runtime_serial": "0021002F4D53530920303937",

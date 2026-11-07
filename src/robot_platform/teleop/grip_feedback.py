@@ -22,7 +22,7 @@ and nothing else. The other servos stay torque-off, so feedback can only push th
 operator's hand closed. The firmware caps the current, zeroes it at 200 ms without a command, then disables it at
 1 s (firmware/openrb_leader).
 
-Measured on Minerva (docs/development/GRIPPER_FORCE_FEEDBACK.md), closing effort negative on both grippers:
+Measured on Minerva (docs/robots/minerva/GRIPPER_FORCE_FEEDBACK.md), closing effort negative on both grippers:
 - A held cube squeezes 1.8-2.0 Nm with the gripper still.
 - The gripper's own friction leaves 0.30-0.35 Nm at rest.
 - A free close starts stuck for 30-100 ms.

@@ -11,7 +11,7 @@ python scripts/dev.py check
 ```
 
 Setup creates `.venv-dev` in this checkout, installs hash-locked dependencies and
-an editable package from this checkout only. It does not change `.venv-platform`.
+an editable package from this checkout only. It does not change `.venv-dev`.
 Check builds/tests both portable Rust crates, builds the receiver harness and
 collision library, checks their presence/ABI, then runs the required control and
 rehearsal tests. A skip or xfail fails this gate. `--offline` uses Cargo's cache.
@@ -159,7 +159,7 @@ the overhaul integration line is ahead of it.
 | `codex/release-reproducibility` | Existing release manifests/build provenance | Auditable source/model/binary identity | Baseline |
 
 The current priority is collision-disabled position teleop on
-`codex/teleop-direct-mirror`; see [its implementation brief](development/DIRECT_TELEOP.md).
+`codex/teleop-direct-mirror`; see [its implementation brief](history/features/DIRECT_TELEOP.md).
 One owner changes the Python/Rust control contract together. Rehearsal evidence
 and diagnostics may proceed independently with stable fixtures and coordinated
 data fields. Collision optimization is outside the direct teleop critical path.

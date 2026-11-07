@@ -1,0 +1,52 @@
+# Feature task: episode replay in Helm
+- **Base commit:** `bb41f7d98e3a13f26875123530226471e5a16dbf` (`claude/capture-decode-size`, the deployed release `b503ee7` plus its record).
+- **Problem:**
+  - The recorded task episodes (HDF5 on the Jetson's NVMe, `~/minerva/evidence/live-*/episodes/`) have no viewer.
+  - `python/scripts/view_episode.py` reads only the older one-camera, 7-joint format.
+  - Reviewing the first demo (2026-10-20) needed a hand-built contact sheet. It found a one-armed demo and a nearly black right wrist camera, which a viewer should make obvious at a glance.
+- **Design (the foundation):**
+  - **Robot-side reader:** `helm/episode_worker.py`, self-contained (h5py, numpy, Pillow, msgpack only). Helm sends its source over the pinned SSH connection, as it does the camera relay, so viewer changes need no Jetson release.
+    - It pins itself to the background CPUs and lowers its priority.
+    - It reads only below its root, never writes, and serves framed requests: `list`, `summary`, `series` and `frame`.
+    - It runs locally too: tests, and later episodes copied to a PC.
+  - **Helm side:** `helm/episodes.py`, `EpisodeLibrary`.
+    - It owns one worker connection (remote over SSH, or a local subprocess), with request timeouts and reconnection.
+    - It caches summaries, series and frames; one request fetches every camera of a frame.
+    - It refuses reads while a recording is running, so replay cannot cost a recording frames.
+  - **API:** read-only GETs.
+    - `/api/helm/episodes` lists the episodes.
+    - `/api/helm/episodes/{session}/{episode}` returns the summary and series.
+    - `/api/helm/episodes/{session}/{episode}/frame/{index}/{role}` returns one JPEG.
+  - **UI:** a Replay tab, `static/replay.js`.
+    - `ReplayModel` is the playhead and clock, pure and tested under Node. It plays by the recorded timestamps, so uneven frame gaps replay in real time.
+    - `ReplayView` holds the episode list, three camera panels, a scrubber, play, pause, step and speed controls, and a joint timeline that seeks on click.
+    - Later work builds on the model's playhead (3D pose, overlays, annotations), the worker's request set and the timeline's lanes.
+- **Shared interfaces held fixed:** the episode file format and writer, the capture and recording paths, the teleop and motion contract, and the Jetson release. The worker runs from Helm's own copy.
+- **Required behavior:**
+  - Replay never writes an episode.
+  - It reads nothing while a recording is active.
+  - It runs on the Jetson's background CPUs.
+  - Playback follows the recorded timestamps at the chosen speed.
+- **Acceptance:**
+  - `python scripts/dev.py check --offline`, zero skips.
+  - On the terminal: Replay lists the recorded sessions and plays the first demo with all three cameras, the scrubber, step and speed.
+- **Results:**
+  - **The full gate passed at `12e98a3`** on 2026-10-20 on the laptop: 1163 passed, none failed or skipped (`build/dev-check/20261021T011716Z-b2e45c40/report.json` in `aizee-helm-pedals`). That includes `test_helm_episodes.py`, 17 tests, and the Node replay-clock test.
+  - **Local browser check** at 1280×720, with `helm --episodes` on demo 1 copied from the Jetson:
+    - The list, three cameras, scrubber, step, keys, timeline seek and speeds all work.
+    - At 4×, each camera swapped about 56 images a second, each loading in a median of 2 ms.
+    - An episode built from stills replays the stills, which looked like slow playback to the user; it was not.
+    - Playback keeps time on a timer when the browser sends no animation frames: the Browser pane sent none while covered.
+  - **Robot path from the laptop over Wi-Fi:**
+    - Starting the reader and listing 6 episodes took 1.75 s.
+    - An episode loaded in 0.26 s.
+    - A new frame took a median of 40 ms.
+  - **Deployed 2026-10-21 at about 01:33Z** with the user's approval ("go ahead and deploy it once the gate passes"), by the process in `build/terminal-deploy-20261017/`:
+    - The terminal runs `helm-recording-12e98a307d`. The Jetson release is unchanged (`20261020T014400Z-b503ee7`), since Helm sends the reader.
+    - On the terminal, the list took 0.64 s and the episode load 0.33 s.
+    - A new frame with its three cameras took a median of 26 ms, p90 64 ms; a cached frame took 3 ms.
+- **Remaining uncertainty:**
+  - The user has not yet used it on the terminal's touch screen.
+  - At 2–4× a new frame can arrive later than the next one is due. The player shows the latest it has, and the clock stays right.
+  - The busy guard knows only this Helm's recording. Another Helm, such as a laptop, reading during a recording is not prevented.
+  - Torques are not recorded, so the timeline shows positions only.

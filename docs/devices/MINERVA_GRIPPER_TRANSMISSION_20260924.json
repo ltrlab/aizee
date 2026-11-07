@@ -3,7 +3,7 @@
   "recorded_at": "2026-09-24T20:34:17.854085+00:00",
   "asset_id": "minerva-production-01",
   "hostname": "aizee-rover",
-  "ip": "192.168.8.180",
+  "ip": "<robot-address>",
   "module_serial": "1421623029971",
   "machine_id": "661607618a944c90a32de217d0c92476",
   "scope": "Unloaded manual right-gripper gap measurements paired with stopped encoder captures",

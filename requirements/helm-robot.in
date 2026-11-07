@@ -1,6 +1,6 @@
 # Helm on Minerva's Jetson (helm --on-robot, ops.helm_service): what the robot's system Python 3.10 lacks.
 # The robot's own numpy, scipy, paramiko, msgpack, pyzmq and h5py serve the rest; the 3D view's meshes are
 # converted on the build PC (ops.helm_robot meshes), so no trimesh. Same aiohttp as requirements/dev.lock.
-# Regenerate (docs/development/HELM_ON_JETSON.md):
+# Regenerate (docs/architecture/HELM_ON_JETSON.md):
 #   uv pip compile requirements/helm-robot.in --python-version 3.10 --python-platform aarch64-manylinux_2_17 --generate-hashes -o requirements/helm-robot.lock
 aiohttp==3.14.4

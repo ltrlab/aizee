@@ -920,7 +920,7 @@ class TuneSession:
             self.head_paths['limits'])
         if self.receiver['mode'] == 'live' and (reference is None or limits is None):
             raise ValueError("Set up the head first: centre each servo at the head's reference pose and save its "
-                             'reference, then sweep its limits (docs/development/NECK_FEETECH.md)')
+                             'reference, then sweep its limits (docs/robots/minerva/NECK_FEETECH.md)')
         profile = head.load_profile(self.head_profile_path)
         reference = reference or head.virtual_reference(profile)
         return {'kind': 'tune', 'mode': self.mode, 'teleop_profile': str(self.head_profile_path),

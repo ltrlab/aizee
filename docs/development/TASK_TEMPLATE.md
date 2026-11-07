@@ -1,8 +1,5 @@
 # Feature task
-
-- Branch and worktree:
 - Base commit (full SHA):
-- Owner:
 - Problem / saved reproducer:
 - Hypothesis:
 - Owned files:

@@ -36,10 +36,10 @@
     "max_age_s": 0.1
   },
   "notes": [
-    "hz 15 (2026-10-22): the head D435 publishes ~15 fps and every recorded frame needs a new acquisition from every camera, so 20 Hz recorded ~15 Hz in gaps of one and two 50 ms periods. 15 Hz with a skipped tick looking again on the next poll records at the head camera's steady rate. The age and skew bounds are unchanged. docs/development/DATASET_PIPELINE.md",
+    "hz 15 (2026-10-22): the head D435 publishes ~15 fps and every recorded frame needs a new acquisition from every camera, so 20 Hz recorded ~15 Hz in gaps of one and two 50 ms periods. 15 Hz with a skipped tick looking again on the next poll records at the head camera's steady rate. The age and skew bounds are unchanged. docs/data/DATASET_PIPELINE.md",
     "Capture runs on the Jetson beside the existing guarded receiver; these are Jetson loopback endpoints.",
     "Verify camera identity and same-host Unix timestamps before recording. A relay from another clock is not supported by this profile.",
-    "head (2026-11-01, format 9): every frame records the neck's two servos (head_pan, head_tilt: position, velocity, effort, command) and the head camera's pose from the head's pose feed (neck.head_pose.ENDPOINT, published while a live head runs). The newest feed row received by the observation cutoff is used, within max_age_s; without a live head, capture is not ready. docs/EPISODE_FORMAT.md",
+    "head (2026-11-01, format 9): every frame records the neck's two servos (head_pan, head_tilt: position, velocity, effort, command) and the head camera's pose from the head's pose feed (neck.head_pose.ENDPOINT, published while a live head runs). The newest feed row received by the observation cutoff is used, within max_age_s; without a live head, capture is not ready. docs/data/EPISODE_FORMAT.md",
     "Left wrist USB 05a3:9230, right wrist USB 32e4:9230; configured wrist JPEG resolution 640x480 at 30 Hz.",
     "These are capture admission limits, not physical motion qualification. All three declared camera roles are required; no placeholder image is written.",
     "The operator connected the left wrist on 2026-10-16. All three identities and live JPEG streams were verified on the Jetson; this three-view roster is a different dataset contract from earlier two-view recordings.",

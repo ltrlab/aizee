@@ -1,7 +1,7 @@
 """Export Minerva's kept demonstrations (task capture formats 8 and 9) to a LeRobot dataset for ACT and pi0/pi0.5 fine-tuning.
 
 LeRobot dataset format v2.1, the version openpi pins (lerobot 0cf864870cf29f4738d3ade893e6fd13fbd7cdb5): run it where
-that LeRobot is installed, beside the episodes copied off the robot (docs/development/DATASET_PIPELINE.md):
+that LeRobot is installed, beside the episodes copied off the robot (docs/data/DATASET_PIPELINE.md):
 
     python -m robot_platform.data.lerobot_export --evidence ~/minerva-episodes --out datasets/minerva-handoff \\
         --repo-id minerva/handoff [--fps 15] [--task TEXT] [--include-unreviewed] [--pre-takeover-s 1]
@@ -24,7 +24,7 @@ Each episode, as recorded:
     the episode's own joint order; observation.images.<role> per camera, as stored (HxWx3 uint8).
   - Format 9 (16 axes: both arms, both grippers and the neck) adds, when every exported row has it:
     observation.effort (the motors' measured effort, N m), observation.velocity (rad/s) and
-    observation.head_camera_pose (the head camera's [x, y, z, qx, qy, qz, qw] in the robot frame). docs/EPISODE_FORMAT.md
+    observation.head_camera_pose (the head camera's [x, y, z, qx, qy, qz, qw] in the robot frame). docs/data/EPISODE_FORMAT.md
 Episodes with different joints, cameras, image sizes or extra features are never mixed in one dataset: format 8
 recorded the arms alone (14 axes), format 9 the whole robot (16).
 A sidecar meta/minerva_provenance.json records each exported episode's source, hash, review, span and who drove it.

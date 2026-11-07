@@ -1,4 +1,4 @@
-"""The head camera's alignment on the table's board (docs/development/HEADSET_3D_PLAN.md, Alignment):
+"""The head camera's alignment on the table's board (docs/architecture/HEADSET_3D_PLAN.md, Alignment):
 
     python -m robot_platform.vision.head_alignment RUN_FOLDER [--rig config/devices/minerva-head-alignment.json]
         [--wrists FOLDER]

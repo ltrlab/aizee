@@ -11,10 +11,10 @@ not a hostname change. Never select a deployment target by hostname alone.
 |---|---|
 | Board | NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super |
 | Module/device-tree serial | `1421225029686` |
-| Wi-Fi permanent MAC | `a8:e2:91:d9:9b:39` (`wlP1p1s0`) |
-| Ethernet permanent MAC | `3c:6d:66:1e:be:d3` (`enP8p1s0`) |
-| Observed SSH address | `ltr@192.168.8.118` (Wi-Fi, DHCP) |
-| SSH ED25519 host fingerprint | `SHA256:TKFnMn4zf9eKCL7iiOF8QVjCebjoAssMmU6uzCTOpVE` |
+| Wi-Fi permanent MAC | `<mac-address>` (`wlP1p1s0`) |
+| Ethernet permanent MAC | `<mac-address>` (`enP8p1s0`) |
+| Observed SSH address | `ltr@<dev-jetson-address>` (Wi-Fi, DHCP) |
+| SSH ED25519 host fingerprint | `SHA256:<host-key>` |
 | OS machine ID | `5dbfb12414a3456d9014d88183e338b1` |
 | Root filesystem UUID | `752d27c0-5370-43a2-9666-6f6c7e937dce` |
 | SD-card CID | `0353445344313238852a34d503014b00` |
@@ -58,13 +58,13 @@ Mirror updates to the device. Failed or superseded trials remain in the record.
 ### 2026-09-20 EDT — initial access and development setup
 
 1. User flashed the SD card and completed enough setup for SSH at
-   `192.168.8.118`. Discovered hostname `minerva`, user `ltr`, Ubuntu 22.04.5,
+   `<dev-jetson-address>`. Discovered hostname `minerva`, user `ltr`, Ubuntu 22.04.5,
    L4T R36.4.4, about 7.4 GiB RAM and a 116 GiB root filesystem with 92 GiB free.
 2. First SSH connection pinned the new ED25519 host key. Initial project-key
    authentication failed. User installed the existing project's public key.
 3. On the Windows workstation, OpenSSH rejected the original workspace private
    key ACL. Created an owner-only copy at
-   `C:\Users\ltr\.ssh\aizee_jetson_dev`; authentication then succeeded.
+   `<home>/.ssh\aizee_jetson_dev`; authentication then succeeded.
    Private key contents were not included in the repository snapshot or logs.
 4. Read-only preflight found Git, rsync, C/C++ build tools, pkg-config,
    python3-dev and python3-venv already installed. Unattended sudo is unavailable.
@@ -155,7 +155,7 @@ Mirror updates to the device. Failed or superseded trials remain in the record.
 22. Raw reports/logs are in
     `current/simulation_runs/collision-hierarchy-20260921/`, copied locally under
     `simulation_runs/collision-hierarchy/`. The permanent
-    [hierarchy report](../architecture/COLLISION_HIERARCHY_RESULTS.json) records
+    [hierarchy report](../history/plans/COLLISION_HIERARCHY_RESULTS.json) records
     report hashes, model/grouping identity, stage costs and deadline misses.
     Updated this device log, viewer guide, implementation status and 25 Hz plan;
     mirrored those documents and the summary report onto the device.
@@ -208,7 +208,7 @@ Mirror updates to the device. Failed or superseded trials remain in the record.
     runner was replaced with the keep-out runner; prior reports remain intact.
     The final runner is also retained as `validate_keepout_cache.py`.
 30. Updated and mirrored this log, the viewer guide, implementation status,
-    25 Hz plan and [permanent keep-out evidence](../architecture/COLLISION_KEEPOUT_RESULTS.json).
+    25 Hz plan and [permanent keep-out evidence](../history/plans/COLLISION_KEEPOUT_RESULTS.json).
     The desktop viewer correctly shows red arm boundaries in a crossing pose,
     clear inter-arm reference pose and four finger exclusions. Seven viewer
     JavaScript tests passed on the desktop. No additional Onshape calls occurred.
@@ -217,4 +217,4 @@ Mirror updates to the device. Failed or superseded trials remain in the record.
 short inter-arm replay completed 1,000 cycles at 25 Hz without deadline misses.
 Whole-robot accepted motion, full telemetry/lease integration, longer load
 qualification and physical stopping validation remain outstanding; follow the
-[25 Hz plan](../architecture/COLLISION_25HZ_HARDWARE_PLAN.md).
+[25 Hz plan](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md).

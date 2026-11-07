@@ -5,7 +5,7 @@
 For each probe point it tries a top grasp (pads centred on the cube, fingers straight down) and grasps tilted
 20-80 degrees from vertical, leaning away from the arm's shoulder with the closing axis level, from random
 starting poses within the receiver's joint limits. Kinematic only: penetration and approach paths are not
-checked. See docs/development/SIM_WORKCELL.md.
+checked. See docs/simulation/SIM_WORKCELL.md.
 """
 from __future__ import annotations
 

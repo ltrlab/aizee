@@ -1,7 +1,7 @@
 """Direct velocity feed-forward: a smoothed command speed, never a step, a jump or a stale value.
 
 Fed forward as one cycle's step, the command's speed pulsed the drives (Kd x each jump) while the leaders
-repeated one sample in ten (2026-10-10, docs/development/DIRECT_TELEOP.md); manual tuning then ran position-only,
+repeated one sample in ten (2026-10-10, docs/history/features/DIRECT_TELEOP.md); manual tuning then ran position-only,
 where Kd drags every motion. These pin the smoothed law that replaces both.
 """
 import math

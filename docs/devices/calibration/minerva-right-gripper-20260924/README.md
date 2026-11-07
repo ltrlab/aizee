@@ -41,7 +41,7 @@ records and device final state are in
 [`MINERVA_GRIPPER_TRANSMISSION_20260924.json`](../../MINERVA_GRIPPER_TRANSMISSION_20260924.json).
 Selected-motor raw replies are also embedded in each `.sample.json` file. Fit
 commands and interpretation are described in the
-[shared calibration guide](../../../GRIPPER_TRANSMISSION_CALIBRATION.md).
+[shared calibration guide](../../../history/plans/GRIPPER_TRANSMISSION_CALIBRATION.md).
 
 ## Approximate conversion using the existing measurements
 

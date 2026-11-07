@@ -7,12 +7,12 @@ hostname **aizee-rover**, separate from [jetson-dev-01](JETSON_DEV_01.md).
 
 | Identifier | Observed value |
 |---|---|
-| SSH address | `ltr@192.168.8.180` (Wi-Fi, DHCP) |
+| SSH address | `ltr@<robot-address>` (Wi-Fi, DHCP) |
 | Board | NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super |
 | Module serial | `1421623029971` |
-| Wi-Fi permanent MAC | `b4:8c:9d:34:fe:75` (`wlP1p1s0`) |
-| Ethernet permanent MAC | `48:b0:2d:ec:0e:94` (`enP8p1s0`) |
-| SSH ED25519 fingerprint | `SHA256:D/et9EIhRMVdrf8sA0+W4SzLtvehbpxY6GwG3FU0qqk` |
+| Wi-Fi permanent MAC | `<mac-address>` (`wlP1p1s0`) |
+| Ethernet permanent MAC | `<mac-address>` (`enP8p1s0`) |
+| SSH ED25519 fingerprint | `SHA256:<host-key>` |
 | OS machine ID | `661607618a944c90a32de217d0c92476` |
 | Root filesystem UUID | `8eb7d664-9a83-46e9-a041-770ce919b4e1` |
 | OS | Ubuntu 22.04.5 LTS, AArch64 |
@@ -245,7 +245,7 @@ Maintenance directory:
 | `guarded_vcan_bench.py` | `52c83d7157bbd5d266235bb9e64f7260fd1675eb3f36d72d115b6e06249b391b` |
 
 Final raw benchmark: `bench-scheduled-1000/result.json` within the maintenance
-directory. [Repository evidence](../architecture/GUARDED_COMMISSIONING_RESULTS.json)
+directory. [Repository evidence](../history/plans/GUARDED_COMMISSIONING_RESULTS.json)
 preserves the report, artifact identities and physical-interface state.
 
 | Final synthetic test | Result |
@@ -262,7 +262,7 @@ a fault; those counts are recorded separately from the nominal run. These
 tests do not include camera load, collision computation, physical CAN arbitration
 or real actuator dynamics. They qualify preparation for the first supervised
 parameter-read trial, not loaded/dual-arm movement. Follow
-[powered commissioning](../POWERED_COMMISSIONING.md). No powered trial was run.
+[powered commissioning](../operator/POWERED_COMMISSIONING.md). No powered trial was run.
 
 ### 2026-09-24 — physical diagnostics, watchdog behavior and gripper trials
 
@@ -355,7 +355,7 @@ Local checks after this increment: 30 Rust tests, Clippy with warnings denied,
 432 Python unit/contract tests (34.35 s), and three successful AArch64 ELF checks.
 The first sandboxed Python suite was blocked by Windows temporary-directory ACLs;
 the complete offline suite passed outside that sandbox. Physical motion remains
-unqualified pending the gates in [powered commissioning](../POWERED_COMMISSIONING.md).
+unqualified pending the gates in [powered commissioning](../operator/POWERED_COMMISSIONING.md).
 
 Read-only follow-up located manufacturer release V26.05.19 with RS00 0.0.3.32 and
 RS02 0.2.3.34 packages matching the corresponding tested right-arm versions.
@@ -787,8 +787,8 @@ physical enable without fresh, single-use reference-pose verification.
 
 Source hashes, staging details, failed timing tests and the measured result are
 in [teleop evidence](MINERVA_TELEOP_20260924.json). See
-[launch/readiness details](../GUARDED_TELEOP.md) and
-[mechanical reference procedure](../MECHANICAL_REFERENCE.md). This remains an
+[launch/readiness details](../architecture/GUARDED_TELEOP.md) and
+[mechanical reference procedure](../operator/MECHANICAL_REFERENCE.md). This remains an
 isolated commissioning stage, not an enabled teleoperation service.
 
 ## 2026-09-24 — hardware mechanical zero, power-cycle check pending
@@ -893,7 +893,7 @@ successful trials are retained in the content-hashed calibration stage and local
 `simulation_runs/calibration-live-smoke*-20260924` directories. No enable, zero,
 save, firmware or parameter writes were performed.
 
-See [launch and correction commands](../JOINT_CALIBRATION.md). Live preview edits
+See [launch and correction commands](../operator/JOINT_CALIBRATION.md). Live preview edits
 are saved separately from the mechanical-zero record and cannot approve runtime
 teleoperation. Gripper CAD transmission mapping remains pending.
 
@@ -1558,14 +1558,14 @@ The operator explicitly requested retaining the existing GUI Idle, Enable,
 Engage/Align, and slow-to-zero Shutdown flow. Hold-to-run is deferred, and no
 replacement Start/Stop workflow is being introduced. The shared input and
 collision paths will integrate behind existing controls. Actual flow differences
-and migration gaps are in the [GUI integration map](../architecture/TELEOP_GUI_INTEGRATION.md).
+and migration gaps are in the [GUI integration map](../history/plans/TELEOP_GUI_INTEGRATION.md).
 
 Validation: 110 focused Python tests passed; JavaScript syntax and live browser
 reference-guide/direction checks passed. The workbench remains at port 8767;
 the stopped Minerva preview remains at port 8766. No physical motor enable,
 CAN configuration, Jetson deployment, firmware change, or runtime approval was
 performed in this increment. See [compact evidence](MINERVA_GELLO_VIEWER_20260926.json)
-and [operator instructions](../GELLO_TELEOP.md).
+and [operator instructions](../architecture/GELLO_TELEOP.md).
 
 ### GELLO hanging layout correction (2026-09-26 UTC)
 
@@ -1588,7 +1588,7 @@ follower command or Jetson configuration changed. See
 
 ### Hand-swept joint limits in Helm (2026-09-26 02:49–03:00 UTC)
 
-The operator swept all 14 disabled motors by hand in [Helm](../HELM.md) and saved
+The operator swept all 14 disabled motors by hand in [Helm](../operator/HELM_MANUAL.md) and saved
 [`config/devices/minerva-production-01-joint-limits.json`](../../config/devices/minerva-production-01-joint-limits.json),
 SHA-256 `a8e35d360b2d8a91d1016fa8eb554c09eb9424345fdfb6d528f4d4312bd05545`, saved
 03:00:04 UTC. It validates against reference `minerva-mechanical-reference-20260924`
@@ -2924,7 +2924,7 @@ errors. After an operator power cycle, left J4 read −0.00017 and J5
 Reset (`power-cycle-capture-left-j4-j5-20261009T015836Z.json`).
 
 Reference revision `minerva-mechanical-reference-20261009` records it (see
-[mechanical reference](../MECHANICAL_REFERENCE.md)). The limits and servo
+[mechanical reference](../operator/MECHANICAL_REFERENCE.md)). The limits and servo
 calibration are re-bound to it unchanged. Next, after a deploy: Minerva Check,
 then the left J3 sweep again with the gripper plugged in.
 
@@ -3090,7 +3090,7 @@ Reset (`check-motors-20261101T192305Z.json`).
 
 Reference revision `minerva-mechanical-reference-20261101T192305Z` records it.
 It lives in Helm's operator files on Minerva, not in git (see
-[mechanical reference](../MECHANICAL_REFERENCE.md) and the
+[mechanical reference](../operator/MECHANICAL_REFERENCE.md) and the
 [action summary](MINERVA_MECHANICAL_ZERO_20261101.json)). Helm re-bound the
 saved limits, the direction session and the manual tuning preset to it and
 cleared the two joints' limits. The operator re-swept them a minute later:

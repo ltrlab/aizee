@@ -3,7 +3,7 @@
 Set up Minerva's operator station once, as Administrator: the PC with the GELLO arms, the pedals and the tether.
 
 .DESCRIPTION
-For Helm on Minerva (docs/development/HELM_ON_JETSON.md). With the tether plugged in, in PowerShell run as
+For Helm on Minerva (docs/architecture/HELM_ON_JETSON.md). With the tether plugged in, in PowerShell run as
 Administrator:
 
     powershell -ExecutionPolicy Bypass -File setup_operator_station.ps1 -AuthorizeKey "ssh-ed25519 AAAA... name"

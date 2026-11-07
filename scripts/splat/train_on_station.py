@@ -1,5 +1,5 @@
 """Train a head scene capture on the operator station and put the map where Helm on Minerva serves it
-(docs/development/HEADSET_3D_PLAN.md, phase 4). Run on the build PC, which holds both keys: the robot's (the device
+(docs/architecture/HEADSET_3D_PLAN.md, phase 4). Run on the build PC, which holds both keys: the robot's (the device
 profile's, pinned by ops.ssh) and the station's.
 
     python scripts/splat/train_on_station.py --station <user>@<station> --station-key <key file> \

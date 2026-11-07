@@ -1,5 +1,5 @@
 {
-  "note": "Minerva's Waveshare UPS Power Module (C): a 3S lithium pack read through an INA219 on I2C bus 7 at 0x41 (65). A positive shunt voltage is the pack charging (measured 2026-10-21). capacity_wh and pack_ohm are assumed (3 x 18650) until a logged discharge measures them. Read by robot_platform.ops.ups; root's installed copy is /usr/local/lib/minerva-ups/minerva-ups.json (install again to change it). docs/development/UPS_MONITOR.md",
+  "note": "Minerva's Waveshare UPS Power Module (C): a 3S lithium pack read through an INA219 on I2C bus 7 at 0x41 (65). A positive shunt voltage is the pack charging (measured 2026-10-21). capacity_wh and pack_ohm are assumed (3 x 18650) until a logged discharge measures them. Read by robot_platform.ops.ups; root's installed copy is /usr/local/lib/minerva-ups/minerva-ups.json (install again to change it). docs/robots/minerva/UPS_MONITOR.md",
   "i2c_bus": 7,
   "i2c_address": 65,
   "shunt_ohm": 0.01,

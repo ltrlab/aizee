@@ -33,7 +33,7 @@ by that earlier export. Physical dynamics are still unvalidated:
   and runtime performance validation before use as an operating gate.
 
 Arm limits will be measured independently, with separate whole-robot collision
-checking during operation; see the [collision and calibration plan](../../../docs/architecture/COLLISION_AND_LIMIT_CALIBRATION.md).
+checking during operation; see the [collision and calibration plan](../../../docs/history/plans/COLLISION_AND_LIMIT_CALIBRATION.md).
 
 The [native Onshape export](../README.md) is retained separately for comparison.
 Its extra planar/cylindrical coordinates do not prove that this tool will

@@ -6,7 +6,7 @@ bench stand, log the sweep, and append a capability-sheet row.
 Uses the legacy deployed 29-bit RobStride codec. Bundled manuals conflict with
 some scales; hardware runs require --bench-profile with firmware/captured-frame
 evidence and a verified per-device envelope. See robot-platform sim audit and
-docs/architecture/SIMULATION_IMPLEMENTATION.md before selecting trajectories.
+docs/simulation/SIMULATION_IMPLEMENTATION.md before selecting trajectories.
 Motor-reported torque does not validate output torque, backlash, or Kt.
 
 Dry-run the plumbing off-robot (no CAN, logs NaN feedback):

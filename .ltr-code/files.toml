@@ -5,6 +5,8 @@
 [exclude]
 extend-paths = [
     "firmware/openrb_leader/openrb150_bsp/", # the vendored ROBOTIS Arduino core
+    "docs/vendor/", # RobStride's manuals, which characterization/audit.py opens by name
+    "docs/devices/MINERVA_GRIPPER_TRANSMISSION_20260924.json", # a measurement record, kept whole with its raw traces
     "src/robot_platform/viewer/static/vendor/", # vendored three.js, checksummed in sources.json
     "urdf/", # CAD exports
 ]

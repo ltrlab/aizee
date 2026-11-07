@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Install or update the GELLO bridge on the operator PC, for Helm on Minerva (docs/development/HELM_ON_JETSON.md).
+Install or update the GELLO bridge on the operator PC, for Helm on Minerva (docs/architecture/HELM_ON_JETSON.md).
 
 .DESCRIPTION
 Run as the operator, not as administrator, on the PC the GELLO leader arms are plugged into:
