@@ -216,7 +216,8 @@ class Episodes:
         f = self.file(episode)
         telem = f['timestamps/telem'][:]
         result = {'t': (telem - telem[0]).astype('<f8').tobytes(), 'frames': int(telem.shape[0])}
-        for key, name in (('qpos', 'observations/qpos'), ('qcmd', 'observations/qcmd'), ('actions', 'actions')):
+        for key, name in (('qpos', 'observations/qpos'), ('qcmd', 'observations/qcmd'), ('actions', 'actions'),
+                          ('torques', 'observations/torques'), ('qvel', 'observations/qvel')):
             if name in f:
                 data = np.asarray(f[name][:], dtype='<f4')
                 result[key] = {'shape': list(data.shape), 'data': data.tobytes()}

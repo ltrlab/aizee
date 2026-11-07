@@ -108,3 +108,12 @@
   - The 2-DoF head will add two joints and move the head camera. Data from before and after it should not be mixed
     unless the head is held at the same pose.
   - Whether 15 Hz is enough for the handoff's fast phases (DROID trains at 15 Hz; ALOHA at 50 Hz).
+
+## Addendum, 2026-11-01: format 9
+
+- Episodes now record the whole robot ([EPISODE_FORMAT.md](../EPISODE_FORMAT.md)): 16 axes with the neck, the motors'
+  effort and velocity, and the head camera's pose per frame.
+- The exporter reads formats 8 and 9. Format 9 adds `observation.effort`, `observation.velocity` and
+  `observation.head_camera_pose` when every exported row has them.
+- A 14-axis (format 8) and a 16-axis episode are never mixed in one dataset: the exporter refuses the second roster. This
+  settles the head's uncertainty above for export; whether old data is worth training alongside new is still open.

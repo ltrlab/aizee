@@ -133,8 +133,10 @@ boundaries. `python/` contains active application code and compatibility shims.
 | Minerva left | Six arm joints and gripper | `config/hardware_minerva_left.yaml` | `5555 / 5556` |
 | Minerva right | Six arm joints and gripper | `config/hardware_minerva_right.yaml` | `5575 / 5576` |
 
-Minerva's head pan/tilt and lift are reserved, inactive slots in its 17-slot
-recording/model schema. Wrist cameras use ports 5563/5565; scene/head uses 5564.
+Helm's task capture records Minerva's 16 axes, both arms, both grippers and the
+neck's pan/tilt, with effort and the head camera's pose ([episode format 9](docs/EPISODE_FORMAT.md)).
+The legacy collector's 17-slot schema keeps head and lift as reserved, inactive slots.
+Wrist cameras use ports 5563/5565; scene/head uses 5564.
 Shared settings select endpoints explicitly. Direct older tools may still use
 network discovery. Aizee and Minerva motor services share ports and are alternate
 deployments on a single host.

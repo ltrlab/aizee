@@ -9,7 +9,8 @@ from PIL import Image
 import pytest
 import zmq
 
-from robot_platform.helm.task_capture import CAMERAS, CameraCache, LiveTaskCapture, paired_receiver_sample, recording_images, validate_config
+from robot_platform.helm.task_capture import (CAMERAS, CameraCache, HeadCache, LiveTaskCapture, paired_receiver_sample,
+                                              recording_images, validate_config)
 from robot_platform.transport.wire import pack_camera, unpack_camera
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
@@ -17,7 +18,23 @@ NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1,
 
 def config():
     return dict(schema=1, camera_roles=list(CAMERAS), cameras={n: dict(endpoint=f'tcp://127.0.0.1:{5600+i}',
-                camera_id=n, timestamp_clock='local_unix', timestamp_semantics='host_read_complete') for i, n in enumerate(CAMERAS)})
+                camera_id=n, timestamp_clock='local_unix', timestamp_semantics='host_read_complete') for i, n in enumerate(CAMERAS)},
+                head=dict(endpoint='tcp://127.0.0.1:5596', motors=['head_pan', 'head_tilt'], max_age_s=.1))
+
+
+POSE = [.05, -.1, .6, 0., 0., 0., 1.]
+ROSTER = NAMES + ('head_pan', 'head_tilt')
+# A head sample as HeadCache.select returns it, sampled just before the receiver samples below.
+HEAD = dict(publisher_time=999.99, sampled_at=9.99, received_at=9.995, q=[.2, -.3], qvel=[0., 0.], effort=[.1, .1],
+            qcmd=[.2, -.3], angles=[.4, -.6], camera_pose=POSE)
+
+
+def head_message(*stamps, pan=.2, tilt=-.3):
+    """The head pose feed (neck.head_pose.HeadPoseFeed): rows at Jetson wall times, with each row's raw servo readings
+    (position, velocity, effort, command per motor)."""
+    return json.dumps({'joints': ['neck_z', 'neck_y'], 'zero': POSE, 'motors': ['head_pan', 'head_tilt'],
+                       'samples': [[t, pan*2, tilt*2, *POSE] for t in stamps],
+                       'raw': [[pan, .01, .4, pan+.001, tilt, -.01, -.6, tilt-.001] for _ in stamps]}).encode()
 
 
 def camera(name, stamp=1000., frame=99, width=8, rotation=None):
@@ -144,9 +161,57 @@ def test_live_capture_profile_requires_same_host_clock_and_complete_declared_ros
         validate_config(value)
 
 
+@pytest.mark.parametrize('change', ['missing', 'remote', 'motors', 'order', 'age'])
+def test_live_capture_profile_requires_the_heads_local_pose_feed(change):
+    value = config()
+    if change == 'missing': del value['head']
+    if change == 'remote': value['head']['endpoint'] = 'tcp://10.42.0.1:5596'
+    if change == 'motors': value['head']['motors'] = ['head_pan']
+    if change == 'order': value['head']['motors'] = ['head_tilt', 'head_pan']
+    if change == 'age': value['head']['max_age_s'] = .5
+    with pytest.raises(ValueError, match='head'):
+        validate_config(value)
+
+
+def test_head_samples_are_causal_fresh_and_never_renewed():
+    head = HeadCache(validate_config(config())['head'])
+    with pytest.raises(ValueError, match='no fresh head'):
+        head.select(10.)
+    # Rows at wall 1000.00 and 1000.01, received at host 10.02 (wall 1000.02).
+    assert head.ingest(head_message(1000., 1000.01), received_at=10.02, wall_time=1000.02)
+    with pytest.raises(ValueError, match='no fresh head'):
+        head.select(10.019)  # Not yet received at that cutoff.
+    chosen = head.select(10.03)
+    assert chosen['publisher_time'] == 1000.01 and chosen['sampled_at'] == pytest.approx(10.01)
+    assert chosen['q'] == [.2, -.3] and chosen['qcmd'] == [pytest.approx(.201), pytest.approx(-.301)]
+    assert chosen['effort'] == [.4, -.6] and chosen['qvel'] == [.01, -.01]
+    assert chosen['angles'] == [.4, -.6] and chosen['camera_pose'] == POSE
+    # A repeated row does not renew the head's freshness.
+    assert head.ingest(head_message(1000.01), received_at=10.2, wall_time=1000.2)
+    with pytest.raises(ValueError, match='no fresh head'):
+        head.select(10.2)
+    assert head.status(10.2)['fresh'] is False
+
+
+@pytest.mark.parametrize('kind', ['motors', 'joints', 'width', 'nan', 'stale', 'json'])
+def test_a_bad_head_message_makes_the_head_unavailable(kind):
+    head = HeadCache(validate_config(config())['head'])
+    assert head.ingest(head_message(1000.), received_at=10.01, wall_time=1000.01)
+    data = json.loads(head_message(1000.02))
+    if kind == 'motors': data['motors'] = ['head_tilt', 'head_pan']
+    if kind == 'joints': data['joints'] = ['neck_z']
+    if kind == 'width': data['raw'][0] = data['raw'][0][:4]
+    if kind == 'nan': data['samples'][0][1] = float('nan')
+    if kind == 'stale': data['samples'][0][0] = 990.
+    message = b'{' if kind == 'json' else json.dumps(data).encode()
+    assert not head.ingest(message, received_at=10.03, wall_time=1000.03)
+    with pytest.raises(ValueError, match='head:'):
+        head.select(10.03)
+
+
 def result(now_ms=100):
     row = [now_ms]
-    for i in range(14): row += [float(i), .0, .0, i+.2]
+    for i in range(14): row += [float(i), i*.01, i*.1-.5, i+.2]
     feedback = [dict(sampled_at_ms=now_ms, fault=False) for _ in NAMES]
     return dict(status=dict(now_ms=now_ms, joint_names=list(NAMES), state='executing'),
                 hardware_enabled=True, feedback=feedback), [row]
@@ -161,6 +226,8 @@ def test_receiver_pairs_preserve_emitted_commands_and_conservative_clock_interva
     sample = capture._sample
     assert sample['q'] == tuple(float(i) for i in range(14))
     assert sample['qcmd'] == tuple(i+.2 for i in range(14))
+    assert sample['qvel'] == tuple(i*.01 for i in range(14))
+    assert sample['effort'] == tuple(i*.1-.5 for i in range(14))
     assert sample['source_time'] == pytest.approx(9.997)
     assert sample['clock_uncertainty_s'] == pytest.approx(.005)
     for change in ('order', 'fault', 'stale', 'future', 'dropped'):
@@ -226,13 +293,15 @@ def test_receiver_quantization_half_open_bucket_and_strict_age_bounds(row_ms, fe
 
 class Writer:
     def __init__(self, directory, names, metadata, *, hz):
+        self.names = tuple(names)
         assert metadata['data_source'] == 'real'
         self.roles = tuple(metadata['camera_roles'])
         self.frames, self.active, self.complete, self.error = [], True, False, None
     def append(self, **frame):
         assert frame['scene_time'] is None
         assert set(frame['images']) == set(self.roles)
-        assert len(frame['q']) == len(frame['qcmd']) == 14
+        assert self.names[14:] == ('head_pan', 'head_tilt')
+        assert len(frame['q']) == len(frame['qcmd']) == len(frame['torques']) == len(frame['velocities']) == 16
         self.frames.append(frame)
     def status(self):
         return dict(active=self.active, complete=self.complete, error=self.error,
@@ -266,6 +335,9 @@ def socket_capture(tmp_path, request):
         port = pub.bind_to_random_port('tcp://127.0.0.1')
         cfg['cameras'][name]['endpoint'] = f'tcp://127.0.0.1:{port}'
         publishers[name] = pub
+    head_pub = context.socket(zmq.PUB)
+    head_pub.setsockopt(zmq.LINGER, 0)
+    cfg['head']['endpoint'] = f"tcp://127.0.0.1:{head_pub.bind_to_random_port('tcp://127.0.0.1')}"
     writers = []
     def factory(*a, **k):
         clock[0] += open_s  # Opening the episode file takes this long.
@@ -287,6 +359,8 @@ def socket_capture(tmp_path, request):
                 if name not in missing:
                     pub.send_multipart(camera(name, clock[0]+990.-.01, frame=0,
                                               rotation=180 if name == 'head' else None))
+            if 'head_pose' not in missing:  # The head's rows, as its 25 Hz cycles would send them.
+                head_pub.send(head_message(clock[0]+990.-.012, clock[0]+990.-.008))
             if receiver:
                 response, rows = result()
                 capture.receive(response, rows, started_at=clock[0]-.001, received_at=clock[0])
@@ -295,6 +369,7 @@ def socket_capture(tmp_path, request):
         pytest.fail(f'Capture fixture timed out: {capture.snapshot()}')
     yield capture, writers, pump
     capture.close()
+    head_pub.close()
     for pub in publishers.values(): pub.close()
     context.term()
 
@@ -317,7 +392,45 @@ def test_socket_worker_requires_all_cameras_and_explicit_finish(socket_capture):
     assert 'publisher_frame_number' in frame['task_state']['cameras']['head']
     assert frame['task_state']['cameras']['head']['image_rotation_deg'] == 180
     assert frame['task_state']['cameras']['right_wrist']['image_rotation_deg'] is None
+    # The whole robot: the arms' receiver row, then the head's newest received feed row (causal, within its bound).
+    assert frame['q'][:14] == tuple(float(i) for i in range(14)) and frame['q'][14:] == (.2, -.3)
+    assert frame['torques'][:14] == tuple(i*.1-.5 for i in range(14)) and frame['torques'][14:] == (.4, -.6)
+    assert frame['velocities'][14:] == (.01, -.01)
+    assert frame['qcmd'][14:] == (pytest.approx(.201), pytest.approx(-.301))
+    assert frame['head']['angles'] == [.4, -.6] and frame['head']['camera_pose'] == POSE
+    assert 0 <= frame['source_time'] - frame['head']['time'] <= .1
+    assert frame['task_state']['head']['age_at_cutoff_s'] == pytest.approx(frame['source_time'] - frame['head']['time'])
     assert not capture.snapshot()['failed']
+
+
+def test_socket_worker_records_only_with_a_live_head(socket_capture):
+    capture, writers, pump = socket_capture
+    pump(lambda: (lambda c: len(c) == 3 and all(v.get('fresh') for v in c.values()))(capture.snapshot()['cameras']),
+         missing=('head_pose',))
+    assert not capture.snapshot()['capture_ready']
+    assert capture.snapshot()['task']['phase'] == 'waiting for the head pose (a live head)'
+    errors = []
+    for _ in range(10):  # A start can also meet a camera frame not yet selectable at its cutoff: try again.
+        request = capture.command('start_record')['id']
+        pump(lambda: (capture.snapshot()['last_command'] or {}).get('id') == request
+             and capture.snapshot()['last_command'].get('state') == 'failed', missing=('head_pose',))
+        errors.append(capture.snapshot()['last_command']['error'])
+        if 'head' in errors[-1]:
+            break
+    assert 'head' in errors[-1], errors
+    assert not writers
+    pump(lambda: capture.snapshot()['capture_ready'])
+    assert capture.snapshot()['head']['fresh']
+
+
+def test_a_head_that_stops_while_recording_fails_the_episode_closed(socket_capture):
+    capture, writers, pump = socket_capture
+    pump(lambda: capture.snapshot()['capture_ready'])
+    capture.command('start_record')
+    pump(lambda: writers and len(writers[0].frames) >= 2)
+    pump(lambda: capture.snapshot()['failed'], missing=('head_pose',))
+    assert 'head' in capture.snapshot()['error']
+    assert writers[0].error and not writers[0].complete  # Aborted, never published.
 
 
 @pytest.mark.parametrize('socket_capture', [{'hz': 20.}, {'hz': 15.}], indirect=True)
@@ -450,7 +563,7 @@ def test_explicit_two_camera_capture_has_no_left_placeholder(socket_capture):
     assert writers[0].roles == ('right_wrist', 'head')
     for frame in writers[0].frames:
         assert set(frame['images']) == set(frame['camera_times']) == {'right_wrist', 'head'}
-        assert len(frame['q']) == len(frame['qcmd']) == 14
+        assert len(frame['q']) == len(frame['qcmd']) == 16
 
 
 @pytest.mark.parametrize('roles', [None, ['head'], ['head', 'head'], ['head', 'unknown']])
@@ -512,15 +625,15 @@ def test_resized_rgb_hdf5_preserves_pairing_source_pixels_and_declared_geometry(
                          received_at=9.995, receive_id=i, image_rotation_deg=180 if role == 'head' else None,
                          timestamp_semantics='host_read_complete', exposure_time_known=False)
               for i, role in enumerate(CAMERAS)}
-    sample = dict(q=list(range(14)), qcmd=[i+.25 for i in range(14)], source_time=10.,
+    sample = dict(q=list(range(14)), qcmd=[i+.25 for i in range(14)], qvel=[0.]*14, effort=[.5]*14, source_time=10.,
                   received_at=10.002, error=None, command_valid=True, receiver_ms=125.5)
-    writer = TaskEpisodeWriter(tmp_path, NAMES, dict(data_source='real', capture_profile=capture.config))
+    writer = TaskEpisodeWriter(tmp_path, ROSTER, dict(data_source='real', capture_profile=capture.config))
     try:
-        capture._append_frame(writer, sample, frames)
+        capture._append_frame(writer, sample, frames, HEAD)
         clock[0] = 10.06
         later_frames = {role: dict(frame, publisher_time=1000.05, sampled_at=10.04, received_at=10.045)
                         for role, frame in frames.items()}
-        capture._append_frame(writer, dict(sample, source_time=10.05), later_frames)
+        capture._append_frame(writer, dict(sample, source_time=10.05), later_frames, dict(HEAD, sampled_at=10.04))
         path = writer.finish()
     finally:
         if not writer.status()['complete']:
@@ -534,8 +647,11 @@ def test_resized_rgb_hdf5_preserves_pairing_source_pixels_and_declared_geometry(
     with h5py.File(path) as f:
         assert f.attrs['complete'] and not f.attrs['training_promoted']
         assert not list(tmp_path.glob('episode_*.hdf5'))
-        np.testing.assert_array_equal(f['observations/qpos'][0], sample['q'])
-        np.testing.assert_array_equal(f['observations/qcmd'][0], sample['qcmd'])
+        np.testing.assert_array_equal(f['observations/qpos'][0], np.float32(sample['q'] + HEAD['q']))
+        np.testing.assert_array_equal(f['observations/qcmd'][0], np.float32(sample['qcmd'] + HEAD['qcmd']))
+        np.testing.assert_array_equal(f['observations/torques'][0], np.float32([.5]*14 + HEAD['effort']))
+        np.testing.assert_array_equal(f['observations/head_camera_pose'][0], POSE)
+        assert f['timestamps/head'][:].tolist() == [9.99, 10.04] and f['timestamps/head_valid'][:].all()
         assert f['timestamps/telem'][0] == 10.
         assert f['action_valid'][:].tolist() == [True, False]
         state = json.loads(f['task_state'][0])
@@ -565,8 +681,9 @@ def test_resize_time_cannot_renew_original_sample_or_camera_freshness(monkeypatc
     cache = CameraCache(config())
     fill(cache, stamp=1000., received=9.815 if expired == 'camera' else 9.995)
     frames = cache.select(10.)
-    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True)
-    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, qvel=[0.]*14, effort=[0.]*14, source_time=10., error=None,
+                  command_valid=True)
+    writer = Writer(None, ROSTER, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
     original_transform = task_capture.recording_images
     def slow_transform(*args):
         transformed = original_transform(*args)
@@ -577,7 +694,7 @@ def test_resize_time_cannot_renew_original_sample_or_camera_freshness(monkeypatc
     monkeypatch.setattr(task_capture, 'recording_images', slow_transform)
     message = 'Receiver sample expired' if expired == 'receiver' else 'camera frame expired'
     with pytest.raises(ValueError, match=message):
-        capture._append_frame(writer, sample, frames)
+        capture._append_frame(writer, sample, frames, HEAD)
     assert not writer.frames
     assert sample['source_time'] == 10. and sample['qcmd'] == [.1]*14
 
@@ -593,8 +710,9 @@ def test_recorded_frames_leave_no_image_work_between_pairing_and_admission(monke
     cache = CameraCache(capture.config)
     fill(cache, stamp=1000., received=9.995)
     frames = cache.select(10.)
-    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True)
-    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, qvel=[0.]*14, effort=[0.]*14, source_time=10., error=None,
+                  command_valid=True)
+    writer = Writer(None, ROSTER, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
     def contended(original):
         def slow(self, *args, **kwargs):
             now[0] += .024
@@ -602,7 +720,7 @@ def test_recorded_frames_leave_no_image_work_between_pairing_and_admission(monke
         return slow
     monkeypatch.setattr(Image.Image, 'reduce', contended(Image.Image.reduce))
     monkeypatch.setattr(Image.Image, 'resize', contended(Image.Image.resize))
-    capture._append_frame(writer, sample, frames)
+    capture._append_frame(writer, sample, frames, HEAD)
     state = writer.frames[0]['task_state']
     assert state['capture_admission_at'] == 10.008
     assert all(image.shape == (3, 4, 3) for image in writer.frames[0]['images'].values())
@@ -617,11 +735,11 @@ def test_a_labelled_sample_records_who_drove_the_frame_and_its_lifecycle_state()
     cache = CameraCache(capture.config)
     fill(cache, stamp=1000., received=9.995)
     frames = cache.select(10.)
-    sample = dict(q=[0.]*14, qcmd=[.1]*14, source_time=10., error=None, command_valid=True,
-                  authority='correction', lifecycle='TELEOP')
-    writer = Writer(None, NAMES, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
-    capture._append_frame(writer, sample, frames)
-    capture._append_frame(writer, {k: v for k, v in sample.items() if k not in ('authority', 'lifecycle')}, frames)
+    sample = dict(q=[0.]*14, qcmd=[.1]*14, qvel=[0.]*14, effort=[0.]*14, source_time=10., error=None,
+                  command_valid=True, authority='correction', lifecycle='TELEOP')
+    writer = Writer(None, ROSTER, dict(data_source='real', camera_roles=CAMERAS), hz=20.)
+    capture._append_frame(writer, sample, frames, HEAD)
+    capture._append_frame(writer, {k: v for k, v in sample.items() if k not in ('authority', 'lifecycle')}, frames, HEAD)
     labelled, plain = writer.frames
     assert labelled['authority'] == 'correction' and labelled['task_state']['lifecycle'] == 'TELEOP'
     assert not {'authority', 'lifecycle'} & set(labelled['task_state']['capture'])

@@ -14,17 +14,23 @@ from robot_platform.helm.episode_worker import Episodes
 
 ROOT = Path(__file__).resolve().parents[2]
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
+ROSTER = NAMES + ('head_pan', 'head_tilt')  # Format 9 records the whole robot.
+POSE = [.05, -.1, .6, 0., 0., 0., 1.]
 ROLES = ('left_wrist', 'right_wrist', 'head')
 SESSION = 'live-20261022T120000Z'
 
 
-def record(root, times, *, authority=None, lifecycle=None, finish=True, session=SESSION):
-    """An episode whose row i has qpos[i] = i + j/100 and images at level i (mod 250) on every camera; `lifecycle`
-    gives each row's lifecycle state in its task state, as a policy session's capture does."""
-    writer = TaskEpisodeWriter(root / session / 'episodes', NAMES, {'data_source': 'real', 'camera_roles': list(ROLES)},
+def record(root, times, *, authority=None, lifecycle=None, finish=True, session=SESSION, missing_torque=()):
+    """An episode whose row i has qpos[i] = i + j/100 and images at level i (mod 250) on every camera; effort
+    i - j/100, velocity j/10 and the head's sample 10 ms before the receiver's, except the rows in missing_torque.
+    `lifecycle` gives each row's lifecycle state in its task state, as a policy session's capture does."""
+    writer = TaskEpisodeWriter(root / session / 'episodes', ROSTER, {'data_source': 'real', 'camera_roles': list(ROLES)},
                                hz=15., max_pending=256)
     for i, t in enumerate(times):
-        writer.append(q=[i + j / 100 for j in range(14)], qcmd=[i + j / 100 + .5 for j in range(14)], source_time=t,
+        torques = [np.nan if i in missing_torque else i - j / 100 for j in range(16)]
+        writer.append(q=[i + j / 100 for j in range(16)], qcmd=[i + j / 100 + .5 for j in range(16)], source_time=t,
+                      torques=torques, velocities=[j / 10 for j in range(16)],
+                      head=dict(time=t - .01, angles=[.1, -.2], camera_pose=POSE),
                       scene_time=None, images={role: np.full((6, 8, 3), i % 250, dtype=np.uint8) for role in ROLES},
                       camera_times={role: t - .02 for role in ROLES},
                       task_state={'row': i, **({'lifecycle': lifecycle[i]} if lifecycle else {})},
@@ -94,8 +100,8 @@ def test_a_planned_episode_keeps_its_human_span_and_a_different_roster_is_refuse
     episodes = Episodes(tmp_path)
     episodes.review(first, 'keep')
     episodes.review(other, 'keep')
-    with h5py.File(other_path, 'r+') as f:  # The same episode as recorded with the 2-DoF head's two joints.
-        f.attrs['minerva_joints'] = ','.join(NAMES + ('head_pan', 'head_tilt'))
+    with h5py.File(other_path, 'r+') as f:  # The same episode as the arms alone named their joints (format 8).
+        f.attrs['minerva_joints'] = ','.join(NAMES)
     plans, refused = export.plan(tmp_path, 15)
     assert len(plans) == 1 and plans[0]['first'] == 2 and plans[0]['last'] == 18  # Policy rows out; terminal row out.
     assert plans[0]['rows'].tolist() == list(range(2, 19))
@@ -154,7 +160,7 @@ def test_a_policy_episode_exports_each_stretch_as_its_own_episode_saying_who_dro
     out = tmp_path / 'dataset'
     export.write(plans, out, 'minerva/handoff', 15, export.TASK, create=lambda **options: Dataset())
     assert Dataset.saved == [30, 59, 83]  # One LeRobot episode a stretch: none spans a hold or an alignment.
-    assert np.allclose(Dataset.frames[30]['observation.state'], [55 + j / 100 for j in range(14)])
+    assert np.allclose(Dataset.frames[30]['observation.state'], [55 + j / 100 for j in range(16)])
     sidecar = json.loads((out / 'meta' / 'minerva_provenance.json').read_text(encoding='utf-8'))
     assert [(e['episode_index'], e['source'], e['source_span'], e['authority']) for e in sidecar['episodes']] == [
         (0, kept, [0, 29], 'policy'), (1, kept, [55, 83], 'correction'), (2, kept, [95, 118], 'policy')]
@@ -184,18 +190,26 @@ def test_frames_carry_state_action_cameras_and_task_and_the_sidecar_records_prov
     options = Dataset.created
     assert (options['fps'], options['robot_type'], options['use_videos']) == (15, 'minerva', True)
     feature = options['features']
-    assert feature['observation.state'] == {'dtype': 'float32', 'shape': (14,), 'names': list(NAMES)}
-    assert feature['action']['names'] == list(NAMES)
+    assert feature['observation.state'] == {'dtype': 'float32', 'shape': (16,), 'names': list(ROSTER)}
+    assert feature['action']['names'] == list(ROSTER)
+    assert feature['observation.effort'] == feature['observation.velocity'] == feature['observation.state']
+    assert feature['observation.head_camera_pose'] == {'dtype': 'float32', 'shape': (7,),
+                                                       'names': ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']}
     assert feature['observation.images.head'] == {'dtype': 'video', 'shape': (6, 8, 3),
                                                   'names': ['height', 'width', 'channels']}
     assert Dataset.saved == 1 and len(Dataset.frames) == 11  # Rows 0-10: the terminal row has no action.
     frame = Dataset.frames[3]
     assert frame['task'] == export.TASK
-    assert np.allclose(frame['observation.state'], [3 + j / 100 for j in range(14)])
-    assert np.allclose(frame['action'], [4 + j / 100 + .5 for j in range(14)])  # The next commanded position.
+    assert np.allclose(frame['observation.state'], [3 + j / 100 for j in range(16)])
+    assert np.allclose(frame['action'], [4 + j / 100 + .5 for j in range(16)])  # The next commanded position.
+    assert np.allclose(frame['observation.effort'], [3 - j / 100 for j in range(16)])
+    assert np.allclose(frame['observation.velocity'], [j / 10 for j in range(16)])
+    assert np.allclose(frame['observation.head_camera_pose'], POSE)
     assert frame['observation.images.left_wrist'].shape == (6, 8, 3) and frame['observation.images.left_wrist'][0, 0, 0] == 3
     sidecar = json.loads((out / 'meta' / 'minerva_provenance.json').read_text(encoding='utf-8'))
     assert sidecar['fps'] == 15 and sidecar['state'] == 'qpos' and sidecar['action'] == 'actions'
+    assert sidecar['format'] == 'minerva task capture 9 -> LeRobot v2.1'
+    assert sidecar['extras'] == ['observation.effort', 'observation.velocity', 'observation.head_camera_pose']
     entry = sidecar['episodes'][0]
     assert entry['source'] == kept and entry['source_span'] == [0, 10] and entry['frames'] == 11
     assert entry['review']['note'] == 'good' and len(entry['sha256']) == 64
@@ -210,3 +224,19 @@ def test_the_dry_run_lists_the_plan_without_lerobot(tmp_path):
                              '--dry-run'], capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert result.returncode == 0, result.stderr
     assert f'export {kept}: rows 0-28 -> 29 frames at 15 fps' in result.stdout
+
+
+def test_an_extra_is_exported_only_where_every_row_has_it_and_never_mixed(tmp_path):
+    """A missing effort reading inside the span drops observation.effort from that episode; such an episode is not
+    mixed with ones that have it. Nothing is filled in."""
+    full, _ = record(tmp_path, steady(12))
+    gap, _ = record(tmp_path, steady(12, start=200.), missing_torque=(4,))
+    episodes = Episodes(tmp_path)
+    episodes.review(full, 'keep')
+    episodes.review(gap, 'keep')
+    plans, refused = export.plan(tmp_path, 15)
+    assert [p['exported_extras'] for p in plans] == [('observation.effort', 'observation.velocity',
+                                                      'observation.head_camera_pose')]
+    assert len(refused) == 1 and 'extra features' in refused[0][1]
+    alone = export.plan_episode(refused[0][0], 15)
+    assert alone['exported_extras'] == ('observation.velocity', 'observation.head_camera_pose')

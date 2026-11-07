@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from robot_platform.transport.wire import unpack_camera
 from robot_platform.data.capture_process import STATUS_TIMEOUT_S
+from robot_platform.data.roster import ARM_AXES, HEAD_AXES, HEAD_JOINTS
 
 CAMERAS = ('left_wrist', 'right_wrist', 'head')
 
@@ -57,7 +58,92 @@ def validate_config(value):
             or not 0 < size[0] <= 1280 or not 0 < size[1] <= 960):
         raise ValueError('recording_image_size must be [width, height] within 1280x960, or null')
     result['recording_image_size'] = list(size) if size is not None else None
+    result['head'] = validate_head(value.get('head'))
     return result
+
+
+def validate_head(value):
+    """The head's pose feed (neck.head_pose.ENDPOINT): every episode frame records the neck's two axes and the head
+    camera's pose from it, so a capture without it is refused."""
+    if not isinstance(value, dict):
+        raise ValueError('Task capture records the head: configure its pose feed (head.endpoint, head.motors)')
+    endpoint = urlparse(value.get('endpoint', ''))
+    if (endpoint.scheme != 'tcp' or endpoint.hostname not in ('127.0.0.1', 'localhost')
+            or endpoint.port is None or endpoint.path or endpoint.username):
+        raise ValueError('head: the pose feed is local to the Jetson and needs a loopback endpoint')
+    motors = value.get('motors')
+    if list(motors or ()) != list(HEAD_AXES):
+        raise ValueError(f'head: motors must be {list(HEAD_AXES)}, in the order the head service reports them')
+    age = value.get('max_age_s', .1)
+    if isinstance(age, bool) or not isinstance(age, (float, int)) or not math.isfinite(age) or not 0 < age <= .1:
+        raise ValueError('head.max_age_s must be finite and in (0, 0.1]')
+    return {'endpoint': value['endpoint'], 'motors': list(motors), 'max_age_s': float(age)}
+
+
+class HeadCache:
+    """The head's recent samples from its pose feed, on the capture's clock. Each sample is one head service row: the
+    two servos' position, velocity, effort and command, the neck's CAD angles and the camera's pose. Like a camera
+    frame, a sample is admitted only once received and never restamped."""
+
+    def __init__(self, config):
+        self.config = config
+        self.samples = deque(maxlen=64)
+        self.error = None
+
+    def ingest(self, message, *, received_at, wall_time):
+        import json
+        try:
+            data = json.loads(message)
+            if data.get('motors') != self.config['motors']:
+                raise ValueError('the head pose feed reports other motors than the capture profile')
+            joints = list(data.get('joints') or ())
+            if len(joints) != len(HEAD_JOINTS) or set(joints) != set(HEAD_JOINTS):
+                raise ValueError(f'the head pose feed needs the {" and ".join(HEAD_JOINTS)} angles')
+            samples, raw = data.get('samples') or [], data.get('raw') or []
+            if len(samples) != len(raw):
+                raise ValueError('the head pose feed rows and their motor readings disagree')
+            width = 4*len(self.config['motors'])
+            for sample, row in zip(samples, raw):
+                if len(sample) != 1+len(joints)+7 or len(row) != width:
+                    raise ValueError('a head pose feed row has the wrong width')
+                values = [float(v) for v in (*sample, *row)]
+                if not all(math.isfinite(v) for v in values):
+                    raise ValueError('a head pose feed row is not finite')
+                stamp = values[0]
+                age = wall_time-stamp
+                if not -.005 <= age <= 1.:
+                    raise ValueError('a head pose sample is stale or in the future')
+                if self.samples and stamp <= self.samples[-1]['publisher_time']:
+                    continue  # Rows already seen never renew freshness.
+                angles = dict(zip(joints, sample[1:1+len(joints)]))
+                n = len(self.config['motors'])
+                self.samples.append(dict(
+                    publisher_time=stamp, sampled_at=received_at-max(age, 0.), received_at=received_at,
+                    q=[row[4*i] for i in range(n)], qvel=[row[4*i+1] for i in range(n)],
+                    effort=[row[4*i+2] for i in range(n)], qcmd=[row[4*i+3] for i in range(n)],
+                    angles=[angles[j] for j in HEAD_JOINTS], camera_pose=list(sample[1+len(joints):])))
+            self.error = None
+            return True
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            self.error = str(exc)
+            return False
+
+    def select(self, cutoff):
+        """The newest head sample received by cutoff and within the head's age bound."""
+        if self.error:
+            raise ValueError(f'head: {self.error}')
+        for sample in reversed(self.samples):
+            if sample['received_at'] <= cutoff and sample['sampled_at'] <= cutoff:
+                if cutoff-sample['sampled_at'] > self.config['max_age_s']:
+                    break
+                return sample
+        raise ValueError('head: no fresh head pose sample at the observation cutoff (is a live head running?)')
+
+    def status(self, now):
+        row = self.samples[-1] if self.samples else None
+        age = now-row['sampled_at'] if row else None
+        return dict(fresh=bool(row and not self.error and 0 <= age <= self.config['max_age_s']), age_s=age,
+                    error=self.error, publisher_time=row['publisher_time'] if row else None)
 
 
 def recording_images(frames, size):
@@ -246,13 +332,19 @@ def paired_receiver_sample(result, rows, names, config, *, dropped=0, started_at
         if (type(row[0]) not in (int, float) or not math.isfinite(row[0])
                 or not 0 <= row[0] < status_upper_ms or status_upper_ms-row[0] > max_age_ms):
             raise ValueError('Receiver recorder row is stale or in the future')
-        q, qcmd = tuple(row[1+4*i] for i in range(14)), tuple(row[4+4*i] for i in range(14))
+        # The receiver's recorder row: its ms, then per joint the measured position, velocity and effort (N m) and the
+        # emitted command (control.servo_sweep.recorder_columns).
+        n = len(names)
+        q, qcmd = tuple(row[1+4*i] for i in range(n)), tuple(row[4+4*i] for i in range(n))
+        qvel, effort = tuple(row[2+4*i] for i in range(n)), tuple(row[3+4*i] for i in range(n))
         if not all(math.isfinite(v) for v in q+qcmd):
             raise ValueError('Receiver positions or emitted commands are not finite')
+        if not all(math.isfinite(v) for v in qvel+effort):
+            raise ValueError('Receiver velocities or efforts are not finite')
         sampled_ms = min(row[0], *stamps)
         cutoff = started_at-(status_upper_ms-sampled_ms)/1000
         rpc_round_trip_s = received_at-started_at
-        return dict(q=q, qcmd=qcmd, source_time=cutoff, received_at=received_at,
+        return dict(q=q, qcmd=qcmd, qvel=qvel, effort=effort, source_time=cutoff, received_at=received_at,
                             receiver_ms=row[0], receiver_feedback_ms=stamps,
                             receiver_status_ms=now_ms, receiver_status_upper_ms=status_upper_ms,
                             status_clock_quantization_s=.001, rpc_round_trip_s=rpc_round_trip_s,
@@ -270,9 +362,10 @@ class LiveTaskCapture:
         self.config = validate_config(config)
         self.names = tuple(names)
         self.camera_roles = tuple(self.config['camera_roles'])
-        expected = {f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)} | {'left_gripper', 'right_gripper'}
-        if len(self.names) != 14 or set(self.names) != expected:
-            raise ValueError('Live task capture needs the complete 14-axis Minerva roster')
+        if len(self.names) != len(ARM_AXES) or set(self.names) != set(ARM_AXES):
+            raise ValueError('Live task capture needs the complete 14-axis receiver roster of both arms')
+        # Episodes record the whole robot: the arms' receiver joints, then the head's servos from its pose feed.
+        self.roster = self.names + tuple(self.config['head']['motors'])
         self.directory, self.metadata = Path(directory), dict(metadata or {}, data_source='real', camera_roles=list(self.camera_roles))
         self.clock, self.wall_clock = clock, wall_clock
         self.writer_factory, self.context_factory = writer_factory, context_factory
@@ -285,7 +378,8 @@ class LiveTaskCapture:
         self._request = 0
         self._state = dict(available=False, capabilities={'source': 'real', 'contacts': 'unobserved',
                            'task_success': 'operator_review_required'}, task={'phase': 'camera preflight'},
-                           recording={'state': 'idle', 'active': False}, cameras={}, camera_roles=list(self.camera_roles),
+                           recording={'state': 'idle', 'active': False}, cameras={}, head={},
+                           camera_roles=list(self.camera_roles),
                            capture_ready=False, camera_valid_until=None, error=None,
                            failed=False, last_command=None)
         self._thread = threading.Thread(target=self._run, daemon=True, name='helm-task-capture')
@@ -373,7 +467,15 @@ class LiveTaskCapture:
                 from robot_platform.data.task_capture import TaskEpisodeWriter
                 factory = TaskEpisodeWriter
             context = (self.context_factory or zmq.Context)()
-            poller, cache = zmq.Poller(), CameraCache(self.config)
+            poller, cache, head = zmq.Poller(), CameraCache(self.config), HeadCache(self.config['head'])
+            head_socket = context.socket(zmq.SUB)
+            head_socket.setsockopt(zmq.LINGER, 0)
+            head_socket.setsockopt(zmq.RCVHWM, 16)
+            head_socket.setsockopt(zmq.MAXMSGSIZE, 1024*1024)
+            head_socket.setsockopt(zmq.SUBSCRIBE, b'')
+            head_socket.connect(self.config['head']['endpoint'])
+            poller.register(head_socket, zmq.POLLIN)
+            sockets['head_pose'] = head_socket
             for name, camera in self.config['cameras'].items():
                 socket = context.socket(zmq.SUB)
                 socket.setsockopt(zmq.LINGER, 0)
@@ -395,7 +497,10 @@ class LiveTaskCapture:
                             break
                         received = self.clock()
                         wall = self.wall_clock()
-                        cache.ingest(name, parts, received_at=received, wall_time=wall, mapped_at=self.clock())
+                        if socket is head_socket:
+                            head.ingest(parts[-1], received_at=received, wall_time=wall)
+                        else:
+                            cache.ingest(name, parts, received_at=received, wall_time=wall, mapped_at=self.clock())
                 now, sample = self.clock(), self._sample
                 try:
                     request, action = self._commands.get_nowait()
@@ -409,13 +514,16 @@ class LiveTaskCapture:
                                 raise ValueError('An episode is already recording')
                             self._ready(sample, now, require_commands=True)
                             cache.select(sample['source_time'])
-                            writer = factory(self.directory, self.names,
+                            head.select(sample['source_time'])
+                            writer = factory(self.directory, self.roster,
                                 dict(self.metadata, capture_profile=self.config,
                                      clock='host_monotonic_seconds', camera_clock='mapped_same_host_unix',
                                      camera_selection='newest coherent received history within configured age and skew bounds',
                                      clock_domains={'source_time': 'conservative host mapping of paired receiver row',
                                                     'scene_time': 'absent',
-                                                    'camera_times': 'mapped host read-complete stamps; sensor exposure time unknown'},
+                                                    'camera_times': 'mapped host read-complete stamps; sensor exposure time unknown',
+                                                    'head_time': 'head service row time mapped from the Jetson wall clock'},
+                                     head_selection='newest head pose feed row received by the observation cutoff, within head.max_age_s',
                                      action_semantics='receiver_emitted_position_at_sample',
                                      task_success='operator_review_required'), hz=self.config['hz'])
                             with self._lock:
@@ -457,13 +565,14 @@ class LiveTaskCapture:
                     opened_at = None
                     self._ready(sample, now, require_commands=True)
                     frames = cache.select(sample['source_time'])
+                    head_sample = head.select(sample['source_time'])
                     sources = (sample['source_time'], *(frames[n]['publisher_time'] for n in self.camera_roles))
                     # Wait for a new acquisition from every camera; never relabel a repeated frame as new. Until
                     # one comes, look again on the next poll (10 ms at most, sooner when a camera publishes), not a
                     # whole period later: the slowest camera (the head, ~15 fps) then paces a steady rate instead
                     # of gaps of one and two periods (demo 1, 2026-10-21).
                     if last_sources is None or all(a > b for a, b in zip(sources, last_sources)):
-                        self._append_frame(writer, sample, frames)
+                        self._append_frame(writer, sample, frames, head_sample)
                         last_sources = sources
                         # The next tick on a grid from the first frame, not a period after this admission: the few
                         # milliseconds spent noticing each head frame never add up into a skipped one. A grid left
@@ -477,18 +586,22 @@ class LiveTaskCapture:
                     for camera in self._state['cameras'].values():
                         camera['valid_until'] = (now+self.config['max_camera_age_s']-camera['age_s']
                                                   if camera['age_s'] is not None else None)
+                    self._state['head'] = head.status(now)
                     fresh = all(row['fresh'] for row in self._state['cameras'].values())
                     try:
                         self._ready(sample, now, require_commands=True)
                         selected = cache.select(sample['source_time'])
-                        self._state['camera_valid_until'] = min(frame['sampled_at']
-                            + self.config['max_camera_age_s'] for frame in selected.values())
+                        head_selected = head.select(sample['source_time'])
+                        self._state['camera_valid_until'] = min(
+                            [frame['sampled_at'] + self.config['max_camera_age_s'] for frame in selected.values()]
+                            + [head_selected['sampled_at'] + self.config['head']['max_age_s']])
                         self._state['capture_ready'] = True
                     except ValueError:
                         self._state['capture_ready'] = False
                         self._state['camera_valid_until'] = None
                     self._state['task'] = {'phase': 'recording' if writer else
                                            'ready for recording' if self._state['capture_ready'] else
+                                           'waiting for the head pose (a live head)' if fresh and not self._state['head']['fresh'] else
                                            'waiting for fresh paired receiver and camera timing' if fresh else 'waiting for cameras'}
                     if writer is not None:
                         self._state['recording'] = writer.status()
@@ -514,7 +627,7 @@ class LiveTaskCapture:
                 if writer is not None:
                     self._state['recording'] = writer.status()
 
-    def _append_frame(self, writer, sample, frames):
+    def _append_frame(self, writer, sample, frames, head):
         images, provenance = recording_images(frames, self.config['recording_image_size'])
         # Resizing may take time or overlap an authority-loss notification. Keep
         # the original paired sample and acquisitions; never restamp or replace q.
@@ -525,13 +638,21 @@ class LiveTaskCapture:
         for name, frame in frames.items():
             if not 0 <= now-frame['sampled_at'] <= self.config['max_camera_age_s']:
                 raise ValueError(f'{name}: camera frame expired during recording preprocessing')
+        if sample['source_time']-head['sampled_at'] > self.config['head']['max_age_s']:
+            raise ValueError('head: the head pose sample is older than its bound at the observation cutoff')
         # Who drove the frame: a policy session's frames are the policy's, or a correction while the operator's
         # leaders drive. The lifecycle state lets the export leave out holds and alignments (data.lerobot_export).
-        labels = ('q', 'qcmd', 'authority', 'lifecycle')
-        writer.append(q=sample['q'], qcmd=sample['qcmd'], source_time=sample['source_time'], scene_time=None,
+        labels = ('q', 'qcmd', 'qvel', 'effort', 'authority', 'lifecycle')
+        writer.append(q=tuple(sample['q'])+tuple(head['q']), qcmd=tuple(sample['qcmd'])+tuple(head['qcmd']),
+                      torques=tuple(sample['effort'])+tuple(head['effort']),
+                      velocities=tuple(sample['qvel'])+tuple(head['qvel']),
+                      head=dict(time=head['sampled_at'], angles=head['angles'], camera_pose=head['camera_pose']),
+                      source_time=sample['source_time'], scene_time=None,
                       images=images, camera_times={n: f['sampled_at'] for n, f in frames.items()},
                       task_state={'capture_admission_at': now, 'lifecycle': sample.get('lifecycle'),
                                   'capture': {k: v for k, v in sample.items() if k not in labels},
+                                  'head': {'publisher_time': head['publisher_time'], 'received_at': head['received_at'],
+                                           'age_at_cutoff_s': sample['source_time']-head['sampled_at']},
                                   'cameras': provenance, 'success': 'operator_review_required'},
                       authority=sample.get('authority', 'human'))
 

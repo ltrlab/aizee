@@ -303,7 +303,8 @@ export class LiveReplayCard {
   }
 }
 
-// Joint positions over the whole episode, one lane per arm and one for the grippers; click or drag to seek.
+// Joint positions over the whole episode, one lane per arm, one for the grippers and one for the neck; click or drag
+// to seek.
 class JointTimeline {
   constructor(canvas, onSeek) {
     this.canvas = canvas;
@@ -352,6 +353,7 @@ class JointTimeline {
     lane('Left arm', name => name.startsWith('left_arm'));
     lane('Right arm', name => name.startsWith('right_arm'));
     lane('Grippers', name => name.endsWith('_gripper'));
+    lane('Neck', name => name.startsWith('head_'));
     this.background = null;
   }
 

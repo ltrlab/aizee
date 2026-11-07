@@ -9,6 +9,7 @@ from robot_platform.data.task_capture import TaskEpisodeWriter
 from robot_platform.teleop.episode_source import SPEEDS, EpisodeSource, validate_request
 
 NAMES = tuple(f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)) + ('left_gripper', 'right_gripper')
+ROSTER = NAMES + ('head_pan', 'head_tilt')  # An episode records the whole robot.
 
 
 def source(speed=1.):
@@ -70,10 +71,10 @@ def test_speeds_and_episodes_are_checked():
 
 
 def record(directory, frames, *, finish=True):
-    writer = TaskEpisodeWriter(directory, NAMES, {'data_source': 'real', 'camera_roles': ['head']}, hz=15.,
+    writer = TaskEpisodeWriter(directory, ROSTER, {'data_source': 'real', 'camera_roles': ['head']}, hz=15.,
                                max_pending=64)
     for i in range(frames):
-        writer.append(q=[j + i / 100 for j in range(14)], qcmd=[j + i / 100 + .001 for j in range(14)],
+        writer.append(q=[j + i / 100 for j in range(16)], qcmd=[j + i / 100 + .001 for j in range(16)],
                       source_time=10. + i / 15, scene_time=None, images={'head': np.zeros((4, 6, 3), np.uint8)},
                       camera_times={'head': 10. + i / 15 - .01}, task_state={'i': i}, authority='human')
     if finish:
@@ -95,10 +96,12 @@ def test_a_recorded_episode_drives_the_receivers_joints_in_their_order(tmp_path)
     assert [row['name'] for row in rows] == list(right)
     assert positions(rows) == [round(NAMES.index(name) + .001, 6) for name in right]  # Its qcmd, by name.
     assert episode.duration == pytest.approx(9 / 15)
-    with pytest.raises(ValueError, match='has no head_pan'):
-        EpisodeSource.load(path, NAMES + ('head_pan',))
+    head = EpisodeSource.load(path, ('head_tilt', 'head_pan'))  # The neck's columns, by name.
+    assert positions(head.target('HOLD', 1.)) == [15.001, 14.001]
+    with pytest.raises(ValueError, match='has no waist'):
+        EpisodeSource.load(path, NAMES + ('waist',))
     partial = record(tmp_path / 'partial', 5, finish=False)
     with pytest.raises(ValueError, match='Only a complete episode'):
         EpisodeSource.load(partial, NAMES)
     with h5py.File(path, 'r') as f:  # The recorded commands, not the measured positions.
-        assert np.allclose(f['observations/qcmd'][0], [j + .001 for j in range(14)])
+        assert np.allclose(f['observations/qcmd'][0], [j + .001 for j in range(16)])

@@ -251,10 +251,12 @@ def _series(raw):
     """The worker's float32 bytes as rounded lists, the shape the page plots and scrubs over."""
     import numpy as np
     series = {'t': np.frombuffer(raw['t'], dtype='<f8').round(4).tolist(), 'frames': raw['frames']}
-    for key in ('qpos', 'qcmd', 'actions'):
+    for key in ('qpos', 'qcmd', 'actions', 'torques', 'qvel'):
         if key in raw:
-            data = np.frombuffer(raw[key]['data'], dtype='<f4').reshape(raw[key]['shape'])
-            series[key] = data.round(4).tolist()
+            data = np.frombuffer(raw[key]['data'], dtype='<f4').reshape(raw[key]['shape']).round(4)
+            # A reading the robot did not report is NaN in the file and null here: JSON has no NaN.
+            finite = np.isfinite(data)
+            series[key] = data.tolist() if finite.all() else np.where(finite, data, None).tolist()
     if 'action_valid' in raw:
         series['action_valid'] = [bool(v) for v in np.frombuffer(raw['action_valid'], dtype=np.uint8)]
     return series

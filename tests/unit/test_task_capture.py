@@ -6,13 +6,13 @@ import h5py
 import numpy as np
 import pytest
 
-from robot_platform.data.task_capture import CAMERAS, TaskEpisodeWriter
+from robot_platform.data.task_capture import AXES, CAMERAS, TaskEpisodeWriter
 
-NAMES = [f"{s}_arm_j{j}" for s in ("left", "right") for j in range(1, 7)] + ["left_gripper", "right_gripper"]
+NAMES = list(AXES)
 
 
 def packet(i, *, real=False, authority="human"):
-    return dict(q=np.full(14, i, dtype=float), qcmd=np.full(14, i+.1),
+    return dict(q=np.full(16, i, dtype=float), qcmd=np.full(16, i+.1),
                 source_time=100.+i*.05, scene_time=None if real else i*.05,
                 images={n: np.full((8, 12, 3), i, dtype=np.uint8) for n in CAMERAS},
                 camera_times={n: (200. if real else 0.)+i*.05 for n in CAMERAS},
@@ -35,15 +35,17 @@ def test_atomic_publication_raw_pairing_clocks_and_torque_missingness(tmp_path, 
     assert path.exists() and not writer.partial_path.exists()
     assert not list(tmp_path.glob("episode_*.hdf5"))  # No unsafe legacy training discovery.
     with h5py.File(path) as f:
-        assert f.attrs["complete"] and f.attrs["format_version"] == 8
+        assert f.attrs["complete"] and f.attrs["format_version"] == 9
         assert f.attrs["data_source"] == ("real" if real else "simulation")
         assert not f.attrs["training_promoted"]
-        assert f["observations/qpos"].shape == (4, 14)
+        assert f["observations/qpos"].shape == (4, 16)
         assert np.allclose(f["observations/qcmd"][:, 0], [.1, 1.1, 2.1, 3.1])
         assert np.allclose(f["actions"][:, 0], [1.1, 2.1, 3.1, 3.1])
         assert f["action_valid"][:].tolist() == [True, False, True, False]
         assert np.isnan(f["observations/torques"][:]).all()
         assert not f["observations/torque_valid"][:].any()
+        assert np.isnan(f["observations/qvel"][:]).all() and not f["observations/qvel_valid"][:].any()
+        assert np.isnan(f["observations/head_camera_pose"][:]).all() and not f["timestamps/head_valid"][:].any()
         assert np.allclose(f["timestamps/telem"][:], [100., 100.05, 100.1, 100.15])
         assert f["timestamps/scene_valid"][:].tolist() == [not real]*4
         assert all(f[f"observations/images/{n}"].shape == (4, 8, 12, 3) for n in CAMERAS)
@@ -209,3 +211,46 @@ def test_missing_declared_camera_or_undeclared_camera_aborts(tmp_path):
         with pytest.raises(RuntimeError):
             writer.finish()
         assert not writer.path.exists()
+
+
+def test_whole_robot_frame_records_torques_velocities_and_the_head(tmp_path):
+    """Format 9: the 16 axes' measured effort and velocity, and the head's sample (its source time, the neck's CAD
+    angles and the head camera's pose), each with its validity."""
+    writer = TaskEpisodeWriter(tmp_path, NAMES, metadata(True))
+    for i in range(3):
+        frame = packet(i, real=True)
+        frame.update(torques=np.arange(16)*.1+i, velocities=np.full(16, -.5),
+                     head=dict(time=frame["source_time"]-.02, angles=[.1*i, -.2], camera_pose=[.1, .2, .3, 0., 0., 0., 1.]))
+        writer.append(**frame)
+    with h5py.File(writer.finish()) as f:
+        assert f.attrs["minerva_joints"].split(",") == NAMES and f.attrs["authority_scope"] == "whole_robot"
+        assert f.attrs["head_joints"] == "neck_z,neck_y"
+        assert np.allclose(f["observations/torques"][1], np.arange(16)*.1+1) and f["observations/torque_valid"][:].all()
+        assert np.allclose(f["observations/qvel"][:], -.5) and f["observations/qvel_valid"][:].all()
+        assert np.allclose(f["observations/neck_angles"][:, 0], [0., .1, .2])
+        assert np.allclose(f["observations/head_camera_pose"][2], [.1, .2, .3, 0., 0., 0., 1.])
+        assert np.allclose(f["timestamps/head"][:], f["timestamps/telem"][:]-.02) and f["timestamps/head_valid"][:].all()
+
+
+def test_the_arms_alone_are_not_a_whole_robot_episode(tmp_path):
+    with pytest.raises(ValueError, match="16 named axes"):
+        TaskEpisodeWriter(tmp_path, NAMES[:14], metadata())
+
+
+@pytest.mark.parametrize("problem", ["future_head", "head_nan", "short_pose", "torque_inf", "short_torques"])
+def test_a_bad_head_or_torque_reading_quarantines_the_episode(tmp_path, problem):
+    writer = TaskEpisodeWriter(tmp_path, NAMES, metadata(True))
+    writer.append(**packet(0, real=True))
+    bad = packet(1, real=True)
+    head = dict(time=bad["source_time"]-.01, angles=[0., 0.], camera_pose=[0., 0., 0., 0., 0., 0., 1.])
+    if problem == "future_head": head["time"] = bad["source_time"]+.001
+    if problem == "head_nan": head["angles"] = [np.nan, 0.]
+    if problem == "short_pose": head["camera_pose"] = [0., 0., 0.]
+    bad["head"] = head
+    if problem == "torque_inf": bad["torques"] = np.full(16, np.inf)
+    if problem == "short_torques": bad["torques"] = np.zeros(14)
+    with pytest.raises(ValueError):
+        writer.append(**bad)
+    with pytest.raises(RuntimeError):
+        writer.finish()
+    assert not writer.path.exists()

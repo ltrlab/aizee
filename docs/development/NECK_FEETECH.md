@@ -31,8 +31,8 @@ otherwise.
 3. **Sync.**
    - The arms, head and cameras run on the Jetson's one monotonic clock.
    - One Helm session drives both receivers through the same states.
-   - Recordings store the neck as its own timestamped stream beside the arms and cameras. That is a deliberate
-     format change, since episodes assert 14 axes today.
+   - Recordings store the neck beside the arms and cameras: [episode format 9](../EPISODE_FORMAT.md) has 16 axes,
+     the neck's angles, the head camera's pose and the head sample's own timestamp.
 4. **Faults.** A fault in either receiver holds both. The head keeps its pose, since a servo holds its last goal.
    Torque is cut only on lost feedback, a servo fault or an e-stop, as for the arms.
 5. **Names.** The motors are `head_pan` and `head_tilt` (the robot definition's names). They drive the CAD joints
@@ -423,7 +423,7 @@ the end; there the tools need the release (a deploy, with the user's OK).
 - **Limits tab:** a stopped Feetech reader in Helm's live link, so the head's range is swept in the Limits tab like
   the arms'. `neck sweep-limits` stands in until then.
 - **Minerva Check:** the head's identity and pose checks, and its live sweep.
-- **Recording:** the neck's stream beside the arms and cameras.
+- **Recording:** done in [episode format 9](../EPISODE_FORMAT.md) (2026-11-01), untested on the robot so far.
 - **The assembled head:** reference and limits saved in Helm (2026-10-30 02:02Z); then the shoulder corners, the
   Tune tab's jog and a Live · Head session with the headset (steps 8-10).
 - **No arm-vs-head collision checks:** the user decided (2026-10-25) the head needs none.

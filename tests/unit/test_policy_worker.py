@@ -101,7 +101,8 @@ def test_the_cameras_reach_the_policy_as_the_recorder_stores_them_and_stale_ones
         endpoints[role], publishers[role] = publisher.getsockopt(zmq.LAST_ENDPOINT).decode(), publisher
     config = dict(schema=1, camera_roles=list(CAMERAS), recording_image_size=[32, 24],
                   cameras={role: dict(endpoint=endpoints[role], camera_id=role, timestamp_clock='local_unix',
-                                      timestamp_semantics='host_read_complete') for role in CAMERAS})
+                                      timestamp_semantics='host_read_complete') for role in CAMERAS},
+                  head=dict(endpoint='tcp://127.0.0.1:5596', motors=['head_pan', 'head_tilt']))  # Unused here.
     cameras = CaptureCameras(config)
     with pytest.raises(ValueError, match='lacks'):
         cameras.open(('top',))
