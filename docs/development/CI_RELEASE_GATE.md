@@ -65,7 +65,7 @@ must record actual CI results; workflow configuration alone is not a passing run
 
 ## First clean runner results and portability corrections
 
-Run [38952454408](https://github.com/ltrlab/aizee/actions/runs/38952454408) tested
+Run [38952454408](https://github.com/ltrlab/platform/actions/runs/38952454408) tested
 integration commit `610c66bb67586f39cd48dc642d755a1459cc6740` on 2026-10-16.
 Both runners built the mandatory ARM64 inputs and native libraries successfully.
 Windows passed its strict gate. Ubuntu exposed three independent portability gaps:
@@ -116,7 +116,7 @@ loads the pinned Mesa 26.2.4 MSVC x64 software driver. Both jobs must execute
 the render contract; missing graphics support is a failed prerequisite, not an
 allowed skip. Rendered simulation frames do not qualify physical camera calibration.
 
-Windows run [38959205082](https://github.com/ltrlab/aizee/actions/runs/38959205082)
+Windows run [38959205082](https://github.com/ltrlab/platform/actions/runs/38959205082)
 at candidate `5aab2da` failed its actual scene/camera contract with `gladLoadGL error`;
 942 Python tests passed, one failed, and no test skipped. Ubuntu's OSMesa job passed
 all 943 Python tests. The same scene passed locally with hardware OpenGL. This

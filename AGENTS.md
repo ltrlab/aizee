@@ -1,14 +1,13 @@
-# Working on Aizee / Minerva
+# Working on this repository
 
-Read `docs/history/plans/DEVELOPMENT_STATUS.md` and `docs/DEVELOPMENT.md` before changing code.
-Both Codex and Claude Code use these instructions. Detailed history stays in the
-device and architecture documents; current work and blockers go in the status file.
+Read `docs/STATUS.md` and `docs/DEVELOPMENT.md` before changing code. Both Codex and Claude Code use these
+instructions. `docs/history/` and `docs/devices/` hold the dated records and evidence; current work and blockers go in
+the status file.
 
 ## Isolation and ownership
 
-- Use one feature branch and worktree per task, based on the current integration
-  commit. Do not edit another task's worktree or share editable Python installs,
-  native build outputs, ports or recording directories.
+- Use one feature branch and worktree per task, based on `main`. Do not edit another task's worktree or share editable
+  Python installs, native build outputs, ports or recording directories.
 - Before editing, inspect `git status` and the task's file ownership and acceptance
   criteria. Preserve existing user changes. Do not automatically merge or deploy.
 - One owner changes the Python/Rust motion contract together: approach, collision
@@ -41,6 +40,16 @@ device and architecture documents; current work and blockers go in the status fi
 - The repository is public. Run `ltr-code install --worktree` in each new worktree
   (`docs/DEVELOPMENT.md`, "Commit checks"). Never commit with `--no-verify` to get
   past a finding: remove the secret, or allow a real non-secret with a reason.
+
+## Documentation
+
+- Guides describe what the code does now. When a change alters what an operator or
+  installer does, change the guide in the same branch. Update `docs/STATUS.md` when
+  something is proven on a robot or a blocker changes.
+- A per-feature record, if one is worth keeping, goes in `docs/history/features/`.
+  Link to it from a guide; never make the guide depend on it.
+- Keep home-network addresses, serial numbers, user paths and chat out of docs:
+  use `<robot-address>` and the like. `docs/README.md` indexes every guide.
 
 ## Branch handoff
 

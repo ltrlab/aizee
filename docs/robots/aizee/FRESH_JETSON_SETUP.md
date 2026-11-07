@@ -36,7 +36,7 @@ Clone this repository and set up a Python environment on the device:
 ```sh
 sudo apt update
 sudo apt install git build-essential pkg-config python3-dev python3-venv can-utils
-git clone https://github.com/ltrlab/aizee.git
+git clone https://github.com/ltrlab/platform.git
 cd aizee
 python3 -m venv --system-site-packages .venv
 . .venv/bin/activate

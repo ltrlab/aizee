@@ -11,7 +11,7 @@ python scripts/dev.py check
 ```
 
 Setup creates `.venv-dev` in this checkout, installs hash-locked dependencies and
-an editable package from this checkout only. It does not change `.venv-dev`.
+an editable package from this checkout only.
 Check builds/tests both portable Rust crates, builds the receiver harness and
 collision library, checks their presence/ABI, then runs the required control and
 rehearsal tests. A skip or xfail fails this gate. `--offline` uses Cargo's cache.
@@ -66,29 +66,6 @@ or lock change is deployed.
 
 ### Commit checks (ltr-code)
 
-This repository is public. [ltr-code](https://github.com/ltrlab/ltr-code), the LTR LABS code standard, checks every
-commit before it lands: keys, tokens, passwords, private network addresses and credential files; file size,
-whitespace, CRLF and conflict markers; and formatting (ruff, rustfmt, clang-format, shfmt, prettier). Install it
-once per machine and its hooks once per worktree:
-
-```sh
-python -m venv ~/.ltr-code
-~/.ltr-code/bin/pip install "ltr-code[tools] @ git+https://github.com/ltrlab/ltr-code"
-ltr-code install --worktree   # in each new worktree; leaves the clone's other worktrees alone
-```
-
-The pre-commit hook checks the lines a commit adds; the pre-push hook checks every commit a push sends; Git LFS's
-hooks keep running. `ltr-code check --all` audits the whole tree and `ltr-code scan --history` every commit ever made.
-Minerva's own networks (USB-C Ethernet, its access points, L4T's USB device mode) are allowed in
-`.ltr-code/secrets.toml`; a home LAN or tailnet address is not: take it from configuration instead.
-
-Formatting only warns until the one-time format commit that follows the merges for the public main, because a
-formatter rewrites whole files and every open branch would conflict with it. That commit is
-`ltr-code format --all`, on its own, then listed in `.git-blame-ignore-revs`; delete `.ltr-code/checks.toml` with it.
-The house style is in `ruff.toml`, `rustfmt.toml`, `.clang-format`, `.prettierrc.json` and `.editorconfig`.
-
-### Commit checks (ltr-code)
-
 This repository is public. [ltr-code](https://github.com/ltrlab/ltr-code), the LTR LABS code standard (its
 repository is private to LTR LABS), checks every commit before it lands: keys, tokens, passwords, private network
 addresses and credential files; file size, whitespace, CRLF and conflict markers; and formatting (ruff, rustfmt,
@@ -124,47 +101,22 @@ python scripts/dev.py check
 Never regenerate dependency locks as an unrelated fix for a failing test. The
 application supports Python 3.10+; this reproducible gate currently targets 3.12.
 
-## Parallel branches
+## Branches
 
-Start each feature from the current `codex/overhaul-integration` commit. Use an
-absolute, unique worktree path. For example:
+Start each change from the current `main` in its own worktree, at an absolute, unique path:
 
 ```sh
-git worktree add ../aizee-collision -b codex/collision-query-budget codex/overhaul-integration
+git worktree add ../platform-collision -b collision-query-budget main
 ```
 
-Run setup inside the new worktree. Reuse dependency download caches and the Rust
-compiler, but never another worktree's editable install or native binaries. Give
-each process its own ports and recording/output directories. Do not start a
-second hardware service; hardware deployment has one designated owner.
+Run setup inside the new worktree. Reuse dependency download caches and the Rust compiler, but never another
+worktree's editable install or native binaries. Give each process its own ports and recording or output
+directories. Do not start a second hardware service; hardware deployment has one designated owner.
 
-The integrator merges one branch at a time, runs the gate on the merged source,
-and records the resulting report. Refresh remaining branches from that integration
-commit before finishing them. Never use the default `main` base implicitly while
-the overhaul integration line is ahead of it.
-
-## Work boundaries and merge order
-
-| Branch | Owned area | Required result | Dependency |
-|---|---|---|---|
-| `codex/dev-baseline` | Setup, locks, CI, shared instructions | Reproducible required gate; no missing-native skips | Checkpoint of ongoing fixes |
-| `codex/mujoco-backend` | Physics adapter, model audit, synthetic fixtures | Real receiver against MuJoCo; invalid physical inputs rejected | Baseline |
-| `codex/teleop-direct-mirror` | Python/Rust direct teleop contract and timing evidence | Explicit collision-disabled mode; measured latest-target following | Current integration |
-| `codex/collision-query-budget` | Native/query hot path and performance fixtures | Same verdicts, recorded worst-case query costs | Baseline |
-| `codex/rehearsal-evidence` | Reproducing traces, seeds, fault scenarios | First divergence report for each known failure | Baseline |
-| `codex/helm-diagnostics` | Diagnostics presentation and recorded inputs | Display freshness/expiry/timing without changing motion | Baseline |
-| `codex/minerva-physical-model` | CAD export, inertias, mappings, model evidence | Measured single-arm model and independent holdout validation | MuJoCo + physical inputs |
-| `codex/two-arm-motion-contract` | Approach, envelopes, lifecycle and Rust checks together | Agreed bounds and dual-arm rehearsal acceptance | Collision timing + rehearsal evidence |
-| `codex/calibration-repeatability` | Measurement repeats and fit validation | Repeatable estimates with uncertainty and holdouts | Model/evidence |
-| `codex/release-reproducibility` | Existing release manifests/build provenance | Auditable source/model/binary identity | Baseline |
-
-The current priority is collision-disabled position teleop on
-`codex/teleop-direct-mirror`; see [its implementation brief](history/features/DIRECT_TELEOP.md).
-One owner changes the Python/Rust control contract together. Rehearsal evidence
-and diagnostics may proceed independently with stable fixtures and coordinated
-data fields. Collision optimization is outside the direct teleop critical path.
-Do not start multiple rewrites of the shared control files. Ruckig remains a
-separate future spike and is not a dependency of direct teleop or MuJoCo.
+The integrator merges one branch at a time, runs the gate on the merged source, and records the resulting report.
+Refresh the remaining branches from that commit before finishing them. One owner changes the Python/Rust control
+contract together (approach, collision envelope, guarded lifecycle, receiver checks). Do not start several rewrites
+of the shared control files at once.
 
 ## Acceptance ladder
 

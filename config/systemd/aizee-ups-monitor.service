@@ -1,6 +1,6 @@
 [Unit]
 Description=AIZEE UPS Power Monitor
-Documentation=https://github.com/ltrlab/aizee
+Documentation=https://github.com/ltrlab/platform
 After=network.target
 
 [Service]

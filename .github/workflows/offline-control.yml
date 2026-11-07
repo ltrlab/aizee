@@ -2,7 +2,7 @@ name: Offline control gate
 on:
   pull_request:
   push:
-    branches: [main, overhaul, 'codex/overhaul-integration']
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

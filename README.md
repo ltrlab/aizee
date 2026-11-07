@@ -1,191 +1,90 @@
-# Aizee / Minerva robotics platform
+# Robot platform
 
-One Python package (`robot_platform`) and one root Cargo workspace serve two
-robots: Aizee, a mobile manipulator, and Minerva, a dual-arm torso. Robot
-definitions, deployment settings, and application adapters are selected
-independently.
+The software [LTR LABS](https://github.com/ltrlab) uses to run, teleoperate, record from and train its robots: one
+Python package (`robot_platform`), one Rust workspace, and the firmware, CAD and calibration data they use. A robot is
+a definition the shared code selects, so more than one can live here.
 
-## Start here
+| Robot | What it is | Status |
+| --- | --- | --- |
+| [**Minerva**](docs/robots/minerva/HARDWARE.md) | Two-arm torso: 14 RobStride motors on CAN, a 2-axis Feetech neck, two wrist cameras and a head depth camera, on a Jetson. Two GELLO leader arms drive the arms and a Quest headset steers the head, through Helm, its web UI. | The current robot. |
+| [**AIZEE**](docs/robots/aizee/README.md) | One arm: a swivel, a gantry and a wrist with a gripper, plus wheel drive. | The earlier prototype. It stays as a robot option. |
 
-For development, start with the [reproducible offline workflow](docs/DEVELOPMENT.md)
-and [current development status](docs/history/plans/DEVELOPMENT_STATUS.md). Each feature branch
-uses its own worktree, Python environment and native build outputs. Run
-`python scripts/dev.py setup` once, then `python scripts/dev.py check` before
-integration. Historical test counts below are evidence from their stated dates.
+[docs/STATUS.md](docs/STATUS.md) says what has run on a real robot and what has only passed offline tests.
 
-Run these commands from the repository root in a Python 3.10+ environment:
+## Where to go
 
-```sh
-python -m pip install -e ".[operator,simulation,dev]"
-robot-platform list
-robot-platform run collect --robot minerva --settings settings/examples/usb-tether.json --plan
-robot-platform run collect --robot aizee --settings settings/examples/usb-tether.json --plan
-```
+| You want to | Read |
+| --- | --- |
+| Try Helm or the model with no robot | [Simulate](docs/getting-started/SIMULATE.md), below |
+| Operate Minerva | [Helm manual](docs/operator/HELM_MANUAL.md), and first [Safety](docs/operator/SAFETY.md) |
+| Install it on a robot | [Jetson](docs/getting-started/INSTALL_JETSON.md), [operator station](docs/getting-started/INSTALL_OPERATOR_STATION.md), [a new unit](docs/getting-started/NEW_UNIT_PROFILE.md) |
+| Record, export and train | [Episode format](docs/data/EPISODE_FORMAT.md), [dataset pipeline](docs/data/DATASET_PIPELINE.md), [training](docs/data/TRAINING.md) |
+| Change the code | [Development workflow](docs/DEVELOPMENT.md), [architecture](docs/architecture/OVERVIEW.md) |
+| Find anything else | [Documentation index](docs/README.md) |
 
-`--plan` prints the resolved launch without starting the application or opening
-hardware. Remove it to launch the selected collector. Use `python -m robot_platform`
-if the console command is not on PATH. Applications still need this source
-checkout; the shared libraries and profiles are packaged.
+## Try it without a robot
 
-### Simulate without hardware
+Python 3.12, [Git LFS](https://git-lfs.com/) for the meshes, and on Linux `.venv-dev/bin/python` where these say
+`.venv-dev/Scripts/python.exe`:
 
 ```sh
-robot-platform sim run --robot minerva --output simulation_runs/minerva-001
-# In another terminal, use that run's generated settings:
-robot-platform run collect --robot minerva --settings simulation_runs/minerva-001/settings.json
+git lfs pull
+python scripts/dev.py setup
+.venv-dev/Scripts/python.exe -m robot_platform list
 ```
 
-Use `--robot aizee` in both commands for Aizee. Every run needs a new output
-directory. Motors start disabled; simulation uses loopback endpoints and
-suppresses physical leader/serial discovery. See the
-[simulation guide](docs/simulation/SIMULATION_IMPLEMENTATION.md) for faults,
-recording, trace reports, and current limitations.
-
-The [guarded controller harness](docs/architecture/GUARDED_CONTROLLER.md) separately
-tests the new Rust command ownership, expiry and stopping core through the shared
-Python session. Build it with `./scripts/test_control_core.ps1` on the configured
-Windows host, then run `python -m pytest tests/contract/test_guarded_controller.py -q`.
-The Linux commissioning entry point now runs that core through SocketCAN and
-acknowledged ZMQ. See [powered commissioning](docs/operator/POWERED_COMMISSIONING.md) for
-virtual-CAN results, all 14 motor watchdog passes, mandatory startup verification
-and bounded gripper trials. General physical motion remains blocked pending commissioning.
-
-### View and jog a robot model
+See and jog a robot's model at <http://127.0.0.1:8765>:
 
 ```sh
-python -m pip install -e ".[viewer,collision]"
-robot-platform view --robot minerva
+.venv-dev/Scripts/python.exe -m robot_platform view --robot minerva
 ```
 
-Open `http://127.0.0.1:8765`. The same viewer selects Aizee, Minerva or an
-external URDF/model profile. It provides joint jogging, coupled jaws, pose
-files and collision inspection without connecting to hardware. See the
-[model tools guide](docs/simulation/MODEL_VIEWER.md) to add another robot.
-
-Build the optional native collision library with
-`./scripts/build_collision.ps1 -Test` on the configured Windows development
-host, or `cargo build --locked --release -p robot_collision` on Linux.
-**Conservative keep-out** checks enclosing arm boundaries without CAD refinement;
-Minerva's four finger links are explicitly excluded in its model profile.
-**Source CAD** and **Accelerated CAD** retain finger geometry. These viewer
-checks do not drive or stop hardware. See the
-[collision status and evidence](docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md).
-
-### View the GELLO leaders
-
-For the dual GELLO inputs, run `./scripts/view_leaders.ps1` and open
-`http://127.0.0.1:8767/`. The shared leader viewer provides live encoder positions,
-schematic arms and software direction/reference controls. See
-[dual GELLO setup](docs/architecture/GELLO_TELEOP.md) for virtual teleop testing and hardware gates.
-
-### Train
-
+Open Helm on a simulated Minerva at <http://127.0.0.1:8760/>; its header says **Simulation only**:
 
 ```sh
-python -m pip install -e ".[learning]"
-robot-platform run train --robot minerva --plan
-robot-platform run train --robot aizee --plan
+.venv-dev/Scripts/python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop-direct.json --sim
 ```
 
-Default data/output paths are `episodes/<robot>` and `checkpoints/<robot>`.
-Select older datasets explicitly with `--set applications.train.data_dir=PATH`.
-Old local checkpoints were removed during cleanup; train or supply a compatible
-checkpoint before inference. No pretrained weights ship with the repository.
-On Jetson, preserve the NVIDIA/JetPack-specific Torch installation.
+None of these open a motor or start a service. Anything physical is a separate, explicit step in the install guides.
 
 ## Repository map
 
 ```text
-pyproject.toml                Python package, dependency extras, CLI, offline tests
-Cargo.toml / Cargo.lock      Shared Rust workspace and locked dependencies
-src/robot_platform/
-  robots/                   Aizee / Minerva joint and camera definitions
-  models/                   Mechanical model profiles, URDF metadata and assets
-  viewer/                   Shared browser rendering, joint jogging, pose files
-  settings/                 Packaged defaults and overlay validation
-  control/                  Shared sessions, freshness, guarded commands, software stop
-  transport/                MessagePack, ZMQ, discovery
-  data/                     Recording formats, provenance, measurement traces
-  simulation/               Synthetic plant, loopback server, fault scenarios
-  characterization/         Protocol/config audit and bench-profile validation
-  apps/                     Collection/training launch adapters
-rust/                       comms, motor_control, lidar_control, robot_collision, robot_control
-python/                     Active collector UIs, learning, devices, IK, tools
-settings/examples/          Operator/machine overlays and bench-profile template
-config/                     Hardware profiles, calibration, systemd/udev
-firmware/                   Leaders, display, lift; required vendor BSP
-urdf/aizee/                 Existing Aizee Onshape export and Git LFS meshes
-urdf/minerva/               Composed 1.1 visuals / 1.2 collision CAD, profiles, audits, limits
-scripts/                    Build, deploy, inventory, simulation validation
-tests/                      Offline tests, fixtures, explicit hardware tools
-docs/                       Current guides, plans, subsystem references
+src/robot_platform/    The Python package
+  helm/                  Helm: the operator web UI and the teleop loop, with its pages in static/
+  control/               Guarded sessions, freshness, stopping, calibration, commissioning
+  teleop/                Leader arms, the GELLO bridge, the headset, policies as sources of commands
+  neck/                  Minerva's Feetech neck
+  data/                  Episode formats, recording, export to LeRobot
+  vision/                Camera calibration and the table's fiducials
+  simulation/            MuJoCo task scene, plants, the loopback simulator
+  evaluation/            Scripted demonstrations and N-trial policy evaluation
+  ops/                   Releases, deployment and the services installed on the Jetson
+  robots/ settings/      Robot definitions and deployment settings, one of each per robot
+  models/ viewer/        Mechanical model profiles and the browser viewer
+  apps/ transport/       Launchers for the older collectors and trainers; MessagePack, ZeroMQ
+  characterization/      Protocol and configuration audit, bench profiles
+python/                Older collectors (collect_minerva, AIZEE's collect_demo), training models, tools
+rust/                  control_core (the guarded receiver and head controller), motor_control, collision, comms, lidar_control
+firmware/              openrb_leader (the leader arms), lift_actuator, tufty2040 (AIZEE's display)
+config/                Device profiles, calibration, hardware files, systemd and udev: see config/README.md
+urdf/                  CAD exports and MuJoCo models, with meshes in Git LFS
+scripts/               Build, deploy, benchmarks, simulation tools, training server: see scripts/README.md
+settings/examples/     Settings overlays
+tests/                 Offline tests and fixtures: see tests/README.md
+docs/                  See docs/README.md
 ```
 
-The [detailed map](docs/architecture/REPOSITORY_MAP.md) and
-[configuration guide](config/README.md) explain ownership and remaining migration
-boundaries. `python/` contains active application code and compatibility shims.
-
-## Robots and deployment
-
-| Robot | Active control | Controller profile | Command / telemetry |
-|---|---|---|---|
-| Aizee | Six arm joints, gripper, separate wheel drive | `config/hardware_jetson_rover.yaml` | `5555 / 5556` |
-| Minerva left | Six arm joints and gripper | `config/hardware_minerva_left.yaml` | `5555 / 5556` |
-| Minerva right | Six arm joints and gripper | `config/hardware_minerva_right.yaml` | `5575 / 5576` |
-
-Helm's task capture records Minerva's 16 axes, both arms, both grippers and the
-neck's pan/tilt, with effort and the head camera's pose ([episode format 9](docs/data/EPISODE_FORMAT.md)).
-The legacy collector's 17-slot schema keeps head and lift as reserved, inactive slots.
-Wrist cameras use ports 5563/5565; scene/head uses 5564.
-Shared settings select endpoints explicitly. Direct older tools may still use
-network discovery. Aizee and Minerva motor services share ports and are alternate
-deployments on a single host.
-
-Build Rust services from the repository root on Linux/Jetson:
+## Checking a change
 
 ```sh
-cargo build --locked --release -p motor_control -p lidar_control
+python scripts/dev.py check
 ```
 
-Windows ARM64 cross-builds use `scripts/build_jetson.ps1`; see the
-[build guide](rust/JETSON_CROSS_BUILD.md). Output stays under `rust/target`.
-Manual controller launches require `AIZEE_CONFIG` set to the chosen profile.
-Existing service units already set it.
+This builds and tests the Rust crates, then runs the required tests with no skips allowed. It needs no hardware, and
+passing it does not qualify anything on a robot. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) has the setup, the faster
+lane for small changes and the commit checks.
 
-The [Jetson setup guide](docs/robots/aizee/FRESH_JETSON_SETUP.md) distinguishes the
-new development device from robot-service installation. Physical deployments
-remain explicit operations.
+## License
 
-## Validation and status
-
-```sh
-python -m pytest
-python scripts/validate_simulation.py --output simulation_runs/validation-new
-```
-
-Default pytest discovery covers offline unit/contract tests. See
-[tests/README.md](tests/README.md) for additional suites and hardware tooling.
-The simulation baseline passed 248 Python tests and 12 live scenarios on
-2026-09-17. ARM64 services cross-compile locally. The identified development
-Jetson now builds and tests the native collision backend. Its 1,000-cycle
-synthetic arm-to-arm keep-out replay completed at 25 Hz without deadline misses;
-this is partial coverage with finger exclusions. Whole-robot motion, virtual
-CAN, CAD dynamics and measured actuator calibration remain open. See the
-[25 Hz acceptance plan](docs/history/plans/COLLISION_25HZ_HARDWARE_PLAN.md),
-[device log](docs/devices/JETSON_DEV_01.md) and
-[September 21 checkpoint](docs/history/plans/DEVELOPMENT_CHECKPOINT_2026-09-21.md).
-
-## Documentation
-
-- [Documentation index](docs/README.md)
-- [Package installation and launch settings](docs/architecture/OVERVIEW.md)
-- [Shared session integration](docs/history/plans/SESSION_BACKEND_MIGRATION.md)
-- [Simulation and physical validation plan](docs/history/plans/SIMULATION_VALIDATION_PLAN.md)
-- [Minerva bring-up](docs/history/plans/MINERVA_BRINGUP.md)
-- [Aizee learning pipeline](docs/robots/aizee/LEARNING_PIPELINE.md)
-- [Cleanup record](docs/architecture/REPOSITORY_CLEANUP.md)
-
-![Aizee](image.png)
-
-[Aizee CAD in Onshape](https://cad.onshape.com/documents/191b8a861f2900918f30776f/w/8fcf08900b23701d0eff1c6a/e/fcb77dc7adbafb5b753006f3)
-· [MIT license](LICENSE) · [LTRLAB](https://github.com/ltrlab)
+[MIT](LICENSE). The RobStride manuals in `docs/vendor/` are the vendor's own.
