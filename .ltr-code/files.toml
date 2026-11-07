@@ -9,4 +9,9 @@ extend-paths = [
     "docs/devices/MINERVA_GRIPPER_TRANSMISSION_20260924.json", # a measurement record, kept whole with its raw traces
     "src/robot_platform/viewer/static/vendor/", # vendored three.js, checksummed in sources.json
     "urdf/", # CAD exports
+    "scripts/maintenance/gs_usb/*.patch", # kernel patches, whose whitespace is content
+    "config/*_calibration.json", # written whole by the calibration tools
+    "config/openrb_*.json", # the same
+    "config/minerva_gravity.json", # the same
+    "tests/fixtures/simulation/telemetry_v2.json", # a recorded fixture
 ]
