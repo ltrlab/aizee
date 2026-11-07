@@ -7,7 +7,7 @@ set -e
 echo "Installing RPLiDAR udev rules..."
 
 # Create rules file
-cat > /etc/udev/rules.d/99-rplidar.rules << 'RULES'
+cat >/etc/udev/rules.d/99-rplidar.rules <<'RULES'
 # Udev rules for RPLiDAR A1M8 sensors
 # Uses USB port location since serial numbers are identical
 

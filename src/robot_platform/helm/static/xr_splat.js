@@ -10,10 +10,10 @@
 // sorted again whenever the view has turned or moved. The live 3D and the model draw over it. Read-only: nothing
 // here moves the robot.
 import * as THREE from 'three';
-import {ROW, TEXELS, parseSplat} from './xr_splat_sort.js';
+import { ROW, TEXELS, parseSplat } from './xr_splat_sort.js';
 
-export const SORT_MS = 50;  // At most one sort this often.
-export const MAPS_MS = 10000;  // Helm's maps asked again this often while the map shows: a newer one replaces it.
+export const SORT_MS = 50; // At most one sort this often.
+export const MAPS_MS = 10000; // Helm's maps asked again this often while the map shows: a newer one replaces it.
 
 const VERTEX = `
 precision highp float;
@@ -82,7 +82,7 @@ void main() {
 export function chooseMap(listing) {
   for (const map of listing?.maps || []) {
     const pose = listing.robot_in_world?.[map.world];
-    if (Array.isArray(pose) && pose.length === 16 && pose.every(Number.isFinite)) return {map, robotInWorld: pose};
+    if (Array.isArray(pose) && pose.length === 16 && pose.every(Number.isFinite)) return { map, robotInWorld: pose };
   }
   return null;
 }
@@ -90,9 +90,12 @@ export function chooseMap(listing) {
 export class SplatMap {
   // `fetch`, the clock (ms) and the sorting worker: the browser's (tests pass their own). Each is wrapped, as the
   // headset's model learned (xr_model.js): the browser's own, called as a method, throws "Illegal invocation".
-  constructor({fetch: get = (...args) => fetch(...args), now = () => performance.now(),
-    createWorker = () => new Worker(new URL('./xr_splat_worker.js', import.meta.url), {type: 'module'})} = {}) {
-    Object.assign(this, {get, now, createWorker});
+  constructor({
+    fetch: get = (...args) => fetch(...args),
+    now = () => performance.now(),
+    createWorker = () => new Worker(new URL('./xr_splat_worker.js', import.meta.url), { type: 'module' }),
+  } = {}) {
+    Object.assign(this, { get, now, createWorker });
     this.group = new THREE.Group();
     this.group.matrixAutoUpdate = false;
     this.group.visible = false;
@@ -102,7 +105,7 @@ export class SplatMap {
     this.error = null;
     this.loading = false;
     this.wanted = false;
-    this.room = null;  // M: the robot in the room, while the world-locked 3D shows.
+    this.room = null; // M: the robot in the room, while the world-locked 3D shows.
     this.robotInWorld = new THREE.Matrix4();
     this.opacity = 1;
     this.worker = null;
@@ -119,21 +122,28 @@ export class SplatMap {
 
   // The map's state for the status panel (xr_status.panelRows).
   get state() {
-    return {on: this.wanted, shown: this.group.visible, name: this.name, count: this.count, error: this.error,
-      loading: this.loading};
+    return {
+      on: this.wanted,
+      shown: this.group.visible,
+      name: this.name,
+      count: this.count,
+      error: this.error,
+      loading: this.loading,
+    };
   }
 
   // Helm's maps: the one to draw (chooseMap), loaded when it is not the one drawn.
   async refresh() {
     this.listedAt = this.now();
     try {
-      const response = await this.get('/api/helm/maps', {cache: 'no-store'});
+      const response = await this.get('/api/helm/maps', { cache: 'no-store' });
       const listing = await response.json();
       if (!response.ok) throw new Error(listing.error || `HTTP ${response.status}`);
       const chosen = chooseMap(listing);
       if (!chosen) {
-        throw new Error(listing.maps?.length ? 'no map in a world the headset can place: align the head camera'
-          : 'no map yet');
+        throw new Error(
+          listing.maps?.length ? 'no map in a world the headset can place: align the head camera' : 'no map yet',
+        );
       }
       this.robotInWorld.fromArray(chosen.robotInWorld);
       if (chosen.map.name !== this.name) await this.load(chosen.map);
@@ -157,31 +167,48 @@ export class SplatMap {
   }
 
   // The drawing of a map's Gaussians (parseSplat): one instanced quad each, read from a float texture by index.
-  build({count, centres, data, rows}) {
+  build({ count, centres, data, rows }) {
     this.dispose();
     const texture = new THREE.DataTexture(data, ROW * TEXELS, rows, THREE.RGBAFormat, THREE.FloatType);
     texture.minFilter = texture.magFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
     texture.needsUpdate = true;
     const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1,
-      0]), 3));
+    geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3),
+    );
     geometry.setIndex([0, 1, 2, 0, 2, 3]);
-    const order = new THREE.InstancedBufferAttribute(new Float32Array(count).map((_, i) => i), 1);
+    const order = new THREE.InstancedBufferAttribute(
+      new Float32Array(count).map((_, i) => i),
+      1,
+    );
     order.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('splatIndex', order);
     geometry.instanceCount = count;
     const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, depthWrite: false,
-      side: THREE.DoubleSide,  // Either way round, a Gaussian is seen.
-      uniforms: {splats: {value: texture}, focal: {value: new THREE.Vector2(1, 1)},
-        viewport: {value: new THREE.Vector2(1, 1)}, opacity: {value: this.opacity}},
-      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor,
-      blendDstAlpha: THREE.OneMinusSrcAlphaFactor});
+      glslVersion: THREE.GLSL3,
+      vertexShader: VERTEX,
+      fragmentShader: FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide, // Either way round, a Gaussian is seen.
+      uniforms: {
+        splats: { value: texture },
+        focal: { value: new THREE.Vector2(1, 1) },
+        viewport: { value: new THREE.Vector2(1, 1) },
+        opacity: { value: this.opacity },
+      },
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    });
     this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.frustumCulled = false;  // Its bounds are a quad's; each Gaussian leaves the view on its own.
-    this.mesh.renderOrder = -1;  // Before the live 3D and the model, which draw over it.
+    this.mesh.frustumCulled = false; // Its bounds are a quad's; each Gaussian leaves the view on its own.
+    this.mesh.renderOrder = -1; // Before the live 3D and the model, which draw over it.
     this.mesh.onBeforeRender = (renderer, _scene, camera) => this.eye(renderer, camera, material);
     this.group.add(this.mesh);
     this.count = count;
@@ -190,9 +217,9 @@ export class SplatMap {
     this.sorting = false;
     if (!this.worker) {
       this.worker = this.createWorker();
-      if (this.worker) this.worker.onmessage = ({data: reply}) => this.sorted(reply);
+      if (this.worker) this.worker.onmessage = ({ data: reply }) => this.sorted(reply);
     }
-    this.worker?.postMessage({centres, count}, [centres.buffer]);
+    this.worker?.postMessage({ centres, count }, [centres.buffer]);
   }
 
   // Each eye's focal length and viewport, in pixels (a WebXR eye's own viewport; a plain camera's, the drawing
@@ -203,7 +230,7 @@ export class SplatMap {
     else renderer.getDrawingBufferSize(this.size);
     const p = camera.projectionMatrix.elements;
     material.uniforms.viewport.value.copy(this.size);
-    material.uniforms.focal.value.set(p[0] * this.size.x / 2, p[5] * this.size.y / 2);
+    material.uniforms.focal.value.set((p[0] * this.size.x) / 2, (p[5] * this.size.y) / 2);
     material.uniformsNeedUpdate = true;
   }
 
@@ -250,13 +277,13 @@ export class SplatMap {
     if (this.lastView && view.every((value, k) => Math.abs(value - this.lastView[k]) < 1e-3)) return;
     this.sorting = true;
     this.lastView = view;
-    this.worker.postMessage({id: this.generation, view});
+    this.worker.postMessage({ id: this.generation, view });
   }
 
-  sorted({id, order}) {
+  sorted({ id, order }) {
     this.sorting = false;
     this.sortedAt = this.now();
-    if (id !== this.generation || !this.mesh || order.length !== this.count) return;  // An earlier map's.
+    if (id !== this.generation || !this.mesh || order.length !== this.count) return; // An earlier map's.
     const attribute = this.mesh.geometry.getAttribute('splatIndex');
     attribute.array.set(order);
     attribute.needsUpdate = true;

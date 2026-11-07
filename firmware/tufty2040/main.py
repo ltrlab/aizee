@@ -33,16 +33,16 @@ WIDTH, HEIGHT = display.get_bounds()  # 320 × 240
 # Colour palette
 # ---------------------------------------------------------------------------
 
-BG        = display.create_pen(10,  10,  30)   # near-black background
-TITLE_BG  = display.create_pen(0,   30,  80)   # dark blue title bar
-GREEN     = display.create_pen(0,   200, 80)   # good / running
-YELLOW    = display.create_pen(230, 200, 0)    # warning / enabling
-RED       = display.create_pen(220, 40,  40)   # critical / error / disabled
-GRAY      = display.create_pen(140, 140, 140)  # labels / unknown
-WHITE     = display.create_pen(255, 255, 255)
-BLACK     = display.create_pen(0,   0,   0)
-DARK_GRAY = display.create_pen(50,  50,  50)   # disabled motor bg
-DARK_BG   = display.create_pen(20,  20,  50)   # section separator bg
+BG = display.create_pen(10, 10, 30)  # near-black background
+TITLE_BG = display.create_pen(0, 30, 80)  # dark blue title bar
+GREEN = display.create_pen(0, 200, 80)  # good / running
+YELLOW = display.create_pen(230, 200, 0)  # warning / enabling
+RED = display.create_pen(220, 40, 40)  # critical / error / disabled
+GRAY = display.create_pen(140, 140, 140)  # labels / unknown
+WHITE = display.create_pen(255, 255, 255)
+BLACK = display.create_pen(0, 0, 0)
+DARK_GRAY = display.create_pen(50, 50, 50)  # disabled motor bg
+DARK_BG = display.create_pen(20, 20, 50)  # section separator bg
 
 # ---------------------------------------------------------------------------
 # Logo JPEG (22×22, composited over TITLE_BG on dev machine via PIL)
@@ -63,7 +63,7 @@ LOGO_JPEG = (
     b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00'
     b'\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01}\x01\x02\x03'
     b'\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07"q\x142\x81\x91\xa1\x08#B\xb1\xc1'
-    b'\x15R\xd1\xf0$3br\x82\t\n\x16\x17\x18\x19\x1a%&\'()*456789:CDEFGHIJ'
+    b"\x15R\xd1\xf0$3br\x82\t\n\x16\x17\x18\x19\x1a%&'()*456789:CDEFGHIJ"
     b'STUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88\x89\x8a\x92\x93\x94'
     b'\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3'
     b'\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2'
@@ -73,7 +73,7 @@ LOGO_JPEG = (
     b'\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xc4\x00\xb5\x11\x00\x02\x01'
     b'\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02w\x00\x01\x02\x03\x11'
     b'\x04\x05!1\x06\x12AQ\x07aq\x13"2\x81\x08\x14B\x91\xa1\xb1\xc1\t#3R\xf0'
-    b'\x15br\xd1\n\x16$4\xe1%\xf1\x17\x18\x19\x1a&\'()*56789:CDEFGHIJSTUVWXYZ'
+    b"\x15br\xd1\n\x16$4\xe1%\xf1\x17\x18\x19\x1a&'()*56789:CDEFGHIJSTUVWXYZ"
     b'cdefghijstuvwxyz\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x92\x93\x94\x95'
     b'\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4'
     b'\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3'
@@ -88,16 +88,20 @@ LOGO_JPEG = (
 
 _LOGO_PURPLE = display.create_pen(102, 0, 255)
 
+
 def _draw_logo_fallback(x, y):
     display.set_pen(_LOGO_PURPLE)
     display.rectangle(x, y, 22, 22)
     display.set_pen(WHITE)
-    display.set_font("bitmap8")
-    display.text("ltr", x + 3, y + 7, scale=1)
+    display.set_font('bitmap8')
+    display.text('ltr', x + 3, y + 7, scale=1)
+
 
 try:
     import jpegdec as _jd
+
     _jpeg = _jd.JPEG(display)
+
     def draw_logo(x, y):
         try:
             _jpeg.open_RAM(LOGO_JPEG)
@@ -111,55 +115,55 @@ except ImportError:
 # Border animation constants
 # ---------------------------------------------------------------------------
 
-BORDER_W       = 10
-WAVE_COUNT     = 3
-WAVE_SPEED     = 0.07    # perimeter laps/s → 1 full lap ≈ 14 s
-WAVE_HALFWIDTH = 0.12    # bell half-width as fraction of perimeter
+BORDER_W = 10
+WAVE_COUNT = 3
+WAVE_SPEED = 0.07  # perimeter laps/s → 1 full lap ≈ 14 s
+WAVE_HALFWIDTH = 0.12  # bell half-width as fraction of perimeter
 
 # Colour rules — evaluated top-to-bottom, first True wins
 BORDER_RULES = [
-    ("yellow", lambda sv, mv, me, stale, waiting: waiting),
-    ("red",    lambda sv, mv, me, stale, waiting: stale),
-    ("red",    lambda sv, mv, me, stale, waiting: any(v == "f" for v in sv.values())),
-    ("green",  lambda sv, mv, me, stale, waiting: me),
-    ("blue",   lambda sv, mv, me, stale, waiting: True),
+    ('yellow', lambda sv, mv, me, stale, waiting: waiting),
+    ('red', lambda sv, mv, me, stale, waiting: stale),
+    ('red', lambda sv, mv, me, stale, waiting: any(v == 'f' for v in sv.values())),
+    ('green', lambda sv, mv, me, stale, waiting: me),
+    ('blue', lambda sv, mv, me, stale, waiting: True),
 ]
 BORDER_RGBS = {
-    "red":    (255,  60,  60),
-    "green":  ( 60, 255, 120),
-    "blue":   ( 80, 180, 255),
-    "yellow": (255, 240,  40),
+    'red': (255, 60, 60),
+    'green': (60, 255, 120),
+    'blue': (80, 180, 255),
+    'yellow': (255, 240, 40),
 }
 
 # ---------------------------------------------------------------------------
 # Voltage thresholds (from hardware_jetson_rover.yaml)
 # ---------------------------------------------------------------------------
 
-UPS_NOMINAL  = 11.1   # V → green
-UPS_WARNING  = 10.5   # V → yellow
-UPS_CRITICAL = 9.9    # V → red
-UPS_FULL     = 12.6   # V (100%)
-UPS_MIN      = 9.0    # V (0%)
+UPS_NOMINAL = 11.1  # V → green
+UPS_WARNING = 10.5  # V → yellow
+UPS_CRITICAL = 9.9  # V → red
+UPS_FULL = 12.6  # V (100%)
+UPS_MIN = 9.0  # V (0%)
 
-MOTOR_WARN   = 22.0   # V → yellow (24V system)
-MOTOR_CRIT   = 20.0   # V → red
-MOTOR_FULL   = 25.2   # V (100%) — 6S LiPo @ 4.2 V/cell
-MOTOR_MIN    = 19.8   # V (0%)   — 6S LiPo @ 3.3 V/cell
+MOTOR_WARN = 22.0  # V → yellow (24V system)
+MOTOR_CRIT = 20.0  # V → red
+MOTOR_FULL = 25.2  # V (100%) — 6S LiPo @ 4.2 V/cell
+MOTOR_MIN = 19.8  # V (0%)   — 6S LiPo @ 3.3 V/cell
 
 # ---------------------------------------------------------------------------
 # Motor abbreviation / display order
 # ---------------------------------------------------------------------------
 
-MOTOR_IDS = ["lw", "rw", "sw", "gb", "gm", "ge", "wp", "wr", "gr"]
-BASE_MOTORS = {"lw", "rw", "sw"}
+MOTOR_IDS = ['lw', 'rw', 'sw', 'gb', 'gm', 'ge', 'wp', 'wr', 'gr']
+BASE_MOTORS = {'lw', 'rw', 'sw'}
 
 # Motor state char → (bg_pen, text_pen)
 STATE_COLORS = {
-    "r": (GREEN,     BLACK),
-    "e": (YELLOW,    BLACK),
-    "d": (YELLOW,    BLACK),   # disabled → yellow
-    "x": (RED,       WHITE),
-    "?": (RED,       WHITE),   # unknown/off → red
+    'r': (GREEN, BLACK),
+    'e': (YELLOW, BLACK),
+    'd': (YELLOW, BLACK),  # disabled → yellow
+    'x': (RED, WHITE),
+    '?': (RED, WHITE),  # unknown/off → red
 }
 
 # ---------------------------------------------------------------------------
@@ -171,24 +175,24 @@ STATE_COLORS = {
 # pushing the Pi section off the bottom edge.  Labels are 4 chars max so
 # they fit alongside the 3-char status text inside a 70 px tile.
 SERVICES_ROWS = [
-    [("motors", "MOTR"), ("lidar", "LIDR"), ("ups",  "UPS"),  ("relay", "RLAY")],
-    [("disp",   "DISP"), ("armL",  "ARML"), ("armR", "ARMR")],
+    [('motors', 'MOTR'), ('lidar', 'LIDR'), ('ups', 'UPS'), ('relay', 'RLAY')],
+    [('disp', 'DISP'), ('armL', 'ARML'), ('armR', 'ARMR')],
 ]
 
 # Pi state char → (bg_pen, text_pen, status_label)
 PI_COLORS = {
-    "u": (GREEN,     BLACK, "UP"),
-    "d": (RED,       WHITE, "DN"),
-    "?": (DARK_GRAY, GRAY,  "??"),
+    'u': (GREEN, BLACK, 'UP'),
+    'd': (RED, WHITE, 'DN'),
+    '?': (DARK_GRAY, GRAY, '??'),
 }
 
 # Service state char → (bg_pen, text_pen, status_label)
 SV_COLORS = {
-    "a": (GREEN,     BLACK, "OK "),
-    "f": (RED,       WHITE, "ERR"),
-    "i": (YELLOW,    BLACK, "---"),
-    "e": (YELLOW,    BLACK, "ACT"),
-    "?": (DARK_GRAY, GRAY,  "???"),
+    'a': (GREEN, BLACK, 'OK '),
+    'f': (RED, WHITE, 'ERR'),
+    'i': (YELLOW, BLACK, '---'),
+    'e': (YELLOW, BLACK, 'ACT'),
+    '?': (DARK_GRAY, GRAY, '???'),
 }
 
 # ---------------------------------------------------------------------------
@@ -197,13 +201,14 @@ SV_COLORS = {
 
 last_data: dict = {}
 last_recv: float = 0.0
-buf: str = ""
+buf: str = ''
 
 STALE_TIMEOUT = 5.0  # seconds — show "NO SIGNAL" if no packet received
 
 # ---------------------------------------------------------------------------
 # Border segment table (computed once at startup)
 # ---------------------------------------------------------------------------
+
 
 def _build_border_segs():
     """Return list of (x, y, w, h, frac) for all 56 border segments.
@@ -229,49 +234,53 @@ def _build_border_segs():
         segs.append((0, (11 - i) * 20, B, 20, (44 + i) / total))
     return segs
 
+
 _BORDER_SEGS = _build_border_segs()
 
 # Lock and shared state for dual-core border animation (Core 1)
-_lock     = _thread.allocate_lock()
-_bsv      = {}
-_bmv      = None
-_bme      = False
-_bstale   = False
+_lock = _thread.allocate_lock()
+_bsv = {}
+_bmv = None
+_bme = False
+_bstale = False
 _bwaiting = True
 
 # ---------------------------------------------------------------------------
 # Section icons (8×8 px, drawn with primitives)
 # ---------------------------------------------------------------------------
 
-def icon_bolt(x, y, p):          # ⚡ battery/power
+
+def icon_bolt(x, y, p):  # ⚡ battery/power
     display.set_pen(p)
-    display.rectangle(x + 3, y,     3, 4)
+    display.rectangle(x + 3, y, 3, 4)
     display.rectangle(x + 1, y + 3, 6, 2)
-    display.rectangle(x,     y + 4, 3, 4)
+    display.rectangle(x, y + 4, 3, 4)
 
 
-def icon_motor(x, y, p):         # ◎ motors
+def icon_motor(x, y, p):  # ◎ motors
     display.set_pen(p)
     display.circle(x + 4, y + 4, 4)
     display.set_pen(BG)
     display.circle(x + 4, y + 4, 2)
 
 
-def icon_gear(x, y, p):          # ⚙ services
+def icon_gear(x, y, p):  # ⚙ services
     display.set_pen(p)
     display.circle(x + 4, y + 4, 3)
     for dx, dy in [(3, 0), (3, 5), (0, 3), (5, 3)]:
         display.rectangle(x + dx, y + dy, 2, 2)
 
 
-def icon_net(x, y, p):           # ◈ pies/network
+def icon_net(x, y, p):  # ◈ pies/network
     display.set_pen(p)
     for cx, cy in [(2, 2), (6, 2), (2, 6), (6, 6)]:
         display.circle(x + cx, y + cy, 1)
 
+
 # ---------------------------------------------------------------------------
 # Drawing helpers
 # ---------------------------------------------------------------------------
+
 
 def clear():
     display.set_pen(BG)
@@ -304,7 +313,7 @@ def draw_section_line(y):
 
 
 def draw_border(sv, mv, me, stale, waiting):
-    rgb = BORDER_RGBS["blue"]
+    rgb = BORDER_RGBS['blue']
     for label, fn in BORDER_RULES:
         if fn(sv, mv, me, stale, waiting):
             rgb = BORDER_RGBS[label]
@@ -315,32 +324,36 @@ def draw_border(sv, mv, me, stale, waiting):
         intensity = 0.0
         for k in range(WAVE_COUNT):
             d = frac - (phase + k / WAVE_COUNT) % 1.0
-            if d >  0.5: d -= 1.0
-            elif d < -0.5: d += 1.0
+            if d > 0.5:
+                d -= 1.0
+            elif d < -0.5:
+                d += 1.0
             d = abs(d)
             if d < WAVE_HALFWIDTH:
                 t = 1.0 - d / WAVE_HALFWIDTH
-                intensity += t * t        # quadratic bell — no trig
+                intensity += t * t  # quadratic bell — no trig
         intensity = min(1.0, intensity / WAVE_COUNT)
         factor = 0.5 + 0.5 * intensity
-        display.set_pen(display.create_pen(
-            min(255, int(br * factor)),
-            min(255, int(bg_c * factor)),
-            min(255, int(bb * factor)),
-        ))
+        display.set_pen(
+            display.create_pen(
+                min(255, int(br * factor)),
+                min(255, int(bg_c * factor)),
+                min(255, int(bb * factor)),
+            )
+        )
         display.rectangle(x, y, w, h)
 
 
-def draw_title_bar(signal_ok, waiting, ip=""):
+def draw_title_bar(signal_ok, waiting, ip=''):
     """Dark-blue title bar: y=10..36 (26 px), with logo and status."""
     display.set_pen(TITLE_BG)
     display.rectangle(10, 10, 300, 26)
 
-    draw_logo(12, 12)   # 22×22 logo, vertically centred in 26 px bar
+    draw_logo(12, 12)  # 22×22 logo, vertically centred in 26 px bar
 
     display.set_pen(WHITE)
-    display.set_font("bitmap8")
-    display.text("AIZEE STATUS", 38, 19, scale=1)
+    display.set_font('bitmap8')
+    display.text('AIZEE STATUS', 38, 19, scale=1)
 
     if ip:
         display.set_pen(GRAY)
@@ -348,13 +361,13 @@ def draw_title_bar(signal_ok, waiting, ip=""):
 
     if waiting:
         display.set_pen(YELLOW)
-        display.text("WAITING...", 220, 19, scale=1)
+        display.text('WAITING...', 220, 19, scale=1)
     elif signal_ok:
         display.set_pen(GREEN)
-        display.text("OK", 282, 19, scale=1)
+        display.text('OK', 282, 19, scale=1)
     else:
         display.set_pen(RED)
-        display.text("NO SIGNAL", 232, 19, scale=1)
+        display.text('NO SIGNAL', 232, 19, scale=1)
 
     draw_section_line(36)
 
@@ -364,33 +377,33 @@ def draw_battery_section(mv, up, ub, mp=None):
     Left half: Jetson UPS battery  |  Right half: Motor bus voltage
     y range: 38–90 (52 px)
     """
-    display.set_font("bitmap8")
+    display.set_font('bitmap8')
 
     # --- Section labels with icons ---
     icon_bolt(14, 39, GRAY)
     display.set_pen(GRAY)
-    display.text("JETSON BATTERY", 24, 40, scale=1)
+    display.text('JETSON BATTERY', 24, 40, scale=1)
 
     icon_bolt(165, 39, GRAY)
     display.set_pen(GRAY)
-    display.text("MOTOR BATTERY", 175, 40, scale=1)
+    display.text('MOTOR BATTERY', 175, 40, scale=1)
 
     # --- UPS voltage (large) ---
     up_color = color_for_ups_voltage(up)
     display.set_pen(up_color)
     if up is None:
-        display.text("---", 14, 50, scale=2)
+        display.text('---', 14, 50, scale=2)
     else:
-        display.text("{:.1f}V".format(up), 14, 50, scale=2)
+        display.text('{:.1f}V'.format(up), 14, 50, scale=2)
 
     # --- UPS percentage ---
     if ub is None:
         display.set_pen(GRAY)
-        display.text("---%", 90, 50, scale=2)
+        display.text('---%', 90, 50, scale=2)
     else:
         pct_color = GREEN if ub >= 50 else (YELLOW if ub >= 20 else RED)
         display.set_pen(pct_color)
-        display.text("{:3d}%".format(ub), 90, 50, scale=2)
+        display.text('{:3d}%'.format(ub), 90, 50, scale=2)
 
     # --- UPS progress bar ---
     bar_x, bar_y, bar_w, bar_h = 14, 74, 143, 10
@@ -412,13 +425,13 @@ def draw_battery_section(mv, up, ub, mp=None):
     mv_color = color_for_motor_voltage(mv)
     display.set_pen(mv_color if mv is not None else GRAY)
     if mv is None:
-        display.text("DC", 167, 50, scale=2)
+        display.text('DC', 167, 50, scale=2)
     else:
-        display.text("{:.1f}V".format(mv), 167, 50, scale=2)
+        display.text('{:.1f}V'.format(mv), 167, 50, scale=2)
         if mp is not None:
             pct_color = GREEN if mp >= 50 else (YELLOW if mp >= 20 else RED)
             display.set_pen(pct_color)
-            display.text("{:3d}%".format(mp), 237, 50, scale=2)
+            display.text('{:3d}%'.format(mp), 237, 50, scale=2)
 
     # --- Motor battery bar ---
     bar_x, bar_y, bar_w, bar_h = 165, 74, 143, 10
@@ -444,19 +457,19 @@ def draw_motors_enabled(me, ms, mpos=None):
     # --- Enable/Disable pill ---
     icon_motor(14, 93, GRAY)
     display.set_pen(GRAY)
-    display.set_font("bitmap8")
-    display.text("MOTORS:", 24, 95, scale=1)
+    display.set_font('bitmap8')
+    display.text('MOTORS:', 24, 95, scale=1)
 
     if me:
         display.set_pen(GREEN)
         display.rectangle(80, 93, 90, 14)
         display.set_pen(BLACK)
-        display.text("ENABLED", 84, 97, scale=1)
+        display.text('ENABLED', 84, 97, scale=1)
     else:
         display.set_pen(RED)
         display.rectangle(80, 93, 90, 14)
         display.set_pen(WHITE)
-        display.text("DISABLED", 84, 97, scale=1)
+        display.text('DISABLED', 84, 97, scale=1)
 
     draw_section_line(108)
 
@@ -467,27 +480,27 @@ def draw_motors_enabled(me, ms, mpos=None):
     # Box: 50×14 px, step 56 px — fits "xx+X.X" (6 chars × 8 px = 48 px)
 
     display.set_pen(GRAY)
-    display.text("BASE:", 14, 114, scale=1)
-    display.text("ARM: ", 14, 130, scale=1)
+    display.text('BASE:', 14, 114, scale=1)
+    display.text('ARM: ', 14, 130, scale=1)
 
     rows = [
-        (["lw", "rw", "sw"], 110),
-        (["gb", "gm", "ge"], 126),
-        (["wp", "wr", "gr"], 142),
+        (['lw', 'rw', 'sw'], 110),
+        (['gb', 'gm', 'ge'], 126),
+        (['wp', 'wr', 'gr'], 142),
     ]
     for motor_row, y in rows:
         x = 50
         for mid in motor_row:
-            state_char = ms.get(mid, "?") if ms else "?"
+            state_char = ms.get(mid, '?') if ms else '?'
             bg_pen, txt_pen = STATE_COLORS.get(state_char, (RED, WHITE))
             display.set_pen(bg_pen)
             display.rectangle(x, y, 50, 14)
             display.set_pen(txt_pen)
             pos = mpos.get(mid) if mpos else None
             if pos is not None:
-                label = "{}{}".format(mid, "{:+.1f}".format(pos))
+                label = '{}{}'.format(mid, '{:+.1f}'.format(pos))
             else:
-                label = "{}[{}]".format(mid, state_char.upper())
+                label = '{}[{}]'.format(mid, state_char.upper())
             display.text(label, x + 2, y + 3, scale=1)
             x += 56
 
@@ -501,8 +514,8 @@ def draw_services_section(sv):
 
     icon_gear(14, 159, GRAY)
     display.set_pen(GRAY)
-    display.set_font("bitmap8")
-    display.text("SERVICES:", 24, 160, scale=1)
+    display.set_font('bitmap8')
+    display.text('SERVICES:', 24, 160, scale=1)
 
     row_ys = [172, 190]
     # Tile geometry: 70 px wide, 74 px stride — fits 4 tiles + left margin
@@ -512,12 +525,12 @@ def draw_services_section(sv):
         y = row_ys[row_idx]
         x = 14
         for abbrev, label in row:
-            state = sv.get(abbrev, "?") if sv else "?"
-            bg_pen, txt_pen, status_text = SV_COLORS.get(state, SV_COLORS["?"])
+            state = sv.get(abbrev, '?') if sv else '?'
+            bg_pen, txt_pen, status_text = SV_COLORS.get(state, SV_COLORS['?'])
             display.set_pen(bg_pen)
             display.rectangle(x, y, 70, 14)
             display.set_pen(txt_pen)
-            display.text(label,       x + 3,  y + 3, scale=1)
+            display.text(label, x + 3, y + 3, scale=1)
             display.text(status_text, x + 45, y + 3, scale=1)
             x += 74
 
@@ -531,18 +544,18 @@ def draw_pi_section(pi):
 
     icon_net(14, 207, GRAY)
     display.set_pen(GRAY)
-    display.set_font("bitmap8")
-    display.text("PIES:", 24, 208, scale=1)
+    display.set_font('bitmap8')
+    display.text('PIES:', 24, 208, scale=1)
 
     # 4 × 70 px boxes + 4 px gaps = 292 px starting at x=14
     x = 14
-    for key, label in [("pi1", "P1"), ("pi2", "P2"), ("pi3", "P3"), ("pi4", "P4")]:
-        state = pi.get(key, "?") if pi else "?"
-        bg_pen, txt_pen, status = PI_COLORS.get(state, PI_COLORS["?"])
+    for key, label in [('pi1', 'P1'), ('pi2', 'P2'), ('pi3', 'P3'), ('pi4', 'P4')]:
+        state = pi.get(key, '?') if pi else '?'
+        bg_pen, txt_pen, status = PI_COLORS.get(state, PI_COLORS['?'])
         display.set_pen(bg_pen)
         display.rectangle(x, 216, 70, 14)
         display.set_pen(txt_pen)
-        display.text("{}:{}".format(label, status), x + 4, 219, scale=1)
+        display.text('{}:{}'.format(label, status), x + 4, 219, scale=1)
         x += 74
 
 
@@ -557,16 +570,16 @@ def draw_no_data():
 def render_content(data, stale, waiting):
     """Redraw content area (no border/update — Core 1 handles those)."""
     global _bsv, _bmv, _bme, _bstale, _bwaiting
-    sv  = data.get("sv", {}) if data else {}
-    mv  = data.get("mv")     if data else None
-    me  = data.get("me", False) if data else False
-    ip  = data.get("ip", "") if data else ""
-    mp  = data.get("mp")     if data else None
-    up  = data.get("up")     if data else None
-    ub  = data.get("ub")     if data else None
-    ms   = data.get("ms",   {}) if data else {}
-    mpos = data.get("mpos", {}) if data else {}
-    pi   = data.get("pi",   {}) if data else {}
+    sv = data.get('sv', {}) if data else {}
+    mv = data.get('mv') if data else None
+    me = data.get('me', False) if data else False
+    ip = data.get('ip', '') if data else ''
+    mp = data.get('mp') if data else None
+    up = data.get('up') if data else None
+    ub = data.get('ub') if data else None
+    ms = data.get('ms', {}) if data else {}
+    mpos = data.get('mpos', {}) if data else {}
+    pi = data.get('pi', {}) if data else {}
     _lock.acquire()
     try:
         _bsv, _bmv, _bme, _bstale, _bwaiting = sv, mv, me, stale, waiting
@@ -601,7 +614,7 @@ def _border_loop():
 
 # Initial screen — draw once before starting border thread
 clear()
-draw_title_bar(signal_ok=False, waiting=True, ip="")
+draw_title_bar(signal_ok=False, waiting=True, ip='')
 draw_no_data()
 draw_border({}, None, False, False, True)
 display.update()
@@ -615,8 +628,8 @@ while True:
         chunk = sys.stdin.read(256)
         if chunk:
             buf += chunk
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
+            while '\n' in buf:
+                line, buf = buf.split('\n', 1)
                 line = line.strip()
                 if line:
                     try:

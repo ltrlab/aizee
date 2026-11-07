@@ -15,8 +15,8 @@ echo "===================================="
 echo
 
 # Get script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # The root Cargo workspace preserves the deployed rust/target/ binary path.
 MOTOR_CONTROL_BIN="$PROJECT_ROOT/rust/target/release/motor_control"

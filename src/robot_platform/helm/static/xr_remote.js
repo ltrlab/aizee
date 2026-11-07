@@ -4,28 +4,57 @@
 // over ImageBitmaps for the same screen. No depth: the 3D picture needs each frame's depth and head pose, and video here
 // carries neither, so the screen stays flat. Read-only for the picture; poses go to Helm, which checks them as it does
 // the socket's. No three.js here.
-const FRAME_CHECK_MS = 33, STALE_S = 1, FPS_WINDOW_MS = 2000, RETRY_MS = 3000, GATHER_MS = 2000, STATS_MS = 1000;
-const REPORT_EVERY = 2, REPORT_TEXT = 120;  // Reads of the counters per report for Minerva's log, and a report's longest text.
-const POSE_CHANNEL = {ordered: false, maxRetransmits: 0};  // Late is useless: the next pose is 17 ms away.
+const FRAME_CHECK_MS = 33,
+  STALE_S = 1,
+  FPS_WINDOW_MS = 2000,
+  RETRY_MS = 3000,
+  GATHER_MS = 2000,
+  STATS_MS = 1000;
+const REPORT_EVERY = 2,
+  REPORT_TEXT = 120; // Reads of the counters per report for Minerva's log, and a report's longest text.
+const POSE_CHANNEL = { ordered: false, maxRetransmits: 0 }; // Late is useless: the next pose is 17 ms away.
 
 export class RemoteCamera {
   // `offer`: (the page's offer) to Helm's answer. `onFrame`, as HeadCamera's. `onStatus`: Helm's word over the channel.
   // The rest are the browser's, replaceable to test.
-  constructor({offer, onFrame, onStatus = () => {}, peer = () => new RTCPeerConnection({iceServers: []}),
-    video = () => makeVideo(), grab = element => createImageBitmap(element), now = () => performance.now(),
-    every = (fn, ms) => setInterval(fn, ms), stopEvery = id => clearInterval(id), after = (fn, ms) => setTimeout(fn, ms),
-    stopAfter = id => clearTimeout(id), visibility = () => document.visibilityState}) {
-    Object.assign(this, {offer, onFrame, onStatus, peer, video, grab, now, every, stopEvery, after, stopAfter, visibility});
+  constructor({
+    offer,
+    onFrame,
+    onStatus = () => {},
+    peer = () => new RTCPeerConnection({ iceServers: [] }),
+    video = () => makeVideo(),
+    grab = (element) => createImageBitmap(element),
+    now = () => performance.now(),
+    every = (fn, ms) => setInterval(fn, ms),
+    stopEvery = (id) => clearInterval(id),
+    after = (fn, ms) => setTimeout(fn, ms),
+    stopAfter = (id) => clearTimeout(id),
+    visibility = () => document.visibilityState,
+  }) {
+    Object.assign(this, {
+      offer,
+      onFrame,
+      onStatus,
+      peer,
+      video,
+      grab,
+      now,
+      every,
+      stopEvery,
+      after,
+      stopAfter,
+      visibility,
+    });
     this.stopped = true;
     this.pc = this.channel = this.element = null;
     this.arrivals = [];
     this.shownAt = null;
-    this.frames = 0;  // Frames the browser had decoded at the last look.
-    this.shown = 0;  // Frames handed to the screen.
+    this.frames = 0; // Frames the browser had decoded at the last look.
+    this.shown = 0; // Frames handed to the screen.
     this.reads = 0;
     this.grabbing = false;
     this.message = 'connecting…';
-    this.link = {};  // The last look at the link: {bitrate_bps, lost, rtt_ms, decoder}.
+    this.link = {}; // The last look at the link: {bitrate_bps, lost, rtt_ms, decoder}.
     this.bytes = null;
     this.bytesAt = null;
   }
@@ -57,11 +86,11 @@ export class RemoteCamera {
     this.pc = null;
   }
 
-  setRole() {}  // The 3D switch: the picture stays flat here.
+  setRole() {} // The 3D switch: the picture stays flat here.
 
   async connect() {
-    const pc = this.pc = this.peer();
-    pc.addTransceiver('video', {direction: 'recvonly'});
+    const pc = (this.pc = this.peer());
+    pc.addTransceiver('video', { direction: 'recvonly' });
     const channel = pc.createDataChannel('poses', POSE_CHANNEL);
     channel.onopen = () => {
       if (this.pc === pc) this.channel = channel;
@@ -69,14 +98,14 @@ export class RemoteCamera {
     channel.onclose = () => {
       if (this.channel === channel) this.channel = null;
     };
-    channel.onmessage = event => {
+    channel.onmessage = (event) => {
       try {
         this.onStatus(JSON.parse(event.data));
       } catch {
         this.message = 'unreadable status';
       }
     };
-    pc.ontrack = event => {
+    pc.ontrack = (event) => {
       this.element.srcObject = event.streams[0] || new MediaStream([event.track]);
       this.element.play?.().catch?.(() => {});
     };
@@ -89,7 +118,7 @@ export class RemoteCamera {
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc, this.after, this.stopAfter);
       if (this.pc !== pc) return;
-      const answer = await this.offer({sdp: pc.localDescription.sdp, type: pc.localDescription.type});
+      const answer = await this.offer({ sdp: pc.localDescription.sdp, type: pc.localDescription.type });
       if (this.pc === pc) await pc.setRemoteDescription(answer);
     } catch (error) {
       this.again(pc, `no link: ${error.message}`);
@@ -123,9 +152,9 @@ export class RemoteCamera {
       const bitmap = await this.grab(element);
       const now = this.now();
       this.shownAt = now;
-      this.arrivals = [...this.arrivals.filter(at => now - at < FPS_WINDOW_MS), now];
+      this.arrivals = [...this.arrivals.filter((at) => now - at < FPS_WINDOW_MS), now];
       this.shown += 1;
-      this.onFrame(bitmap, {role: 'head'}, null);
+      this.onFrame(bitmap, { role: 'head' }, null);
     } catch (error) {
       this.message = `undecodable frame (${error.message})`;
     } finally {
@@ -142,21 +171,33 @@ export class RemoteCamera {
     for (const item of report.values()) {
       if (item.type === 'inbound-rtp' && item.kind === 'video') {
         if (this.bytes !== null && now > this.bytesAt) {
-          this.link.bitrate_bps = (item.bytesReceived - this.bytes) * 8000 / (now - this.bytesAt);
+          this.link.bitrate_bps = ((item.bytesReceived - this.bytes) * 8000) / (now - this.bytesAt);
         }
         this.bytes = item.bytesReceived;
         this.bytesAt = now;
         this.link.lost = item.packetsLost;
         this.link.decoder = item.decoderImplementation;
-        Object.assign(look, {bytes: item.bytesReceived, packets: item.packetsReceived, lost: item.packetsLost,
-          received: item.framesReceived, decoded: item.framesDecoded, dropped: item.framesDropped,
-          keyframes: item.keyFramesDecoded, freezes: item.freezeCount, nacks: item.nackCount, plis: item.pliCount,
-          decoder: item.decoderImplementation});
+        Object.assign(look, {
+          bytes: item.bytesReceived,
+          packets: item.packetsReceived,
+          lost: item.packetsLost,
+          received: item.framesReceived,
+          decoded: item.framesDecoded,
+          dropped: item.framesDropped,
+          keyframes: item.keyFramesDecoded,
+          freezes: item.freezeCount,
+          nacks: item.nackCount,
+          plis: item.pliCount,
+          decoder: item.decoderImplementation,
+        });
       } else if (item.type === 'candidate-pair' && item.nominated && item.currentRoundTripTime !== undefined) {
         this.link.rtt_ms = item.currentRoundTripTime * 1000;
-        const local = report.get?.(item.localCandidateId), remote = report.get?.(item.remoteCandidateId);
-        Object.assign(look, {rtt_ms: Math.round(this.link.rtt_ms),
-          path: `${local?.candidateType} to ${remote?.candidateType} ${remote?.address}:${remote?.port}`});
+        const local = report.get?.(item.localCandidateId),
+          remote = report.get?.(item.remoteCandidateId);
+        Object.assign(look, {
+          rtt_ms: Math.round(this.link.rtt_ms),
+          path: `${local?.candidateType} to ${remote?.candidateType} ${remote?.address}:${remote?.port}`,
+        });
       }
     }
     this.reads += 1;
@@ -167,10 +208,21 @@ export class RemoteCamera {
   // decodes them and whether they reach the screen, which nothing outside a headset can see. Not for Helm.
   report(look) {
     if (this.channel?.readyState !== 'open') return;
-    const element = this.element, quality = element?.getVideoPlaybackQuality?.();
-    this.channel.send(JSON.stringify({type: 'link', ms: Math.round(this.now()), shown: this.shown, page: this.visibility(),
-      ready: element?.readyState, paused: element?.paused, video_frames: quality?.totalVideoFrames,
-      message: String(this.message).slice(0, REPORT_TEXT), ...look}));
+    const element = this.element,
+      quality = element?.getVideoPlaybackQuality?.();
+    this.channel.send(
+      JSON.stringify({
+        type: 'link',
+        ms: Math.round(this.now()),
+        shown: this.shown,
+        page: this.visibility(),
+        ready: element?.readyState,
+        paused: element?.paused,
+        video_frames: quality?.totalVideoFrames,
+        message: String(this.message).slice(0, REPORT_TEXT),
+        ...look,
+      }),
+    );
   }
 
   // {fresh, fps, age_s, message}, as HeadCamera's: how old a frame was when it left the camera is unknown here, so the
@@ -178,16 +230,20 @@ export class RemoteCamera {
   get stats() {
     const now = this.now();
     const age = this.shownAt == null ? Infinity : (now - this.shownAt) / 1000;
-    const recent = this.arrivals.filter(at => now - at < FPS_WINDOW_MS);
-    return {fresh: age < STALE_S, fps: recent.length * 1000 / FPS_WINDOW_MS, age_s: age,
-      message: age < STALE_S ? null : this.shownAt == null ? this.message : `last frame ${age.toFixed(0)} s ago`};
+    const recent = this.arrivals.filter((at) => now - at < FPS_WINDOW_MS);
+    return {
+      fresh: age < STALE_S,
+      fps: (recent.length * 1000) / FPS_WINDOW_MS,
+      age_s: age,
+      message: age < STALE_S ? null : this.shownAt == null ? this.message : `last frame ${age.toFixed(0)} s ago`,
+    };
   }
 }
 
 // ICE gathering done, or as long as a page should wait: the answer needs the page's candidates in its offer.
 function gathered(pc, after, stopAfter) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
-  return new Promise(done => {
+  return new Promise((done) => {
     const timer = after(done, GATHER_MS);
     pc.onicegatheringstatechange = () => {
       if (pc.iceGatheringState === 'complete') {
@@ -201,7 +257,7 @@ function gathered(pc, after, stopAfter) {
 // The video element the stream plays in: on the page, since a browser may not decode for one that is not, but not seen.
 function makeVideo() {
   const element = document.createElement('video');
-  Object.assign(element, {autoplay: true, muted: true, playsInline: true});
+  Object.assign(element, { autoplay: true, muted: true, playsInline: true });
   element.setAttribute('aria-hidden', 'true');
   element.style.cssText = 'position:fixed;width:2px;height:2px;opacity:0.01;pointer-events:none';
   document.body.append(element);

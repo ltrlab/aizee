@@ -11,21 +11,33 @@
 
 import * as THREE from 'three';
 import { ControlSocket, TelemSocket } from '/static/ws.js';
-import { buildScene, updateReticles, attachCameraVideo, updateURDF, animateURDF, setPassthroughMode, renderPreviewPanel,
-         setPreviewEnabled, setGhostEnabled, getRobotGroupPosition, getRobotGroupYaw, nudgeRobotGroup } from '/static/scene.js';
+import {
+  buildScene,
+  updateReticles,
+  attachCameraVideo,
+  updateURDF,
+  animateURDF,
+  setPassthroughMode,
+  renderPreviewPanel,
+  setPreviewEnabled,
+  setGhostEnabled,
+  getRobotGroupPosition,
+  getRobotGroupYaw,
+  nudgeRobotGroup,
+} from '/static/scene.js';
 import { startCameraWebRTC, getCameraVideo, onCamState } from '/static/cam.js';
 import { buildVRUI, tickVRUI, registerLocalCommand, isPointerOverButton } from '/static/vrui.js';
 
-let _passthrough = false;   // current session mode
+let _passthrough = false; // current session mode
 // Direct grab: left-pinch (NOT over a UI button) grabs the robot group
 // and moves it with the hand; release to drop.  Offset captured on grab
 // so the robot doesn't snap to the fingertip.
 let _grabbing = false;
 let _grabOffset = [0, 0, 0];
-let _grabYawRobot0 = 0;     // robot yaw at grab start
-let _grabYawHand0 = 0;      // left-wrist yaw at grab start
+let _grabYawRobot0 = 0; // robot yaw at grab start
+let _grabYawHand0 = 0; // left-wrist yaw at grab start
 let _leftPinchPrev = false;
-let _leftSelectPrev = false;     // for rising-edge detect of pointer click (trigger / pinch)
+let _leftSelectPrev = false; // for rising-edge detect of pointer click (trigger / pinch)
 
 // Extract the yaw component (rotation about world +Y) from a wrist
 // quaternion using YXZ Euler decomposition.  YXZ puts yaw first so the
@@ -43,8 +55,7 @@ const $ = (sel) => document.querySelector(sel);
 const setStatus = (msg, cls = '') => {
   const el = $('#status');
   el.textContent = msg;
-  el.style.borderLeftColor = cls === 'err' ? 'var(--err)'
-    : cls === 'warn' ? 'var(--warn)' : 'var(--accent)';
+  el.style.borderLeftColor = cls === 'err' ? 'var(--err)' : cls === 'warn' ? 'var(--warn)' : 'var(--accent)';
 };
 
 // ---- WebXR feature detection -----------------------------------------------
@@ -79,9 +90,15 @@ const ctrlSock = new ControlSocket();
 const telemSock = new TelemSocket();
 
 function bindSocketIndicators() {
-  ctrlSock.onState = (s) => { $('#ws-control').textContent = s; };
-  telemSock.onState = (s) => { $('#ws-telem').textContent = s; };
-  onCamState((s) => { $('#ws-cam').textContent = `webrtc: ${s}`; });
+  ctrlSock.onState = (s) => {
+    $('#ws-control').textContent = s;
+  };
+  telemSock.onState = (s) => {
+    $('#ws-telem').textContent = s;
+  };
+  onCamState((s) => {
+    $('#ws-cam').textContent = `webrtc: ${s}`;
+  });
 }
 
 bindSocketIndicators();
@@ -132,21 +149,21 @@ function readGamepadController(inputSource, frame, refSpace) {
   const gp = inputSource.gamepad;
   if (gp) {
     out.trigger = gp.buttons[0]?.value ?? 0;
-    out.grip    = (gp.buttons[1]?.value ?? 0) > 0.5;
-    out.thumb   = (gp.buttons[3]?.pressed ?? false);
-    out.a       = (gp.buttons[4]?.pressed ?? false);
-    out.b       = (gp.buttons[5]?.pressed ?? false);
-    out.stick   = [gp.axes[2] ?? 0, gp.axes[3] ?? 0];
+    out.grip = (gp.buttons[1]?.value ?? 0) > 0.5;
+    out.thumb = gp.buttons[3]?.pressed ?? false;
+    out.a = gp.buttons[4]?.pressed ?? false;
+    out.b = gp.buttons[5]?.pressed ?? false;
+    out.stick = [gp.axes[2] ?? 0, gp.axes[3] ?? 0];
   }
-  out.hand = inputSource.handedness;  // "left" | "right" | "none"
+  out.hand = inputSource.handedness; // "left" | "right" | "none"
   out.kind = 'controller';
   return out;
 }
 
 // Pinch thresholds: index→thumb tip distance in METERS.  Hysteresis avoids
 // jitter at the edge — once pinched, we hold until fingers spread wider.
-const _PINCH_ON  = 0.025;   // 2.5 cm
-const _PINCH_OFF = 0.040;   // 4.0 cm
+const _PINCH_ON = 0.025; // 2.5 cm
+const _PINCH_OFF = 0.04; // 4.0 cm
 const _pinchHeld = { left: { idx: false, mid: false }, right: { idx: false, mid: false } };
 
 function _jointDist(frame, refSpace, hand, jointA, jointB) {
@@ -163,7 +180,7 @@ function _jointDist(frame, refSpace, hand, jointA, jointB) {
 }
 
 function readHand(inputSource, frame, refSpace) {
-  const handedness = inputSource.handedness;  // "left" | "right"
+  const handedness = inputSource.handedness; // "left" | "right"
   const hand = inputSource.hand;
   if (!hand || !frame.getJointPose) return null;
   // Wrist pose is the "controller-equivalent" position.  It's the most
@@ -181,10 +198,10 @@ function readHand(inputSource, frame, refSpace) {
   const heldState = _pinchHeld[handedness] || _pinchHeld.right;
   const dIdx = _jointDist(frame, refSpace, hand, 'thumb-tip', 'index-finger-tip');
   const dMid = _jointDist(frame, refSpace, hand, 'thumb-tip', 'middle-finger-tip');
-  heldState.idx = heldState.idx ? (dIdx < _PINCH_OFF) : (dIdx < _PINCH_ON);
-  heldState.mid = heldState.mid ? (dMid < _PINCH_OFF) : (dMid < _PINCH_ON);
-  out.grip    = heldState.idx;        // index pinch = clutch
-  out.trigger = heldState.mid ? 1.0 : 0.0;  // middle pinch = gripper closed
+  heldState.idx = heldState.idx ? dIdx < _PINCH_OFF : dIdx < _PINCH_ON;
+  heldState.mid = heldState.mid ? dMid < _PINCH_OFF : dMid < _PINCH_ON;
+  out.grip = heldState.idx; // index pinch = clutch
+  out.trigger = heldState.mid ? 1.0 : 0.0; // middle pinch = gripper closed
   // No A/B/stick on hands — keep the fields so the server-side schema is
   // identical, just inert.  E-stop has to come from the controller path
   // for now (or the user can do dual-pinch — left of the brain to add).
@@ -194,7 +211,7 @@ function readHand(inputSource, frame, refSpace) {
   out.stick = [0, 0];
   out.hand = handedness;
   out.kind = 'hand';
-  out.pinch_dist = dIdx;   // surfaced so the HUD can show pinch progress
+  out.pinch_dist = dIdx; // surfaced so the HUD can show pinch progress
   return out;
 }
 
@@ -215,7 +232,7 @@ function startRenderer() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
-  renderer.domElement.style.display = 'none';  // hidden in lobby
+  renderer.domElement.style.display = 'none'; // hidden in lobby
   ({ scene, camera } = buildScene(renderer));
 }
 
@@ -262,7 +279,9 @@ async function enterVR(passthrough = false) {
   renderer.xr.setSession(xrSession);
   // Foveated rendering — render the periphery at lower resolution.  Max
   // (1.0) in AR where we're GPU-bound; moderate (0.5) in VR.
-  try { renderer.xr.setFoveation(passthrough ? 1.0 : 0.5); } catch {}
+  try {
+    renderer.xr.setFoveation(passthrough ? 1.0 : 0.5);
+  } catch {}
   xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
   xrSession.addEventListener('end', () => {
     xrSession = null;
@@ -281,7 +300,9 @@ async function enterVR(passthrough = false) {
   registerLocalCommand('_local_toggle_passthrough', async () => {
     const next = !_passthrough;
     if (xrSession) {
-      try { await xrSession.end(); } catch {}
+      try {
+        await xrSession.end();
+      } catch {}
     }
     // The 'end' event handler will reset state; kick off a new session
     // a tick later so the renderer fully tears down first.
@@ -300,20 +321,24 @@ async function enterVR(passthrough = false) {
     if (btn) btn.relabel(`Ghost: ${_ghostOn ? 'ON' : 'OFF'}`);
   });
   // Bring up camera (WebRTC) + telem socket now that we're in-headset.
-  startCameraWebRTC().then(() => {
-    const videoEl = getCameraVideo();
-    if (videoEl) {
-      const onCanPlay = () => {
-        attachCameraVideo(scene, videoEl);
-        videoEl.removeEventListener('canplay', onCanPlay);
-      };
-      // 'loadeddata' fires before 'canplay' on Quest; either is fine since
-      // THREE.VideoTexture handles late-arriving frames.
-      if (videoEl.readyState >= 2) attachCameraVideo(scene, videoEl);
-      else videoEl.addEventListener('canplay', onCanPlay);
-    }
-  }).catch((e) => console.warn('[main] camera WebRTC failed:', e));
-  telemSock.connect((telem) => { updateURDF(scene, telem); });
+  startCameraWebRTC()
+    .then(() => {
+      const videoEl = getCameraVideo();
+      if (videoEl) {
+        const onCanPlay = () => {
+          attachCameraVideo(scene, videoEl);
+          videoEl.removeEventListener('canplay', onCanPlay);
+        };
+        // 'loadeddata' fires before 'canplay' on Quest; either is fine since
+        // THREE.VideoTexture handles late-arriving frames.
+        if (videoEl.readyState >= 2) attachCameraVideo(scene, videoEl);
+        else videoEl.addEventListener('canplay', onCanPlay);
+      }
+    })
+    .catch((e) => console.warn('[main] camera WebRTC failed:', e));
+  telemSock.connect((telem) => {
+    updateURDF(scene, telem);
+  });
 
   renderer.setAnimationLoop(onXRFrame);
 }
@@ -324,11 +349,12 @@ function onXRFrame(t, frame) {
   const viewerPose = frame.getViewerPose(xrRefSpace);
   const headPose = viewerPose ? poseToObj({ transform: viewerPose.transform }) : null;
   // Controllers (or hands, transparently)
-  let right = null, left = null;
+  let right = null,
+    left = null;
   let leftFingerWorld = null;
-  let leftRay = null;                   // targetRaySpace: { origin, direction } in scene frame
-  let leftSelectPressed = false;        // raw "trigger held" / "pinching" — pre rising-edge
-  let leftSqueezeHeld = false;          // grip button (controllers) or pinch (hands)
+  let leftRay = null; // targetRaySpace: { origin, direction } in scene frame
+  let leftSelectPressed = false; // raw "trigger held" / "pinching" — pre rising-edge
+  let leftSqueezeHeld = false; // grip button (controllers) or pinch (hands)
   let leftIsController = false;
   for (const src of xrSession.inputSources) {
     const c = readController(src, frame, xrRefSpace);
@@ -356,7 +382,7 @@ function onXRFrame(t, frame) {
         const raypose = frame.getPose(src.targetRaySpace, xrRefSpace);
         if (raypose) {
           const p = raypose.transform.position;
-          const m = raypose.transform.matrix;   // column-major 4x4
+          const m = raypose.transform.matrix; // column-major 4x4
           // Forward axis of the controller is -Z of its frame.
           leftRay = {
             origin: new THREE.Vector3(p.x, p.y, p.z),
@@ -368,11 +394,11 @@ function onXRFrame(t, frame) {
       // (pinch state already detected by readHand) uniformly.
       if (src.gamepad) {
         leftIsController = true;
-        leftSelectPressed = !!src.gamepad.buttons[0]?.pressed;  // trigger
-        leftSqueezeHeld   = (src.gamepad.buttons[1]?.value ?? 0) > 0.5; // grip
+        leftSelectPressed = !!src.gamepad.buttons[0]?.pressed; // trigger
+        leftSqueezeHeld = (src.gamepad.buttons[1]?.value ?? 0) > 0.5; // grip
       } else if (src.hand) {
         leftSelectPressed = !!(left && left.grip);
-        leftSqueezeHeld   = !!(left && left.grip);
+        leftSqueezeHeld = !!(left && left.grip);
       }
     }
   }
@@ -390,7 +416,9 @@ function onXRFrame(t, frame) {
   // for controllers.  Position anchor is fingertip for hands, controller
   // grip pose (left.pos) for controllers.
   const leftAnchor = leftIsController
-    ? (left && left.pos ? new THREE.Vector3(left.pos[0], left.pos[1], left.pos[2]) : null)
+    ? left && left.pos
+      ? new THREE.Vector3(left.pos[0], left.pos[1], left.pos[2])
+      : null
     : leftFingerWorld;
   const leftEngage = leftSqueezeHeld;
   const leftEngageEdge = leftEngage && !_leftPinchPrev;
@@ -403,7 +431,7 @@ function onXRFrame(t, frame) {
     if (rp) {
       _grabOffset = [rp.x - leftAnchor.x, rp.y - leftAnchor.y, rp.z - leftAnchor.z];
       _grabYawRobot0 = getRobotGroupYaw() || 0;
-      _grabYawHand0  = left && left.quat ? _quatYaw(left.quat) : 0;
+      _grabYawHand0 = left && left.quat ? _quatYaw(left.quat) : 0;
       _grabbing = true;
     }
   }
@@ -424,7 +452,7 @@ function onXRFrame(t, frame) {
       newYaw = _grabYawRobot0 + dyaw;
     }
     nudgeRobotGroup([leftAnchor.x, leftAnchor.y, leftAnchor.z], _grabOffset, newYaw);
-    tickVRUI(null, false, null);   // UI inert while grabbing
+    tickVRUI(null, false, null); // UI inert while grabbing
   } else {
     // VR UI: ray + pointer click for controllers, finger-poke + pinch for
     // hands.  Both paths run; Button.update arbitrates so only one fires.
@@ -439,15 +467,16 @@ function onXRFrame(t, frame) {
   // Stream to host at ~90 Hz, throttled to >= 1 ms gap so a 120 Hz headset
   // doesn't blow past the bandwidth budget.
   const now = performance.now();
-  if ((now - lastSendTs) >= 1) {
+  if (now - lastSendTs >= 1) {
     ctrlSock.send({
       ts: now / 1000,
       head: headPose,
-      right, left,
+      right,
+      left,
     });
     lastSendTs = now;
   }
-  if ((now - lastFrameLog) >= 1000) {
+  if (now - lastFrameLog >= 1000) {
     $('#ctrl-ts').textContent = (now / 1000).toFixed(2) + ' s';
     lastFrameLog = now;
   }
@@ -458,7 +487,7 @@ function onXRFrame(t, frame) {
 // ---- Bootstrap -------------------------------------------------------------
 
 window.addEventListener('load', async () => {
-  ctrlSock.connect();  // pre-connect so it's hot when VR starts
+  ctrlSock.connect(); // pre-connect so it's hot when VR starts
   await detectXR();
   $('#enter-vr').addEventListener('click', () => enterVR(false));
   $('#enter-ar').addEventListener('click', () => enterVR(true));

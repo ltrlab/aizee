@@ -1,4 +1,5 @@
 """Recording stalls/errors are deterministic and never enter the producer's I/O path."""
+
 import threading
 import time
 
@@ -22,7 +23,7 @@ class Sink:
         self.record('write', data)
         if self.started is not None:
             self.started.set()
-            assert self.release.wait(5.), 'test did not release blocked writer'
+            assert self.release.wait(5.0), 'test did not release blocked writer'
         self.chunks.append(data)
         return len(data) - 1 if self.short else len(data)
 
@@ -34,11 +35,11 @@ class Sink:
         self.closed = True
 
 
-def wait_until(predicate, timeout=2.):
+def wait_until(predicate, timeout=2.0):
     end = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < end, 'writer did not reach expected state'
-        time.sleep(.002)
+        time.sleep(0.002)
 
 
 def blocked_writer(tmp_path, **bounds):
@@ -47,8 +48,7 @@ def blocked_writer(tmp_path, **bounds):
 
     def opener(path, binary):
         journal.append((path.name, 'open', binary, threading.get_ident()))
-        sink = Sink(path.name, journal, started=started if path.name == 'samples.f32' else None,
-                    release=release)
+        sink = Sink(path.name, journal, started=started if path.name == 'samples.f32' else None, release=release)
         sinks[path.name] = sink
         return sink
 
@@ -64,7 +64,7 @@ def test_blocked_disk_does_not_block_producer_and_fifo_snapshots_mutable_chunks(
     view = memoryview(backing)
     main_thread = threading.get_ident()
     samples.write(b'first')
-    assert started.wait(2.)
+    assert started.wait(2.0)
 
     def produce():
         try:
@@ -84,24 +84,30 @@ def test_blocked_disk_does_not_block_producer_and_fifo_snapshots_mutable_chunks(
     producer = threading.Thread(target=produce)
     producer.start()
     try:
-        assert producer_done.wait(.5), 'producer waited for disk I/O'
+        assert producer_done.wait(0.5), 'producer waited for disk I/O'
         assert not failure and not release.is_set()
         assert writer.snapshot()['pending_chunks'] > 1
         mutable[:] = b'overwrit'
         backing[:] = b'xxxx'
     finally:
         release.set()
-        producer.join(2.)
-        writer.close(timeout=2.)
+        producer.join(2.0)
+        writer.close(timeout=2.0)
     assert sinks['samples.f32'].chunks == [b'first', b'original', b'view']
     operations = [(name, operation, data) for name, operation, data, _ in journal]
     assert operations[:11] == [
-        ('samples.f32', 'open', True), ('samples.f32', 'write', b'first'),
-        ('events.jsonl', 'open', False), ('events.jsonl', 'write', 'event\n'),
-        ('samples.f32', 'write', b'original'), ('samples.f32', 'write', b'view'),
-        ('events.jsonl', 'flush', None), ('samples.f32', 'flush', None),
-        ('direct-latency.jsonl', 'open', False), ('direct-latency.jsonl', 'write', 'latency\n'),
-        ('samples.f32', 'close', None)]
+        ('samples.f32', 'open', True),
+        ('samples.f32', 'write', b'first'),
+        ('events.jsonl', 'open', False),
+        ('events.jsonl', 'write', 'event\n'),
+        ('samples.f32', 'write', b'original'),
+        ('samples.f32', 'write', b'view'),
+        ('events.jsonl', 'flush', None),
+        ('samples.f32', 'flush', None),
+        ('direct-latency.jsonl', 'open', False),
+        ('direct-latency.jsonl', 'write', 'latency\n'),
+        ('samples.f32', 'close', None),
+    ]
     assert len({thread for _, _, _, thread in journal}) == 1
     assert journal[0][3] not in (main_thread, producer.ident)
     assert all(sink.closed for sink in sinks.values())
@@ -112,9 +118,10 @@ def test_blocked_disk_does_not_block_producer_and_fifo_snapshots_mutable_chunks(
 @pytest.mark.parametrize('bound', ['bytes', 'chunks'])
 def test_inflight_io_counts_toward_bounds_and_overflow_is_sticky_without_dropping_accepted_data(tmp_path, bound):
     writer, samples, started, release, _, sinks = blocked_writer(
-        tmp_path, max_bytes=8 if bound == 'bytes' else 100, max_chunks=2 if bound == 'chunks' else 20)
+        tmp_path, max_bytes=8 if bound == 'bytes' else 100, max_chunks=2 if bound == 'chunks' else 20
+    )
     samples.write(b'first!')
-    assert started.wait(2.)
+    assert started.wait(2.0)
     try:
         if bound == 'chunks':
             samples.flush()
@@ -130,7 +137,7 @@ def test_inflight_io_counts_toward_bounds_and_overflow_is_sticky_without_droppin
     finally:
         release.set()
         with pytest.raises(RecordingError, match='queue overflow'):
-            writer.close(timeout=2.)
+            writer.close(timeout=2.0)
     assert sinks['samples.f32'].chunks == [b'first!']
     assert sinks['samples.f32'].closed
 
@@ -159,7 +166,7 @@ def test_async_io_failure_is_reported_by_check_and_future_writes_and_close(tmp_p
                 action()
     finally:
         with pytest.raises(RecordingError, match='Recording .* failed'):
-            writer.close(timeout=2.)
+            writer.close(timeout=2.0)
     assert writer.snapshot()['closed'] and not writer._worker.is_alive()
     if operation not in ('open', 'close'):
         assert sinks[0].closed
@@ -168,24 +175,24 @@ def test_async_io_failure_is_reported_by_check_and_future_writes_and_close(tmp_p
 def test_close_timeout_is_bounded_and_reports_incomplete_recording(tmp_path):
     writer, stream, started, release, _, sinks = blocked_writer(tmp_path)
     stream.write(b'pending')
-    assert started.wait(2.)
+    assert started.wait(2.0)
     before = time.monotonic()
     try:
         with pytest.raises(RecordingError, match='drain timed out.*still pending'):
-            writer.close(timeout=.02)
-        assert time.monotonic() - before < .5
+            writer.close(timeout=0.02)
+        assert time.monotonic() - before < 0.5
         assert not writer.snapshot()['closed'] and not sinks['samples.f32'].closed
         with pytest.raises(RecordingError, match='drain timed out'):
             stream.flush()
     finally:
         release.set()
         with pytest.raises(RecordingError, match='drain timed out'):
-            writer.close(timeout=2.)
+            writer.close(timeout=2.0)
     assert sinks['samples.f32'].chunks == [b'pending'] and sinks['samples.f32'].closed
 
 
 def test_real_stream_contents_append_flush_close_and_empty_files_are_preserved(tmp_path):
-    (tmp_path/'events.jsonl').write_text('before\n', encoding='utf-8')
+    (tmp_path / 'events.jsonl').write_text('before\n', encoding='utf-8')
     writer = RecordingWriter(tmp_path)
     samples = writer.stream('samples.f32', binary=True)
     events = writer.stream('events.jsonl')
@@ -197,11 +204,11 @@ def test_real_stream_contents_append_flush_close_and_empty_files_are_preserved(t
     events.close()  # Producer close is idempotent and never joins.
     with pytest.raises(RecordingError, match='stream is closed'):
         events.write('after close')
-    writer.close(timeout=2.)
-    writer.close(timeout=2.)
-    assert (tmp_path/'samples.f32').read_bytes() == b'\x00\xff\x01'
-    assert (tmp_path/'events.jsonl').read_text(encoding='utf-8') == 'before\nnon-ASCII: \u00e9\U0001f916\n'
-    assert (tmp_path/'empty.jsonl').read_bytes() == b''
+    writer.close(timeout=2.0)
+    writer.close(timeout=2.0)
+    assert (tmp_path / 'samples.f32').read_bytes() == b'\x00\xff\x01'
+    assert (tmp_path / 'events.jsonl').read_text(encoding='utf-8') == 'before\nnon-ASCII: \u00e9\U0001f916\n'
+    assert (tmp_path / 'empty.jsonl').read_bytes() == b''
     assert events.closed and samples.closed
     with pytest.raises(RecordingError, match='closing'):
         samples.write(b'after close')
@@ -218,4 +225,4 @@ def test_large_chunk_rejected_before_copy_and_bad_input_does_not_poison_writer(t
     with pytest.raises(RecordingError, match='chunk needs 5 bytes'):
         stream.write(bytearray(b'12345'))
     with pytest.raises(RecordingError, match='chunk needs 5 bytes'):
-        writer.close(timeout=2.)
+        writer.close(timeout=2.0)

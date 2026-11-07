@@ -5,6 +5,7 @@ and preserves their shared FIFO order. Overflow or worker failure is sticky and
 must fault the caller; no operation is silently dropped. ``close`` is the only
 blocking API and must be called only after the motors have been disabled.
 """
+
 from collections import deque
 import math
 from pathlib import Path
@@ -70,8 +71,7 @@ class RecordingWriter:
     """
 
     def __init__(self, directory, *, max_bytes=8 * 1024 * 1024, max_chunks=2048, opener=None):
-        if (type(max_bytes) is not int or max_bytes <= 0
-                or type(max_chunks) is not int or max_chunks <= 0):
+        if type(max_bytes) is not int or max_bytes <= 0 or type(max_chunks) is not int or max_chunks <= 0:
             raise ValueError('Positive integer recording byte and chunk bounds required')
         self.directory = Path(directory)
         self._max_bytes, self._max_chunks = max_bytes, max_chunks
@@ -86,8 +86,14 @@ class RecordingWriter:
         self._worker.start()
 
     def stream(self, name, *, binary=False):
-        if (not isinstance(name, str) or not name or Path(name).name != name
-                or '/' in name or '\\' in name or name in ('.', '..')):
+        if (
+            not isinstance(name, str)
+            or not name
+            or Path(name).name != name
+            or '/' in name
+            or '\\' in name
+            or name in ('.', '..')
+        ):
             raise ValueError('Recording stream must use a file basename')
         if type(binary) is not bool:
             raise ValueError('Recording binary mode must be boolean')
@@ -108,9 +114,15 @@ class RecordingWriter:
 
     def snapshot(self):
         with self._ready:
-            return dict(pending_bytes=self._bytes, pending_chunks=self._chunks,
-                        peak_bytes=self._peak_bytes, peak_chunks=self._peak_chunks,
-                        closing=self._closing, closed=self._closed, error=self._error)
+            return dict(
+                pending_bytes=self._bytes,
+                pending_chunks=self._chunks,
+                peak_bytes=self._peak_bytes,
+                peak_chunks=self._peak_chunks,
+                closing=self._closing,
+                closed=self._closed,
+                error=self._error,
+            )
 
     def _check_locked(self):
         if self._error is not None:
@@ -130,8 +142,10 @@ class RecordingWriter:
         with self._ready:
             self._check_locked()
             if size > self._max_bytes:
-                self._fail_locked(f'Recording queue overflow: chunk needs {size} bytes, limit '
-                                  f'{self._max_bytes}; operation was not accepted')
+                self._fail_locked(
+                    f'Recording queue overflow: chunk needs {size} bytes, limit '
+                    f'{self._max_bytes}; operation was not accepted'
+                )
                 raise RecordingError(self._error)
 
     def _enqueue(self, operation, stream, data=None, size=0):
@@ -147,9 +161,11 @@ class RecordingWriter:
 
     def _enqueue_locked(self, operation, stream, data, size):
         if self._chunks >= self._max_chunks or self._bytes + size > self._max_bytes:
-            self._fail_locked(f'Recording queue overflow: {self._chunks} chunks / {self._bytes} bytes '
-                              f'pending; bounds {self._max_chunks} chunks / {self._max_bytes} bytes; '
-                              'operation was not accepted')
+            self._fail_locked(
+                f'Recording queue overflow: {self._chunks} chunks / {self._bytes} bytes '
+                f'pending; bounds {self._max_chunks} chunks / {self._max_bytes} bytes; '
+                'operation was not accepted'
+            )
             raise RecordingError(self._error)
         self._queue.append((operation, stream, data, size))
         self._chunks += 1
@@ -183,9 +199,11 @@ class RecordingWriter:
                 except Exception as exc:
                     with self._ready:
                         pending = len(self._queue)
-                        self._fail_locked(f'Recording {operation} failed for {stream.name}: '
-                                          f'{type(exc).__name__}: {exc}; {pending} subsequent operations '
-                                          'were not written')
+                        self._fail_locked(
+                            f'Recording {operation} failed for {stream.name}: '
+                            f'{type(exc).__name__}: {exc}; {pending} subsequent operations '
+                            'were not written'
+                        )
                         # The failure is retained and raised by check/write/close.
                         # Never retry a possibly partial write or retain a hidden backlog.
                         self._queue.clear()
@@ -206,7 +224,7 @@ class RecordingWriter:
                 self._closing = self._closed = True
             self._done.set()
 
-    def close(self, *, timeout=5.):
+    def close(self, *, timeout=5.0):
         """Drain/close after motor disable; never call this from a powered cycle.
 
         A blocked OS write cannot be safely interrupted. On timeout the daemon
@@ -221,7 +239,9 @@ class RecordingWriter:
         self._worker.join(timeout)
         if self._worker.is_alive():
             with self._ready:
-                self._fail_locked(f'Recording drain timed out after {timeout:g}s; '
-                                  f'{self._chunks} operations / {self._bytes} bytes still pending')
+                self._fail_locked(
+                    f'Recording drain timed out after {timeout:g}s; '
+                    f'{self._chunks} operations / {self._bytes} bytes still pending'
+                )
             raise RecordingError(self._error)
         self.check()

@@ -26,7 +26,7 @@ set -euo pipefail
 
 TARGET="${1:-ltr@10.42.0.1}"
 [[ "${TARGET}" == "--" ]] && TARGET="ltr@10.42.0.1"
-shift $(( $# > 0 ? 1 : 0 )) || true
+shift $(($# > 0 ? 1 : 0)) || true
 [[ "${1:-}" == "--" ]] && shift
 SETUP_ARGS=("$@")
 
@@ -36,8 +36,8 @@ TARBALL="/tmp/aizee_bootstrap.tar.gz"
 # --- resolve SSH key (paths differ between git-bash /c and the P: mapped drive)
 if [[ -z "${SSH_KEY:-}" ]]; then
     for cand in /c/Users/ltr/Workspace/ssh-keys/aizee_rover_id \
-                /p/Workspace/ssh-keys/aizee_rover_id \
-                "$HOME/.ssh/aizee_rover_id"; do
+        /p/Workspace/ssh-keys/aizee_rover_id \
+        "$HOME/.ssh/aizee_rover_id"; do
         [[ -f "$cand" ]] && SSH_KEY="$cand" && break
     done
 fi
@@ -58,7 +58,7 @@ else
     echo "1. Installing SSH public key (enter the Jetson password when prompted)..."
     ssh -o StrictHostKeyChecking=accept-new "$TARGET" \
         "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys" \
-        < "${SSH_KEY}.pub"
+        <"${SSH_KEY}.pub"
     ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$TARGET" true
     echo "   Key installed."
 fi

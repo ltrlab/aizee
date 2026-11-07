@@ -13,9 +13,12 @@
 # --- SSH key -----------------------------------------------------------------
 if [[ -z "${SSH_KEY:-}" || ! -f "${SSH_KEY:-}" ]]; then
     for _aizee_k in /c/Users/ltr/Workspace/ssh-keys/aizee_rover_id \
-                    /p/Workspace/ssh-keys/aizee_rover_id \
-                    "$HOME/.ssh/aizee_rover_id"; do
-        if [[ -f "$_aizee_k" ]]; then SSH_KEY="$_aizee_k"; break; fi
+        /p/Workspace/ssh-keys/aizee_rover_id \
+        "$HOME/.ssh/aizee_rover_id"; do
+        if [[ -f "$_aizee_k" ]]; then
+            SSH_KEY="$_aizee_k"
+            break
+        fi
     done
 fi
 if [[ -z "${SSH_KEY:-}" ]]; then
@@ -29,7 +32,7 @@ fi
 if [[ -z "${AIZEE_TARGET:-}" ]]; then
     for _aizee_h in 10.42.0.1 192.168.50.1 192.168.0.27; do
         if ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=2 \
-               -o StrictHostKeyChecking=accept-new "ltr@$_aizee_h" true 2>/dev/null; then
+            -o StrictHostKeyChecking=accept-new "ltr@$_aizee_h" true 2>/dev/null; then
             AIZEE_TARGET="ltr@$_aizee_h"
             break
         fi

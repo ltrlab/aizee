@@ -1,6 +1,7 @@
 """The gate's parallel phase (scripts/dev.py run_tests: pytest-xdist with --dist loadgroup): each test file stays on one
 worker, in order, as in a single process (some tests need the one before them, others share a module's fixtures),
 except SPLIT's files, whose tests are independent and long enough to spread across the workers."""
+
 import pytest
 
 # Files whose tests may run on any worker, in any order: each sets up its own receiver and simulation. Add a file only

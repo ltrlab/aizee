@@ -12,6 +12,7 @@ there (its receiver checks the head is still where it was read resting, neck.hea
 slowly, and Return (X), or the session's end, takes it back to its reference, then down to where it rested, before
 its torque goes: it is never dropped from straight ahead, and never crosses the shoulder corner on the way.
 """
+
 from collections import deque
 from copy import deepcopy
 import json
@@ -22,27 +23,26 @@ import time
 
 from robot_platform.neck import clearance
 
-PERIOD_S = .04  # The head's commands at 25 Hz (its profile's loop_hz); its receiver ramps each over 40 ms.
+PERIOD_S = 0.04  # The head's commands at 25 Hz (its profile's loop_hz); its receiver ramps each over 40 ms.
 # The head cycles on the arms' ticks, on a grid of PERIOD_S slots: a tick this early still takes its slot (the ticks
 # meet the grid only to float precision), and a late one does not push the next slot. Each command takes the offer of
 # the reply before it, so two consecutive gaps must stay under the direct policy's command lifetime (100 ms).
 DUE_SLACK_S = PERIOD_S / 4
-CYCLE_BUDGET_S = .035
-POSE_FRESH_S = .2  # A headset pose this recent steers the head;
-RETURN_AFTER_S = 1.  # without one the head holds its last target this long, then returns to its zero pose.
+CYCLE_BUDGET_S = 0.035
+POSE_FRESH_S = 0.2  # A headset pose this recent steers the head;
+RETURN_AFTER_S = 1.0  # without one the head holds its last target this long, then returns to its zero pose.
 # With a shoulder clearance, the head's targets step at this share of its speeds: steps the lifecycle takes whole.
-SPEED_SHARE = .9
+SPEED_SHARE = 0.9
 # The head follows at most this share of its profile's speed, catching up included: its receiver trips at 1.25
 # times that speed (control.approach OVERSPEED_HEADROOM), and coming down at 1.0 rad/s its tilt read 1.30 (2026-11-02).
-FOLLOW_SHARE = .7
+FOLLOW_SHARE = 0.7
 
 
 class HeadTeleop:
     """`bundle`: the head's profile path, reference, limits and servo calibration (helm.tune's head bundle shape).
     Openers are injectable for tests, as the arms' are."""
 
-    def __init__(self, bundle, *, live, clock=time.perf_counter, open_receiver=None, open_harness=None,
-                 open_feed=None):
+    def __init__(self, bundle, *, live, clock=time.perf_counter, open_receiver=None, open_harness=None, open_feed=None):
         self.bundle, self.live, self.clock = deepcopy(bundle), live, clock
         self.open_receiver = open_receiver or self._open_receiver
         self.open_harness = open_harness or self._open_harness
@@ -68,17 +68,20 @@ class HeadTeleop:
         from pathlib import Path
         from robot_platform.neck.head import HeadReceiver, read_rest, service_config
         from robot_platform.ops.release import ROOT
+
         self.rest = read_rest(self.profile, self.bundle['limits'])
         service = service_config(self.profile, reference, self.derived, mode='teleop_direct', start=self.rest)
         evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-head-%Y%m%dT%H%M%SZ', time.gmtime())
-        return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=evidence,
-                            labels=self.labels).start()
+        return HeadReceiver(
+            service, binary=ROOT / 'bin' / 'head_controller', directory=evidence, labels=self.labels
+        ).start()
 
     def _open_feed(self, camera_pose):
         """The head's pose feed on its local PUB (neck.head_pose.ENDPOINT), or None where the port is taken: the
         headset's 3D view then follows the eyes, as without a session."""
         import zmq
         from robot_platform.neck.head_pose import ENDPOINT, HeadPoseFeed
+
         socket = zmq.Context.instance().socket(zmq.PUB)
         socket.setsockopt(zmq.LINGER, 0)
         socket.setsockopt(zmq.SNDHWM, 50)
@@ -92,6 +95,7 @@ class HeadTeleop:
 
     def _open_harness(self, config, initial):
         from robot_platform.simulation.control_harness import NativeControlHarness
+
         harness = NativeControlHarness(config, initial)
         harness.step(0)
         return harness
@@ -103,13 +107,15 @@ class HeadTeleop:
         from robot_platform.ops.release import ROOT
         from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
         from robot_platform.teleop.lifecycle import TeleopLifecycle
+
         path = Path(self.bundle['teleop_profile'])
         self.profile = head.load_profile(path if path.is_absolute() else ROOT / path)  # Release-relative on the robot.
         reference = self.bundle['head_reference']
         self.labels = {motor['name']: motor['label'] for motor in self.profile['motors']}
         self.model = UrdfModel(ModelProfile.load(ROOT / self.profile['model_profile']))
-        self.derived = derived = head.derive(self.profile, reference, self.bundle['limits'], self.model,
-                                             servo=self.bundle.get('servo'))
+        self.derived = derived = head.derive(
+            self.profile, reference, self.bundle['limits'], self.model, servo=self.bundle.get('servo')
+        )
         config = derived['config']
         self.usable = {row['motor']: row['usable'] for row in derived['report']}
         # The shoulder clearance (neck.clearance), when one is saved for this reference: its targets then step.
@@ -143,39 +149,57 @@ class HeadTeleop:
                 if now_ms > receiver.now_ms:
                     receiver.step(now_ms)
                 return receiver.step(now_ms, request)['reply']
+
         self._closers.append(receiver.close)
         self.receiver = receiver
         names = tuple(joint['name'] for joint in config['joints'])
-        controller = GuardedControllerClient(exchange, group=config['group'], identity=config['identity'],
-                                             joint_names=names)
+        controller = GuardedControllerClient(
+            exchange, group=config['group'], identity=config['identity'], joint_names=names
+        )
         # Each cycle reads the reply of the cycle before (DirectLifecycleSession), so its feedback and target ages
         # are bounded by the head's period, not the arms' 10 ms one.
         # Its commands keep under FOLLOW_SHARE of the head's speed; its receiver keeps its own cap.
         rows = [dict(row, max_velocity=FOLLOW_SHARE * row['max_velocity']) for row in derived['lifecycle']]
-        lifecycle = TeleopLifecycle(rows, clock=self.clock, max_step_s=2 * PERIOD_S,
-                                    feedback_max_age_s=1.5 * PERIOD_S, target_max_age_s=2.5 * PERIOD_S,
-                                    allow_repeated_source=True)
+        lifecycle = TeleopLifecycle(
+            rows,
+            clock=self.clock,
+            max_step_s=2 * PERIOD_S,
+            feedback_max_age_s=1.5 * PERIOD_S,
+            target_max_age_s=2.5 * PERIOD_S,
+            allow_repeated_source=True,
+        )
         # A cycle following nothing (Idle, Enable, Hold) takes the receiver, renews it or takes a fresh offer at
         # the head service's 10 ms ticks before its command: it has that command's lifetime, which the receiver
         # bounds it by, as the arms' holds have their verdict's. Following cycles keep the cycle budget.
-        self.session = DirectLifecycleSession(controller, config, lifecycle, lambda: receiver.last,
-                                              period_s=PERIOD_S, cycle_budget_s=CYCLE_BUDGET_S,
-                                              hold_budget_s=config['direct']['command_ms'] / 1000, clock=self.clock)
+        self.session = DirectLifecycleSession(
+            controller,
+            config,
+            lifecycle,
+            lambda: receiver.last,
+            period_s=PERIOD_S,
+            cycle_budget_s=CYCLE_BUDGET_S,
+            hold_budget_s=config['direct']['command_ms'] / 1000,
+            clock=self.clock,
+        )
         self.names = names
         self.zero = {row['name']: row['zero_position'] for row in derived['lifecycle']}
         # The headset's yaw and pitch are the CAD angles of neck_z and neck_y; each motor maps from its CAD joint.
-        self.axes = {row['actuator']: (joint, row['scale'], row['offset'])
-                     for joint, row in derived['joint_map'].items()}
-        self.speeds = {row['name']: {'align': row['align_speed'], 'follow': row['max_velocity'],
-                                     'return': row['shutdown_speed']} for row in rows}
+        self.axes = {
+            row['actuator']: (joint, row['scale'], row['offset']) for joint, row in derived['joint_map'].items()
+        }
+        self.speeds = {
+            row['name']: {'align': row['align_speed'], 'follow': row['max_velocity'], 'return': row['shutdown_speed']}
+            for row in rows
+        }
         self.tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
         # Return ends where the head rested, inside its usable range and clear of the shoulder: the last of a droop
         # past them happens limp.
         rest = dict(self.zero, **(self.rest or {}))
         rest = {name: min(max(rest[name], self.usable[name][0]), self.usable[name][1]) for name in names}
         if self.clearance is not None:
-            pan, tilt = self.clearance.clamp(rest[self.pan] - self.centre[self.pan],
-                                             rest[self.tilt] - self.centre[self.tilt])
+            pan, tilt = self.clearance.clamp(
+                rest[self.pan] - self.centre[self.pan], rest[self.tilt] - self.centre[self.tilt]
+            )
             rest.update({self.pan: self.centre[self.pan] + pan, self.tilt: self.centre[self.tilt] + tilt})
         self.rest_target = rest
         if self.live and self.profile.get('camera'):
@@ -187,6 +211,7 @@ class HeadTeleop:
         correction of the pan zero (vision.twin, helm.twin) when one holds for that alignment and reference."""
         from robot_platform.neck.head_pose import CameraPose, aligned_mount
         from robot_platform.vision.twin import head_offsets
+
         mount, saved = None, self.bundle.get('camera')
         self.camera_mount = 'cad: no head camera alignment saved'
         self.camera_offsets, self.camera_twin = {}, 'none: no correction of the head applied'
@@ -261,8 +286,10 @@ class HeadTeleop:
             # it, under the receiver's floor, and Engage faulted (2026-10-31, "invalid_command").
             held = self.session.lifecycle.target if self.state == 'HOLD' else None
             start = dict(zip(self.names, held)) if held is not None else measured
-            self._stepped = {name: min(max(start.get(name, self.zero[name]), self.usable[name][0]),
-                                       self.usable[name][1]) for name in self.names}
+            self._stepped = {
+                name: min(max(start.get(name, self.zero[name]), self.usable[name][0]), self.usable[name][1])
+                for name in self.names
+            }
             self._aligned = False
         if self.state != 'TELEOP':
             return dict(self._stepped)
@@ -281,8 +308,10 @@ class HeadTeleop:
         positions, self.source = self._following(now)
         positions = self._clear(positions)
         self._sequence += 1
-        return [{'name': name, 'position': positions[name], 'sampled_at': now, 'sequence': self._sequence}
-                for name in self.names]
+        return [
+            {'name': name, 'position': positions[name], 'sampled_at': now, 'sequence': self._sequence}
+            for name in self.names
+        ]
 
     # -- the cycle -----------------------------------------------------------------------------
 
@@ -336,8 +365,11 @@ class HeadTeleop:
         except Exception as exc:
             status = getattr(exc, 'status', None) or self.session.controller.status or {}
             reason = status.get('reason')
-            self.fault = f"Head receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') \
+            self.fault = (
+                f'Head receiver {status.get("state")}: {reason} · {exc}'
+                if reason not in (None, 'ok')
                 else f'Head: {exc}'
+            )
             self._keep_fault(exc, status)
             raise
 
@@ -350,11 +382,19 @@ class HeadTeleop:
             return
         try:
             stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-            record = {'fault': self.fault, 'error': f'{type(exc).__name__}: {exc}', 'status': status,
-                      'cycle': self.session.last_cycle, 'returning': self.returning, 'stepped': self._stepped,
-                      'rest_target': self.rest_target, 'limited': self.limited}
+            record = {
+                'fault': self.fault,
+                'error': f'{type(exc).__name__}: {exc}',
+                'status': status,
+                'cycle': self.session.last_cycle,
+                'returning': self.returning,
+                'stepped': self._stepped,
+                'rest_target': self.rest_target,
+                'limited': self.limited,
+            }
             (Path(directory) / f'fault-{stamp}.json').write_text(
-                json.dumps(record, indent=1, default=repr) + '\n', encoding='utf-8')
+                json.dumps(record, indent=1, default=repr) + '\n', encoding='utf-8'
+            )
         except (OSError, TypeError, ValueError):
             pass  # Evidence only: never stands in the way of the fault itself.
 
@@ -364,8 +404,12 @@ class HeadTeleop:
             return
         goal = self.zero if self.returning == 'centre' else self.rest_target
         measured = {row['name']: row['position'] for row in (self.session.last_feedback or [])}
-        if all(name in measured and abs(self._stepped[name] - goal[name]) < 1e-6
-               and abs(measured[name] - goal[name]) <= self.tolerance[name] for name in self.names):
+        if all(
+            name in measured
+            and abs(self._stepped[name] - goal[name]) < 1e-6
+            and abs(measured[name] - goal[name]) <= self.tolerance[name]
+            for name in self.names
+        ):
             if self.returning == 'centre':
                 self.returning = 'rest'
             else:
@@ -373,23 +417,40 @@ class HeadTeleop:
 
     def status(self):
         now = self.clock()
-        pose = None if self._pose is None else {'yaw': self._pose[0], 'pitch': self._pose[1],
-                                                'age_s': now - self._pose[2], 'count': self._poses}
+        pose = (
+            None
+            if self._pose is None
+            else {'yaw': self._pose[0], 'pitch': self._pose[1], 'age_s': now - self._pose[2], 'count': self._poses}
+        )
         last = (self.receiver.last or {}) if self.receiver is not None else {}
-        positions = ({row['name']: row['position'] for row in (self.session.last_feedback or [])}
-                     if self.session is not None else {})
+        positions = (
+            {row['name']: row['position'] for row in (self.session.last_feedback or [])}
+            if self.session is not None
+            else {}
+        )
         # The neck's CAD angles (neck_z, neck_y), for the 3D view: each motor's measured position through its axis.
-        joints = {joint: positions[motor] * scale + offset for motor, (joint, scale, offset)
-                  in getattr(self, 'axes', {}).items() if motor in positions}
-        return {'state': self.state, 'fault': self.fault, 'source': getattr(self, 'source', None), 'headset': pose,
-                'positions': positions, 'joints': joints, 'motors_enabled': last.get('hardware_enabled'),
-                'returning': self.returning, 'camera_mount': getattr(self, 'camera_mount', None),
-                # The neck's offsets ({joint: rad}) the camera's published poses take (helm.maps places a capture by
-                # them), and why; None without a camera feed.
-                'camera_offsets': getattr(self, 'camera_offsets', None),
-                'camera_twin': getattr(self, 'camera_twin', None),
-                # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
-                'clearance': None if self.clearance is None else {'limited': self.limited}}
+        joints = {
+            joint: positions[motor] * scale + offset
+            for motor, (joint, scale, offset) in getattr(self, 'axes', {}).items()
+            if motor in positions
+        }
+        return {
+            'state': self.state,
+            'fault': self.fault,
+            'source': getattr(self, 'source', None),
+            'headset': pose,
+            'positions': positions,
+            'joints': joints,
+            'motors_enabled': last.get('hardware_enabled'),
+            'returning': self.returning,
+            'camera_mount': getattr(self, 'camera_mount', None),
+            # The neck's offsets ({joint: rad}) the camera's published poses take (helm.maps places a capture by
+            # them), and why; None without a camera feed.
+            'camera_offsets': getattr(self, 'camera_offsets', None),
+            'camera_twin': getattr(self, 'camera_twin', None),
+            # Whether the shoulder clearance holds the head above where the headset looks, this cycle.
+            'clearance': None if self.clearance is None else {'limited': self.limited},
+        }
 
     def close(self):
         if self.session is not None and self.session.owned:
@@ -419,10 +480,11 @@ class HeadLoop:
     The thread first moves off the arms' CPUs (`placement`, control.scheduling): on them, beside the head, the arms'
     receiver started its ticks up to 9.2 ms late and an arm command expired (2026-10-31, 15:15)."""
 
-    JOIN_S = 2.  # Several of the head's 200 ms exchange timeouts: a cycle stuck past this is not coming back.
+    JOIN_S = 2.0  # Several of the head's 200 ms exchange timeouts: a cycle stuck past this is not coming back.
 
     def __init__(self, head, *, clock=time.perf_counter, placement=None):
         from robot_platform.control.scheduling import prefer_background_thread
+
         self.head, self.clock = head, clock
         self._place = placement or prefer_background_thread
         self.placement = None  # The hints that took on the thread, once it started.
@@ -479,7 +541,7 @@ class HeadLoop:
 
 
 STATUS_S = PERIOD_S  # The head's process reports its status this often, as often as it cycles.
-START_S = 30.  # Building a live head (its service checks the servos and that the head rests where it was read).
+START_S = 30.0  # Building a live head (its service checks the servos and that the head rests where it was read).
 
 
 def serve_head(bundle, live, conn, open_receiver=None, open_harness=None, verified=None):
@@ -493,6 +555,7 @@ def serve_head(bundle, live, conn, open_receiver=None, open_harness=None, verifi
     import os
     from robot_platform.control.scheduling import prefer_background
     from robot_platform.models.urdf import register_verified_assets
+
     if verified:
         register_verified_assets(verified)
     scheduling = prefer_background(os.getpid())
@@ -525,9 +588,19 @@ def serve_head(bundle, live, conn, open_receiver=None, open_harness=None, verifi
                         pass  # Checked on the arms' side already.
             now = time.perf_counter()
             if sent_at is None or now - sent_at >= STATUS_S:
-                conn.send(('status', head.status(), {'fault': head.fault, 'state': head.state,
-                                                     'returning': head.returning, 'pending': loop.pending,
-                                                     'received': received}))
+                conn.send(
+                    (
+                        'status',
+                        head.status(),
+                        {
+                            'fault': head.fault,
+                            'state': head.state,
+                            'returning': head.returning,
+                            'pending': loop.pending,
+                            'received': received,
+                        },
+                    )
+                )
                 sent_at = now
     except (EOFError, OSError):
         pass
@@ -554,7 +627,7 @@ class HeadProcess:
     head: actions and headset poses go to a sender thread, the head's status comes back on a reader thread, and the
     arms' side reads the last of it. `open_receiver` and `open_harness` go to the child (module-level callables)."""
 
-    JOIN_S = 10.  # The head's close (its torque off at its rest, its service stopped) takes a few seconds at most.
+    JOIN_S = 10.0  # The head's close (its torque off at its rest, its service stopped) takes a few seconds at most.
 
     def __init__(self, bundle, *, live=True, open_receiver=None, open_harness=None, start_s=START_S):
         self.bundle, self.live = bundle, live
@@ -576,8 +649,9 @@ class HeadProcess:
     def instead_of(cls, head):
         """The process for an unbuilt HeadTeleop, with its openers where they are not its own (a test's harness)."""
         own = lambda opener: None if getattr(opener, '__self__', None) is head else opener  # noqa: E731
-        return cls(head.bundle, live=head.live, open_receiver=own(head.open_receiver),
-                   open_harness=own(head.open_harness))
+        return cls(
+            head.bundle, live=head.live, open_receiver=own(head.open_receiver), open_harness=own(head.open_harness)
+        )
 
     # -- HeadTeleop's face -----------------------------------------------------------------------
 
@@ -641,11 +715,15 @@ class HeadProcess:
     def build(self):
         import multiprocessing
         from robot_platform.models.urdf import verified_assets
+
         context = multiprocessing.get_context('spawn')  # Never a fork of the arms' process, its threads and locks.
         conn, child = context.Pipe()
-        self._process = context.Process(target=serve_head, name='helm-head', daemon=True,
-                                        args=(self.bundle, self.live, child, self.open_receiver, self.open_harness,
-                                              verified_assets()))
+        self._process = context.Process(
+            target=serve_head,
+            name='helm-head',
+            daemon=True,
+            args=(self.bundle, self.live, child, self.open_receiver, self.open_harness, verified_assets()),
+        )
         self._process.start()
         child.close()
         self._conn = conn
@@ -654,14 +732,17 @@ class HeadProcess:
         try:
             message = conn.recv()
         except EOFError:
-            self._process.join(2.)
-            raise RuntimeError(f'the head process ended before it answered (exit code {self._process.exitcode})') \
-                from None
+            self._process.join(2.0)
+            raise RuntimeError(
+                f'the head process ended before it answered (exit code {self._process.exitcode})'
+            ) from None
         if message[0] == 'fault':
             raise RuntimeError(message[1])
         self.scheduling, self.session = message[1], True
-        self._threads = [threading.Thread(target=self._send, daemon=True, name='helm-head-send'),
-                         threading.Thread(target=self._read, daemon=True, name='helm-head-read')]
+        self._threads = [
+            threading.Thread(target=self._send, daemon=True, name='helm-head-send'),
+            threading.Thread(target=self._read, daemon=True, name='helm-head-read'),
+        ]
         for thread in self._threads:
             thread.start()
 
@@ -711,7 +792,7 @@ class HeadProcess:
         stuck = self._process.is_alive()
         if stuck:
             self._process.terminate()
-            self._process.join(2.)
+            self._process.join(2.0)
         self._conn.close()
         if stuck:
             raise RuntimeError('the head process did not close in time: stopped')

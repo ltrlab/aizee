@@ -23,6 +23,7 @@ Windows overlapping a disabled drive, a recorder gap, or the last WINDOW_FAULT_S
 each calibrated arm joint's fitted values, bound to the motor and files they were fitted on. `--sim-params` replays
 the simulator as helm --sim runs it with such a file.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,13 +37,13 @@ import numpy as np
 from robot_platform.characterization.response_fit import BLOCK_S, TICK_S, load_session, smoothed
 from robot_platform.simulation.arm_plant import SUBSTEPS
 
-WINDOW_S = 1.
+WINDOW_S = 1.0
 STRIDE = 4  # Every 4th tick of a fit window enters the calibration residual.
 FIT_WINDOWS = 150  # At most this many fit windows per joint, spread evenly.
-WINDOW_FAULT_S = 1.  # Windows ending this close before a FAULT event are left out, and all after it.
+WINDOW_FAULT_S = 1.0  # Windows ending this close before a FAULT event are left out, and all after it.
 STICK_V = 1e-4  # As ArmPlant.
-MOVING_SPEED = .05  # rad/s: a window whose command moves faster than this somewhere counts as moving.
-MAX_DELAY_TICKS = 8.
+MOVING_SPEED = 0.05  # rad/s: a window whose command moves faster than this somewhere counts as moving.
+MAX_DELAY_TICKS = 8.0
 CALIBRATED = ('inertia', 'friction', 'static', 'viscous', 'gravity_scale', 'delay_ticks')
 
 
@@ -54,6 +55,7 @@ def simulator(calibration_profile, runs, *, servo=None, actuators=None):
     from robot_platform.control.servo_calibration import load_servo, servo_path
     from robot_platform.ops.check import direction_session
     from robot_platform.simulation.minerva_sim import calibrated_actuators, joint_specs
+
     calibration_profile = Path(calibration_profile)
     _plan, _paths, device, reference, model, _pose, bindings = load_plan(calibration_profile)
     session = direction_session(Path(runs), device['asset_id'], bindings)
@@ -65,12 +67,20 @@ def simulator(calibration_profile, runs, *, servo=None, actuators=None):
     terms = gravity_model(model, session['preview_mapping'], reference['motors'], (calibration or {}).get('gravity'))
     calibrated, used = ({}, None) if actuators is None else calibrated_actuators(actuators, calibration, names, terms)
     specs, nominal = joint_specs(names, calibration, calibrated)
-    return {'specs': {s['name']: s for s in specs}, 'terms': terms, 'nominal': nominal, 'servo': calibration,
-            'gravity_scale': {name: c['gravity_scale'] for name, c in calibrated.items()},
-            'identity': {'calibration_profile': str(calibration_profile.resolve()),
-                         'servo': str(servo_file.resolve()),
-                         'servo_sha256': hashlib.sha256(servo_file.read_bytes()).hexdigest(),
-                         'directions': session['bindings'], **({'actuators': used} if used else {})}}
+    return {
+        'specs': {s['name']: s for s in specs},
+        'terms': terms,
+        'nominal': nominal,
+        'servo': calibration,
+        'gravity_scale': {name: c['gravity_scale'] for name, c in calibrated.items()},
+        'identity': {
+            'calibration_profile': str(calibration_profile.resolve()),
+            'servo': str(servo_file.resolve()),
+            'servo_sha256': hashlib.sha256(servo_file.read_bytes()).hexdigest(),
+            'directions': session['bindings'],
+            **({'actuators': used} if used else {}),
+        },
+    }
 
 
 def _json_lines(path):
@@ -100,8 +110,11 @@ def fault_times_ms(path):
     pairs = []
     if latency.is_file():
         for row in _json_lines(latency):
-            if (row.get('receiver_accepted_ms') is not None and row.get('started_at') is not None
-                    and row.get('completed_at') is not None):
+            if (
+                row.get('receiver_accepted_ms') is not None
+                and row.get('started_at') is not None
+                and row.get('completed_at') is not None
+            ):
                 pairs.append(((row['started_at'] + row['completed_at']) / 2, row['receiver_accepted_ms']))
     if not pairs:
         return [-math.inf]  # A fault at an unknown time: no window of the recording can be trusted.
@@ -117,7 +130,7 @@ class Replay:
         joints = session['joints']
         self.motor, self.joint = motor, joints[motor]
         if self.joint.commands is None:
-            raise ValueError(f'{motor}: the recording lacks each tick\'s command (made before release 5852fe2)')
+            raise ValueError(f"{motor}: the recording lacks each tick's command (made before release 5852fe2)")
         self.t = self.joint.t
         self.terms = terms or ()
         missing = [m for term in self.terms for m in term[1] if m not in joints]
@@ -142,8 +155,12 @@ class Replay:
         starts, r = [], int(MAX_DELAY_TICKS) + 1
         while r + n < len(self.t):
             span = slice(r, r + n + 1)
-            if (on[span].all() and contiguous[r + 1:r + n + 1].all() and np.isfinite(self.q0[r])
-                    and self.t[r + n] < first_fault):
+            if (
+                on[span].all()
+                and contiguous[r + 1 : r + n + 1].all()
+                and np.isfinite(self.q0[r])
+                and self.t[r + n] < first_fault
+            ):
                 starts.append(r)
                 r += n
             else:
@@ -159,7 +176,7 @@ class Replay:
         frac = position - low
         return x[low] * (1 - frac) + x[np.minimum(low + 1, len(x) - 1)] * frac
 
-    def simulate(self, starts, n, params, delay=0.):
+    def simulate(self, starts, n, params, delay=0.0):
         """Positions [windows, n] after each tick: ArmPlant's equations (simulation.arm_plant.ArmPlant.step),
         vectorised over windows. The step to row r + 1 takes the command recorded at row r, as the simulator's
         plant takes the receiver's latest command each tick; `delay` (ticks) takes it that much older."""
@@ -168,21 +185,22 @@ class Replay:
         context = {m: q[rows] for m, q in self.context.items()}
         q, v = self.q0[starts].copy(), self.v0[starts].copy()
         inertia, friction = params['inertia'], params['friction']
-        static, viscous, scale = params['static'], params['viscous'], params.get('gravity_scale', 1.)
+        static, viscous, scale = params['static'], params['viscous'], params.get('gravity_scale', 1.0)
         h = TICK_S / SUBSTEPS
         out = np.empty((len(starts), n))
         for k in range(n):
             for _ in range(SUBSTEPS):
-                holding = 0.
+                holding = 0.0
                 for coefficient, angle in self.terms:
-                    holding = holding + coefficient * np.sin(sum(m * (q if motor == self.motor else context[motor][:, k])
-                                                                 for motor, m in angle.items()))
+                    holding = holding + coefficient * np.sin(
+                        sum(m * (q if motor == self.motor else context[motor][:, k]) for motor, m in angle.items())
+                    )
                 torque = kp[:, k] * (q_star[:, k] - q) + kd[:, k] * (v_star[:, k] - v) + ff[:, k]
                 net = torque - scale * holding - viscous * v
                 moving = np.abs(v) >= STICK_V
                 stuck = ~moving & (np.abs(net) <= static)
-                direction = np.copysign(1., np.where(moving, v, net))
-                v = np.where(stuck, 0., v + (net - friction * direction) / inertia * h)
+                direction = np.copysign(1.0, np.where(moving, v, net))
+                v = np.where(stuck, 0.0, v + (net - friction * direction) / inertia * h)
                 q = q + v * h
             out[:, k] = q
         return out
@@ -203,52 +221,89 @@ class Replay:
 def score(errors, moving):
     """Position error (simulated or baseline minus measured) over windows, in mrad."""
     worst = np.max(np.abs(errors), axis=1) * 1000
-    rms = np.sqrt(np.mean(errors ** 2, axis=1)) * 1000
+    rms = np.sqrt(np.mean(errors**2, axis=1)) * 1000
 
     def part(mask):
         if not mask.any():
             return None
-        return {'windows': int(mask.sum()), 'rms_mrad_p50': float(np.median(rms[mask])),
-                'max_mrad_p50': float(np.median(worst[mask])), 'max_mrad_p95': float(np.percentile(worst[mask], 95))}
+        return {
+            'windows': int(mask.sum()),
+            'rms_mrad_p50': float(np.median(rms[mask])),
+            'max_mrad_p50': float(np.median(worst[mask])),
+            'max_mrad_p95': float(np.percentile(worst[mask], 95)),
+        }
+
     return {'all': part(np.ones(len(errors), dtype=bool)), 'moving': part(moving), 'holding': part(~moving)}
 
 
 def calibrate(replays, base):
     """Least-squares fit of CALIBRATED on the fit windows of every replay of one joint."""
     from scipy.optimize import least_squares
+
     usable = [(replay, starts, n) for replay, starts, n in replays if len(starts)]
     total = sum(len(starts) for _, starts, _ in usable)
     if total < 10:
         return {'unavailable': f'{total} fit windows (10 needed)'}
     if total > FIT_WINDOWS:  # Spread evenly over every recording's fit windows.
-        usable = [(replay, starts[np.unique(np.linspace(0, len(starts) - 1,
-                                                        max(2, round(FIT_WINDOWS * len(starts) / total))).astype(int))], n)
-                  for replay, starts, n in usable]
-    sets = [(replay, starts, n, replay.measured(starts, n)[:, STRIDE - 1::STRIDE]) for replay, starts, n in usable]
+        usable = [
+            (
+                replay,
+                starts[
+                    np.unique(
+                        np.linspace(0, len(starts) - 1, max(2, round(FIT_WINDOWS * len(starts) / total))).astype(int)
+                    )
+                ],
+                n,
+            )
+            for replay, starts, n in usable
+        ]
+    sets = [(replay, starts, n, replay.measured(starts, n)[:, STRIDE - 1 :: STRIDE]) for replay, starts, n in usable]
 
     def unpack(x):
         friction = math.exp(x[1])
-        return {'inertia': math.exp(x[0]), 'friction': friction, 'static': friction + math.exp(x[2]),
-                'viscous': x[3], 'gravity_scale': x[4]}, x[5]
+        return {
+            'inertia': math.exp(x[0]),
+            'friction': friction,
+            'static': friction + math.exp(x[2]),
+            'viscous': x[3],
+            'gravity_scale': x[4],
+        }, x[5]
 
     def residual(x):
         params, delay = unpack(x)
-        return np.concatenate([(r.simulate(s, n, params, delay)[:, STRIDE - 1::STRIDE] - m).ravel()
-                               for r, s, n, m in sets])
-    x0 = [math.log(base['inertia']), math.log(max(base['friction'], 1e-3)),
-          math.log(max(base['static'] - base['friction'], 1e-3)), max(base['viscous'], 0.), 1., 0.]
-    lower = [math.log(1e-4), math.log(1e-3), math.log(1e-4), 0., .5, 0.]
-    upper = [math.log(20.), math.log(20.), math.log(20.), 100., 1.5, MAX_DELAY_TICKS]
-    result = least_squares(residual, np.clip(x0, lower, upper), bounds=(lower, upper), diff_step=1e-3,
-                           x_scale='jac', max_nfev=300)
+        return np.concatenate(
+            [(r.simulate(s, n, params, delay)[:, STRIDE - 1 :: STRIDE] - m).ravel() for r, s, n, m in sets]
+        )
+
+    x0 = [
+        math.log(base['inertia']),
+        math.log(max(base['friction'], 1e-3)),
+        math.log(max(base['static'] - base['friction'], 1e-3)),
+        max(base['viscous'], 0.0),
+        1.0,
+        0.0,
+    ]
+    lower = [math.log(1e-4), math.log(1e-3), math.log(1e-4), 0.0, 0.5, 0.0]
+    upper = [math.log(20.0), math.log(20.0), math.log(20.0), 100.0, 1.5, MAX_DELAY_TICKS]
+    result = least_squares(
+        residual, np.clip(x0, lower, upper), bounds=(lower, upper), diff_step=1e-3, x_scale='jac', max_nfev=300
+    )
     params, delay = unpack(result.x)
-    at_bound = [name for name, value, lo, hi in zip(('inertia', 'friction', 'static', 'viscous', 'gravity_scale',
-                                                     'delay_ticks'), result.x, lower, upper)
-                if abs(value - lo) < 1e-6 or abs(value - hi) < 1e-6]
-    return {'params': dict(params, delay_ticks=float(delay), delay_ms=float(delay * TICK_S * 1000)),
-            'fit_windows': int(sum(len(s) for _, s, _, _ in sets)),
-            'fit_rms_mrad': float(np.sqrt(np.mean(result.fun ** 2)) * 1000), 'converged': bool(result.success),
-            'at_bounds': at_bound, 'evaluations': int(result.nfev)}
+    at_bound = [
+        name
+        for name, value, lo, hi in zip(
+            ('inertia', 'friction', 'static', 'viscous', 'gravity_scale', 'delay_ticks'), result.x, lower, upper
+        )
+        if abs(value - lo) < 1e-6 or abs(value - hi) < 1e-6
+    ]
+    return {
+        'params': dict(params, delay_ticks=float(delay), delay_ms=float(delay * TICK_S * 1000)),
+        'fit_windows': int(sum(len(s) for _, s, _, _ in sets)),
+        'fit_rms_mrad': float(np.sqrt(np.mean(result.fun**2)) * 1000),
+        'converged': bool(result.success),
+        'at_bounds': at_bound,
+        'evaluations': int(result.nfev),
+    }
 
 
 def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
@@ -258,13 +313,26 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
         session = load_session(path)
         sessions.append((Path(path), session, fault_times_ms(path)))
     names = motors or [m for m in simulator_['specs'] if any(m in s['joints'] for _, s, _ in sessions)]
-    report = {'schema': 1, 'kind': 'sim2real_comparison',
-              'recordings': [dict(s['provenance'], faults_receiver_ms=['unplaced: every window left out'
-                                                                       if math.isinf(x) else x for x in f])
-                             for _, s, f in sessions],
-              'simulator': dict(simulator_['identity'], nominal=simulator_['nominal']),
-              'method': {'window_s': WINDOW_S, 'block_s': BLOCK_S, 'tick_s': TICK_S, 'plant': 'ArmPlant equations',
-                         'context': "the arm's other joints at their measured positions"}, 'joints': {}}
+    report = {
+        'schema': 1,
+        'kind': 'sim2real_comparison',
+        'recordings': [
+            dict(
+                s['provenance'],
+                faults_receiver_ms=['unplaced: every window left out' if math.isinf(x) else x for x in f],
+            )
+            for _, s, f in sessions
+        ],
+        'simulator': dict(simulator_['identity'], nominal=simulator_['nominal']),
+        'method': {
+            'window_s': WINDOW_S,
+            'block_s': BLOCK_S,
+            'tick_s': TICK_S,
+            'plant': 'ArmPlant equations',
+            'context': "the arm's other joints at their measured positions",
+        },
+        'joints': {},
+    }
     for motor in names:
         spec = simulator_['specs'][motor]
         current = {k: spec[k] for k in ('inertia', 'friction', 'static', 'viscous')}
@@ -273,7 +341,7 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
         if spec.get('delay'):
             current['delay_ticks'] = spec['delay'] / TICK_S  # The plant's: ArmPlant.step takes it per tick.
         replays, held = [], []
-        travel = 0.
+        travel = 0.0
         for path, session, faults in sessions:
             if motor not in session['joints'] or session['joints'][motor].commands is None:
                 continue
@@ -282,26 +350,34 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
             travel = max(travel, float(np.ptp(session['joints'][motor].q)))
             replays.append((replay, starts[fit], n))
             held.append((replay, starts[~fit], n))
-        entry = {'current_params': current, 'nominal': simulator_['nominal'].get(motor, []), 'travel_rad': travel,
-                 'windows': {'fit': int(sum(len(s) for _, s, _ in replays)),
-                             'holdout': int(sum(len(s) for _, s, _ in held))}}
+        entry = {
+            'current_params': current,
+            'nominal': simulator_['nominal'].get(motor, []),
+            'travel_rad': travel,
+            'windows': {
+                'fit': int(sum(len(s) for _, s, _ in replays)),
+                'holdout': int(sum(len(s) for _, s, _ in held)),
+            },
+        }
         if not entry['windows']['holdout']:
             entry['unavailable'] = 'no held-out window with the drive commanded'
             report['joints'][motor] = entry
             continue
 
-        def evaluate(params, delay=0.):
+        def evaluate(params, delay=0.0):
             errors, moving = [], []
             for replay, starts, n in held:
                 if len(starts):
                     errors.append(replay.simulate(starts, n, params, delay) - replay.measured(starts, n))
                     moving.append(replay.moving(starts, n))
             return score(np.concatenate(errors), np.concatenate(moving))
+
         moving = np.concatenate([r.moving(s, n) for r, s, n in held if len(s)])
         baseline = np.concatenate([r.follows(s, n) - r.measured(s, n) for r, s, n in held if len(s)])
         entry['follows_command'] = score(baseline, moving)
-        entry['current_simulator'] = evaluate(dict(current, gravity_scale=current.get('gravity_scale', 1.)),
-                                              current.get('delay_ticks', 0.))
+        entry['current_simulator'] = evaluate(
+            dict(current, gravity_scale=current.get('gravity_scale', 1.0)), current.get('delay_ticks', 0.0)
+        )
         if calibrate_joints and not motor.endswith('gripper'):
             fitted = calibrate(replays, current)
             if 'params' in fitted:
@@ -313,11 +389,17 @@ def compare(recordings, simulator_, motors=None, *, calibrate_joints=True):
     return report
 
 
-SIM_PARAMS_UNITS = {'inertia': 'kg m2', 'friction': 'Nm (Coulomb, sliding)', 'static': 'Nm (breakaway)',
-                    'viscous': 'Nm s/rad', 'gravity_scale': 'times the holding torque of gravity_terms',
-                    'delay_ticks': 'receiver ticks of 2.5 ms', 'delay_ms': 'ms',
-                    'gravity_terms': '[[coefficient Nm, {motor: multiplier}]]: sum coefficient sin(sum multiplier q)',
-                    'scores': 'max and rms position error per 1 s window, mrad'}
+SIM_PARAMS_UNITS = {
+    'inertia': 'kg m2',
+    'friction': 'Nm (Coulomb, sliding)',
+    'static': 'Nm (breakaway)',
+    'viscous': 'Nm s/rad',
+    'gravity_scale': 'times the holding torque of gravity_terms',
+    'delay_ticks': 'receiver ticks of 2.5 ms',
+    'delay_ms': 'ms',
+    'gravity_terms': '[[coefficient Nm, {motor: multiplier}]]: sum coefficient sin(sum multiplier q)',
+    'scores': 'max and rms position error per 1 s window, mrad',
+}
 
 
 def sim_params(report, report_path, simulator_):
@@ -326,41 +408,63 @@ def sim_params(report, report_path, simulator_):
     windows, bound to the motor the servo calibration bound there (UID, firmware), and the recordings, report and
     servo file they come from. Grippers and fits that did not converge are left out, with the reason."""
     from robot_platform.simulation.minerva_sim import ACTUATORS_KIND
+
     if report.get('kind') != 'sim2real_comparison':
         raise ValueError(f'{report_path} is not a sim2real comparison report')
     identity, made = simulator_['identity'], report['simulator']
     if made['servo_sha256'] != identity['servo_sha256'] or made['directions'] != identity['directions']:
-        raise ValueError(f'{report_path} was made against another servo calibration or other directions than '
-                         f"{identity['servo']} and these runs' confirmed directions")
+        raise ValueError(
+            f'{report_path} was made against another servo calibration or other directions than '
+            f"{identity['servo']} and these runs' confirmed directions"
+        )
     servo = simulator_['servo'] or {}
     motors, left_out = {}, {}
     for motor, entry in report['joints'].items():
         fitted = entry.get('calibrated') or {}
         if 'params' not in fitted or not fitted.get('converged'):
-            left_out[motor] = (fitted.get('unavailable') or entry.get('unavailable')
-                               or ('its fit did not converge' if 'params' in fitted else 'not calibrated'))
+            left_out[motor] = (
+                fitted.get('unavailable')
+                or entry.get('unavailable')
+                or ('its fit did not converge' if 'params' in fitted else 'not calibrated')
+            )
             continue
         bound = (servo.get('joints') or {}).get(motor) or {}
         values = fitted['params']
         motors[motor] = {
-            'uid': bound.get('uid'), 'firmware': bound.get('firmware'),
-            **{key: values[key] for key in ('inertia', 'friction', 'static', 'viscous', 'gravity_scale',
-                                             'delay_ticks', 'delay_ms')},
+            'uid': bound.get('uid'),
+            'firmware': bound.get('firmware'),
+            **{
+                key: values[key]
+                for key in ('inertia', 'friction', 'static', 'viscous', 'gravity_scale', 'delay_ticks', 'delay_ms')
+            },
             'gravity_terms': [[coefficient, angle] for coefficient, angle in simulator_['terms'].get(motor, ())],
             'at_bounds': fitted['at_bounds'],
             'fit': {key: fitted[key] for key in ('fit_windows', 'fit_rms_mrad', 'converged', 'evaluations')},
-            'held_out': {'windows': entry['windows']['holdout'], 'calibrated': fitted['holdout'],
-                         'replaced_simulator': entry['current_simulator'], 'follows_command': entry['follows_command']},
-            'replaced': {'params': entry['current_params'], 'nominal': entry['nominal']}}
-    return {'schema': 1, 'kind': ACTUATORS_KIND, 'asset_id': servo.get('asset_id'),
-            'use': 'Simulation only: simulation.minerva_sim (robot-platform helm --sim) and sim2real --sim-params. '
-                   'Nothing on the robot reads it; robot releases leave config/devices/simulation/ out.',
-            'source': {'report': {'path': str(report_path), 'sha256': hashlib.sha256(
-                           Path(report_path).read_bytes()).hexdigest()},
-                       'recordings': report['recordings'],
-                       'servo': {'path': made['servo'], 'sha256': made['servo_sha256']},
-                       'directions': made['directions'], 'method': report['method']},
-            'units': SIM_PARAMS_UNITS, 'motors': motors, 'left_out': left_out}
+            'held_out': {
+                'windows': entry['windows']['holdout'],
+                'calibrated': fitted['holdout'],
+                'replaced_simulator': entry['current_simulator'],
+                'follows_command': entry['follows_command'],
+            },
+            'replaced': {'params': entry['current_params'], 'nominal': entry['nominal']},
+        }
+    return {
+        'schema': 1,
+        'kind': ACTUATORS_KIND,
+        'asset_id': servo.get('asset_id'),
+        'use': 'Simulation only: simulation.minerva_sim (robot-platform helm --sim) and sim2real --sim-params. '
+        'Nothing on the robot reads it; robot releases leave config/devices/simulation/ out.',
+        'source': {
+            'report': {'path': str(report_path), 'sha256': hashlib.sha256(Path(report_path).read_bytes()).hexdigest()},
+            'recordings': report['recordings'],
+            'servo': {'path': made['servo'], 'sha256': made['servo_sha256']},
+            'directions': made['directions'],
+            'method': report['method'],
+        },
+        'units': SIM_PARAMS_UNITS,
+        'motors': motors,
+        'left_out': left_out,
+    }
 
 
 def write_sim_params(report_path, simulator_, path):
@@ -379,15 +483,18 @@ def main():
     parser.add_argument('--profile', type=Path, default=Path('config/devices/minerva-joint-calibration.json'))
     parser.add_argument('--runs', type=Path, required=True, help="Helm's runs folder with the confirmed directions")
     parser.add_argument('--servo', type=Path, help='servo calibration (default: beside the profile, as Helm)')
-    parser.add_argument('--sim-params', type=Path,
-                        help="the simulator's actuator file: replay the simulator as helm --sim runs with it")
+    parser.add_argument(
+        '--sim-params', type=Path, help="the simulator's actuator file: replay the simulator as helm --sim runs with it"
+    )
     parser.add_argument('--joint', action='append', help='only these motors')
     parser.add_argument('--no-calibration', action='store_true')
     parser.add_argument('--output', type=Path, help='write the report here (never overwritten)')
-    parser.add_argument('--report', type=Path,
-                        help='a saved report to write --write-sim-params from, instead of recordings')
-    parser.add_argument('--write-sim-params', type=Path,
-                        help="write the simulator's actuator file from the report (never overwritten)")
+    parser.add_argument(
+        '--report', type=Path, help='a saved report to write --write-sim-params from, instead of recordings'
+    )
+    parser.add_argument(
+        '--write-sim-params', type=Path, help="write the simulator's actuator file from the report (never overwritten)"
+    )
     args = parser.parse_args()
     if bool(args.recordings) == bool(args.report):
         parser.error('give recordings to compare, or --report with --write-sim-params')
@@ -399,8 +506,11 @@ def main():
 
     def write(report_path):
         written = write_sim_params(report_path, built, args.write_sim_params)
-        print(f"{args.write_sim_params}: {', '.join(written['motors'])}; left out: "
-              + ', '.join(f'{motor} ({why})' for motor, why in written['left_out'].items()))
+        print(
+            f'{args.write_sim_params}: {", ".join(written["motors"])}; left out: '
+            + ', '.join(f'{motor} ({why})' for motor, why in written['left_out'].items())
+        )
+
     if args.report:
         write(args.report)
         return 0
@@ -415,15 +525,20 @@ def main():
             continue
 
         def mrad(part):
-            return f"{part['all']['max_mrad_p50']:.1f}" if part and part.get('all') else '-'
-        line = (f"{motor}: {entry['windows']['holdout']} held-out windows; max error p50 (mrad): follows command "
-                f"{mrad(entry['follows_command'])}, current sim {mrad(entry['current_simulator'])}")
+            return f'{part["all"]["max_mrad_p50"]:.1f}' if part and part.get('all') else '-'
+
+        line = (
+            f'{motor}: {entry["windows"]["holdout"]} held-out windows; max error p50 (mrad): follows command '
+            f'{mrad(entry["follows_command"])}, current sim {mrad(entry["current_simulator"])}'
+        )
         calibrated = entry.get('calibrated') or {}
         if 'holdout' in calibrated:
             p = calibrated['params']
-            line += (f", calibrated {mrad(calibrated['holdout'])} (I {p['inertia']:.3f}, f {p['friction']:.2f}, "
-                     f"static {p['static']:.2f}, b {p['viscous']:.2f}, g x{p['gravity_scale']:.2f}, "
-                     f"delay {p['delay_ms']:.1f} ms{', at bounds ' + ', '.join(calibrated['at_bounds']) if calibrated['at_bounds'] else ''})")
+            line += (
+                f', calibrated {mrad(calibrated["holdout"])} (I {p["inertia"]:.3f}, f {p["friction"]:.2f}, '
+                f'static {p["static"]:.2f}, b {p["viscous"]:.2f}, g x{p["gravity_scale"]:.2f}, '
+                f'delay {p["delay_ms"]:.1f} ms{", at bounds " + ", ".join(calibrated["at_bounds"]) if calibrated["at_bounds"] else ""})'
+            )
         print(line)
     if args.write_sim_params:
         write(args.output)

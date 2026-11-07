@@ -18,7 +18,10 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 for f in camera_node.py aizee-scene-cam.service; do
-    [[ -f "$STAGE/$f" ]] || { echo "Missing $STAGE/$f" >&2; exit 1; }
+    [[ -f "$STAGE/$f" ]] || {
+        echo "Missing $STAGE/$f" >&2
+        exit 1
+    }
 done
 python3 -m py_compile "$STAGE/camera_node.py"
 

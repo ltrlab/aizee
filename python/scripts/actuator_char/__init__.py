@@ -12,8 +12,9 @@ Modules:
 
 The CLI entry point is ``python/scripts/characterize_actuator.py``.
 """
+
 from __future__ import annotations
 
 from . import analysis, external_encoder, robstride_mit  # noqa: F401
 
-__all__ = ["robstride_mit", "external_encoder", "analysis"]
+__all__ = ['robstride_mit', 'external_encoder', 'analysis']

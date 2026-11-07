@@ -7,20 +7,21 @@
 # and point `device` at the symlink.
 camera:
   id: left_wrist
-  device: /dev/video8            # USB 2.0 Camera / ELP (05a3:9230) — the physical LEFT wrist cam
-  usb_id: "05a3:9230"            # USB VID:PID — resolves the physical LEFT-arm camera regardless
-                                 # of /dev/videoN (renumbers on replug). NOTE: 05a3/32e4 swapped
-                                 # from bring-up — 05a3 is the left arm, 32e4 the right.
+  device: /dev/video8 # USB 2.0 Camera / ELP (05a3:9230) — the physical LEFT wrist cam
+  usb_id:
+    '05a3:9230' # USB VID:PID — resolves the physical LEFT-arm camera regardless
+    # of /dev/videoN (renumbers on replug). NOTE: 05a3/32e4 swapped
+    # from bring-up — 05a3 is the left arm, 32e4 the right.
   fourcc: MJPG
   streams:
     color:
       enabled: true
-      width: 640                 # matches minerva.yaml cameras.left_wrist
+      width: 640 # matches minerva.yaml cameras.left_wrist
       height: 480
       fps: 30
       compression: JPEG
       quality: 85
-      flip: "none"
+      flip: 'none'
   # v4l2-ctl is not installed on this Jetson yet, so leave controls empty and
   # use the camera's own auto-exposure for now (install v4l-utils to tune).
   v4l2_controls: {}
@@ -30,8 +31,8 @@ network:
     ip: 10.42.0.1
     hostname: aizee-rover
     zmq:
-      camera_pub:  "tcp://*:5563"   # Minerva left_wrist stream
-      camera_ctrl: "tcp://*:5573"   # runtime V4L2 control REP (unused until v4l-utils installed)
+      camera_pub: 'tcp://*:5563' # Minerva left_wrist stream
+      camera_ctrl: 'tcp://*:5573' # runtime V4L2 control REP (unused until v4l-utils installed)
 
 logging:
   level: INFO

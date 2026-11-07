@@ -34,6 +34,7 @@ import numpy as np
 try:
     import trimesh
     import trimesh.collision  # noqa: F401  (registers CollisionManager)
+
     _TRIMESH_AVAILABLE = True
 except ImportError:
     _TRIMESH_AVAILABLE = False
@@ -43,6 +44,7 @@ except ImportError:
 # SO(3) helpers — duplicated from ik/kinematics.py to keep this module
 # importable in isolation (no circular dep on the IK Kinematics class).
 # -----------------------------------------------------------------------------
+
 
 def _rpy_to_R(rpy: np.ndarray) -> np.ndarray:
     r, p, y = float(rpy[0]), float(rpy[1]), float(rpy[2])
@@ -73,11 +75,12 @@ def _T(R: np.ndarray, t: np.ndarray) -> np.ndarray:
 # URDF parsing — links + joints (full tree, not just IK chain)
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class _Visual:
-    mesh_path: str          # absolute filesystem path (resolved)
-    R_origin: np.ndarray    # 3x3
-    t_origin: np.ndarray    # 3,
+    mesh_path: str  # absolute filesystem path (resolved)
+    R_origin: np.ndarray  # 3x3
+    t_origin: np.ndarray  # 3,
     scale: np.ndarray = field(default_factory=lambda: np.ones(3))
 
 
@@ -106,11 +109,11 @@ def _resolve_mesh(filename: str, urdf_dir: Path) -> Optional[Path]:
     Handles `package://meshes\\foo.stl` (Windows-style backslashes from
     onshape-to-robot) and absolute / relative paths.
     """
-    raw = filename.replace("\\", "/")
-    if raw.startswith("package://"):
+    raw = filename.replace('\\', '/')
+    if raw.startswith('package://'):
         # Strip 'package://' and the package name; rest is the file.
-        without = raw[len("package://"):]
-        parts = without.split("/", 1)
+        without = raw[len('package://') :]
+        parts = without.split('/', 1)
         if len(parts) == 2:
             pkg, rel = parts
             # We follow the onshape-to-robot convention: `meshes` package is
@@ -131,61 +134,70 @@ def _parse_urdf_full(urdf_path: Path) -> tuple[dict[str, _Link], dict[str, _Join
     urdf_dir = urdf_path.parent
 
     links: dict[str, _Link] = {}
-    for link_el in root.findall("link"):
-        name = link_el.get("name", "")
+    for link_el in root.findall('link'):
+        name = link_el.get('name', '')
         visuals: list[_Visual] = []
-        for v in link_el.findall("visual"):
-            origin = v.find("origin")
+        for v in link_el.findall('visual'):
+            origin = v.find('origin')
             if origin is not None:
-                xyz = np.fromstring(origin.get("xyz", "0 0 0"), sep=" ")
-                rpy = np.fromstring(origin.get("rpy", "0 0 0"), sep=" ")
+                xyz = np.fromstring(origin.get('xyz', '0 0 0'), sep=' ')
+                rpy = np.fromstring(origin.get('rpy', '0 0 0'), sep=' ')
             else:
-                xyz = np.zeros(3); rpy = np.zeros(3)
-            geom = v.find("geometry")
-            mesh = geom.find("mesh") if geom is not None else None
+                xyz = np.zeros(3)
+                rpy = np.zeros(3)
+            geom = v.find('geometry')
+            mesh = geom.find('mesh') if geom is not None else None
             if mesh is None:
                 continue
-            fn = mesh.get("filename", "")
+            fn = mesh.get('filename', '')
             resolved = _resolve_mesh(fn, urdf_dir)
             if resolved is None:
                 continue
-            scale_attr = mesh.get("scale")
-            scale = np.fromstring(scale_attr, sep=" ") if scale_attr else np.ones(3)
-            visuals.append(_Visual(
-                mesh_path=str(resolved),
-                R_origin=_rpy_to_R(rpy),
-                t_origin=xyz.copy(),
-                scale=scale,
-            ))
+            scale_attr = mesh.get('scale')
+            scale = np.fromstring(scale_attr, sep=' ') if scale_attr else np.ones(3)
+            visuals.append(
+                _Visual(
+                    mesh_path=str(resolved),
+                    R_origin=_rpy_to_R(rpy),
+                    t_origin=xyz.copy(),
+                    scale=scale,
+                )
+            )
         links[name] = _Link(name=name, visuals=visuals)
 
     joints: dict[str, _Joint] = {}
-    for j in root.findall("joint"):
-        name = j.get("name", "")
-        jtype = j.get("type", "fixed")
-        parent = j.find("parent").get("link", "") if j.find("parent") is not None else ""
-        child = j.find("child").get("link", "") if j.find("child") is not None else ""
-        origin = j.find("origin")
+    for j in root.findall('joint'):
+        name = j.get('name', '')
+        jtype = j.get('type', 'fixed')
+        parent = j.find('parent').get('link', '') if j.find('parent') is not None else ''
+        child = j.find('child').get('link', '') if j.find('child') is not None else ''
+        origin = j.find('origin')
         if origin is not None:
-            xyz = np.fromstring(origin.get("xyz", "0 0 0"), sep=" ")
-            rpy = np.fromstring(origin.get("rpy", "0 0 0"), sep=" ")
+            xyz = np.fromstring(origin.get('xyz', '0 0 0'), sep=' ')
+            rpy = np.fromstring(origin.get('rpy', '0 0 0'), sep=' ')
         else:
-            xyz = np.zeros(3); rpy = np.zeros(3)
-        ax_el = j.find("axis")
-        axis = (np.fromstring(ax_el.get("xyz", "0 0 1"), sep=" ")
-                if ax_el is not None else np.array([0, 0, 1.0]))
-        limit = j.find("limit")
-        lower = float(limit.get("lower", "-3.14159265358979")) if limit is not None else -np.pi
-        upper = float(limit.get("upper", "3.14159265358979")) if limit is not None else  np.pi
+            xyz = np.zeros(3)
+            rpy = np.zeros(3)
+        ax_el = j.find('axis')
+        axis = np.fromstring(ax_el.get('xyz', '0 0 1'), sep=' ') if ax_el is not None else np.array([0, 0, 1.0])
+        limit = j.find('limit')
+        lower = float(limit.get('lower', '-3.14159265358979')) if limit is not None else -np.pi
+        upper = float(limit.get('upper', '3.14159265358979')) if limit is not None else np.pi
         joints[name] = _Joint(
-            name=name, jtype=jtype, parent=parent, child=child,
-            R_static=_rpy_to_R(rpy), t_static=xyz.copy(),
-            axis=axis, lower=lower, upper=upper,
+            name=name,
+            jtype=jtype,
+            parent=parent,
+            child=child,
+            R_static=_rpy_to_R(rpy),
+            t_static=xyz.copy(),
+            axis=axis,
+            lower=lower,
+            upper=upper,
         )
     return links, joints
 
 
-def _remesh_for_display(merged: "trimesh.Trimesh", max_faces: int) -> "trimesh.Trimesh":
+def _remesh_for_display(merged: 'trimesh.Trimesh', max_faces: int) -> 'trimesh.Trimesh':
     """Reduce a raw CAD export to <= max_faces for preview rendering.
 
     Quadric decimation alone stalls at ~40% on these onshape exports — they
@@ -208,8 +220,7 @@ def _remesh_for_display(merged: "trimesh.Trimesh", max_faces: int) -> "trimesh.T
         span_src = merged.bounds[1] - merged.bounds[0]
         verts = ((mc.vertices - mc.bounds[0]) / span_mc) * span_src + merged.bounds[0]
         remeshed = trimesh.Trimesh(vertices=verts, faces=mc.faces, process=False)
-        return remeshed.simplify_quadric_decimation(
-            face_count=max_faces, aggression=7)
+        return remeshed.simplify_quadric_decimation(face_count=max_faces, aggression=7)
     except BaseException:
         pass
     try:
@@ -223,7 +234,7 @@ def _remesh_for_display(merged: "trimesh.Trimesh", max_faces: int) -> "trimesh.T
 
 
 def load_display_meshes(
-    urdf_path: "Path | str",
+    urdf_path: 'Path | str',
     max_faces_per_link: int = 350,
     cache_path: Optional[Path] = None,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -242,24 +253,24 @@ def load_display_meshes(
     """
     urdf_path = Path(urdf_path)
     if cache_path is None:
-        cache_path = urdf_path.parent / f".display_meshes_{max_faces_per_link}.npz"
+        cache_path = urdf_path.parent / f'.display_meshes_{max_faces_per_link}.npz'
     stamp = urdf_path.stat().st_mtime
 
     try:
         z = np.load(cache_path, allow_pickle=False)
-        if abs(float(z["_urdf_mtime"][0]) - stamp) < 1e-6:
-            names = [str(n) for n in z["_names"]]
-            return {n: (z[f"v_{i}"], z[f"f_{i}"]) for i, n in enumerate(names)}
+        if abs(float(z['_urdf_mtime'][0]) - stamp) < 1e-6:
+            names = [str(n) for n in z['_names']]
+            return {n: (z[f'v_{i}'], z[f'f_{i}']) for i, n in enumerate(names)}
     except Exception:
         pass  # missing/stale/corrupt cache -> rebuild
 
     links, _ = _parse_urdf_full(urdf_path)
     out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for name, link in links.items():
-        parts: list["trimesh.Trimesh"] = []
+        parts: list['trimesh.Trimesh'] = []
         for v in link.visuals:
             try:
-                m = trimesh.load(v.mesh_path, force="mesh")
+                m = trimesh.load(v.mesh_path, force='mesh')
             except Exception:
                 continue
             if not isinstance(m, trimesh.Trimesh) or len(m.vertices) == 0:
@@ -284,12 +295,12 @@ def load_display_meshes(
 
     try:
         arrs: dict[str, np.ndarray] = {
-            "_urdf_mtime": np.array([stamp]),
-            "_names": np.array(list(out.keys())),
+            '_urdf_mtime': np.array([stamp]),
+            '_names': np.array(list(out.keys())),
         }
         for i, (v, f) in enumerate(out.values()):
-            arrs[f"v_{i}"] = v
-            arrs[f"f_{i}"] = f
+            arrs[f'v_{i}'] = v
+            arrs[f'f_{i}'] = f
         np.savez_compressed(cache_path, **arrs)
     except Exception:
         pass  # cache write is best-effort
@@ -299,6 +310,7 @@ def load_display_meshes(
 # -----------------------------------------------------------------------------
 # MeshWorld
 # -----------------------------------------------------------------------------
+
 
 class MeshWorld:
     """Full-tree URDF + mesh + collision wrapper.
@@ -323,10 +335,7 @@ class MeshWorld:
         auto_allow_home_pairs: bool = True,
     ) -> None:
         if not _TRIMESH_AVAILABLE:
-            raise RuntimeError(
-                "trimesh + python-fcl are required — "
-                "install via: pip install trimesh python-fcl"
-            )
+            raise RuntimeError('trimesh + python-fcl are required — install via: pip install trimesh python-fcl')
         self.urdf_path = Path(urdf_path)
         self._use_convex = use_convex
         self._links, self._joints = _parse_urdf_full(self.urdf_path)
@@ -339,18 +348,18 @@ class MeshWorld:
         all_children = {j.child for j in self._joints.values()}
         roots = [n for n in self._links if n not in all_children]
         if len(roots) != 1:
-            raise ValueError(f"URDF must have exactly one root link; found {roots}")
+            raise ValueError(f'URDF must have exactly one root link; found {roots}')
         self.root_link: str = roots[0]
 
         # Load & concatenate visuals per link, optionally take convex hull.
-        self._link_meshes: dict[str, "trimesh.Trimesh"] = {}
+        self._link_meshes: dict[str, 'trimesh.Trimesh'] = {}
         for name, link in self._links.items():
             if not link.visuals:
                 continue
-            parts: list["trimesh.Trimesh"] = []
+            parts: list['trimesh.Trimesh'] = []
             for v in link.visuals:
                 try:
-                    m = trimesh.load(v.mesh_path, force="mesh")
+                    m = trimesh.load(v.mesh_path, force='mesh')
                 except Exception:
                     continue
                 if not isinstance(m, trimesh.Trimesh) or len(m.vertices) == 0:
@@ -459,17 +468,23 @@ class MeshWorld:
             for child_link in self._children_by_parent.get(parent_link, ()):
                 # Find the joint connecting parent_link -> child_link.
                 joint = next(
-                    (jj for jj in self._joints.values()
-                     if jj.parent == parent_link and jj.child == child_link),
+                    (jj for jj in self._joints.values() if jj.parent == parent_link and jj.child == child_link),
                     None,
                 )
                 if joint is None:
                     continue
                 # Build joint local transform = origin_static * rot(axis, theta)
-                theta = float(q.get(joint.name, 0.0)) if joint.jtype in (
-                    "revolute", "continuous", "prismatic",
-                ) else 0.0
-                if joint.jtype == "prismatic":
+                theta = (
+                    float(q.get(joint.name, 0.0))
+                    if joint.jtype
+                    in (
+                        'revolute',
+                        'continuous',
+                        'prismatic',
+                    )
+                    else 0.0
+                )
+                if joint.jtype == 'prismatic':
                     # Translation along axis instead of rotation.
                     a = joint.axis / (np.linalg.norm(joint.axis) + 1e-12)
                     R_dyn = np.eye(3)

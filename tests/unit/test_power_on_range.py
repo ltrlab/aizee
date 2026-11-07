@@ -1,4 +1,5 @@
 """Setting the drives' power-on range: one fixed write and a save per drive, every drive read first."""
+
 import math
 import struct
 
@@ -7,14 +8,16 @@ import pytest
 from robot_platform.control.mechanical_zero import StoppedMaintenance, maintenance_frame
 from robot_platform.control.power_on_range import power_on_exchange, set_power_on_range
 
-MOTORS = [{'name': f'joint{i}', 'id': i + 4, 'bus': 'canTest', 'uid': '0102030405060708', 'firmware': '0.2.3.34'}
-          for i in range(3)]
+MOTORS = [
+    {'name': f'joint{i}', 'id': i + 4, 'bus': 'canTest', 'uid': '0102030405060708', 'firmware': '0.2.3.34'}
+    for i in range(3)
+]
 
 
 class Drives:
     """zero_sta in RAM and flash per drive; a write sets RAM, a save copies it to flash."""
 
-    def __init__(self, zero_sta=0, q=-.11):
+    def __init__(self, zero_sta=0, q=-0.11):
         self.ram = {m['id']: zero_sta for m in MOTORS}
         self.flash = dict(self.ram)
         self.q = {m['id']: q for m in MOTORS}
@@ -41,8 +44,13 @@ class Drives:
 
 def run(drives, **options):
     result = {}
-    set_power_on_range(StoppedMaintenance(power_on_exchange(drives), sleep=lambda _: None), MOTORS, result,
-                       sleep=lambda _: None, **options)
+    set_power_on_range(
+        StoppedMaintenance(power_on_exchange(drives), sleep=lambda _: None),
+        MOTORS,
+        result,
+        sleep=lambda _: None,
+        **options,
+    )
     return result
 
 
@@ -52,9 +60,16 @@ def test_every_drive_is_read_before_any_write_and_each_gets_one_write_and_one_sa
     assert drives.flash == {4: 1, 5: 1, 6: 1} and result['written'] == ['joint0', 'joint1', 'joint2']
     first_write = next(i for i, event in enumerate(drives.events) if event[1] == 'power_on_range')
     assert {(motor, parameter) for motor, kind, parameter in drives.events[:first_write]} >= {
-        (m['id'], p) for m in MOTORS for p in (0x7029, 0x7019)}
+        (m['id'], p) for m in MOTORS for p in (0x7029, 0x7019)
+    }
     assert [e[:2] for e in drives.events if e[1] in ('power_on_range', 'save')] == [
-        (4, 'power_on_range'), (4, 'save'), (5, 'power_on_range'), (5, 'save'), (6, 'power_on_range'), (6, 'save')]
+        (4, 'power_on_range'),
+        (4, 'save'),
+        (5, 'power_on_range'),
+        (5, 'save'),
+        (6, 'power_on_range'),
+        (6, 'save'),
+    ]
     assert {kind for _, kind, _ in drives.events} <= {'read', 'power_on_range', 'save', 'stop'}
     assert all(row['zero_sta_after'] == 1 for row in result['motors']) and not result['power_cycle_verified']
     assert set(result['final_stops']) == {m['name'] for m in MOTORS}
@@ -62,7 +77,9 @@ def test_every_drive_is_read_before_any_write_and_each_gets_one_write_and_one_sa
 
 def test_the_frame_is_the_fixed_zero_sta_write():
     assert maintenance_frame(4, 0xAA, 'power_on_range') == (
-        (18 << 24) | (0xAA << 8) | 4, bytes([0x29, 0x70, 0, 0, 1, 0, 0, 0]))
+        (18 << 24) | (0xAA << 8) | 4,
+        bytes([0x29, 0x70, 0, 0, 1, 0, 0, 0]),
+    )
 
 
 def test_a_drive_already_set_is_left_alone():
@@ -83,21 +100,23 @@ def test_a_write_that_does_not_read_back_is_never_saved_and_stops_the_rest():
 
 
 def test_a_drive_may_re_express_its_angle_by_a_whole_turn_but_nothing_else():
-    drives = Drives(q=2 * math.pi - .11)
+    drives = Drives(q=2 * math.pi - 0.11)
     drives.remap = True
     result = run(drives)
-    assert [round(row['position_after_rad'], 4) for row in result['motors']] == [-.11] * 3
+    assert [round(row['position_after_rad'], 4) for row in result['motors']] == [-0.11] * 3
     drives = Drives()
-    drives.q[5] = .3
+    drives.q[5] = 0.3
 
     def moved(bus, frame, kind, parameter):
         reply = drives(bus, frame, kind, parameter)
         if kind == 'save' and frame[0] & 255 == 5:
-            drives.q[5] = .35  # Someone moved the arm.
+            drives.q[5] = 0.35  # Someone moved the arm.
         return reply
+
     with pytest.raises(RuntimeError, match=r'joint1: its position changed by \+0\.0500 rad'):
-        set_power_on_range(StoppedMaintenance(power_on_exchange(moved), sleep=lambda _: None), MOTORS, {},
-                           sleep=lambda _: None)
+        set_power_on_range(
+            StoppedMaintenance(power_on_exchange(moved), sleep=lambda _: None), MOTORS, {}, sleep=lambda _: None
+        )
 
 
 def test_only_stopped_reads_the_write_and_the_save_get_through():

@@ -3,6 +3,7 @@
 Only bounded scalar receiver snapshots cross the shared process mailbox. Camera
 sockets, JPEG decoding and HDF5 stay in the child. No motor sockets are opened.
 """
+
 from __future__ import annotations
 import math
 import os
@@ -31,9 +32,17 @@ class LiveTaskCaptureProcess(ProcessCapture):
             raise ValueError('Live task capture needs the complete 14-axis receiver roster of both arms')
         self.camera_roles = tuple(self.config['camera_roles'])
         self._record_requested = False
-        super().__init__(dict(directory=str(Path(directory)), names=list(self.names), config=self.config,
-                              metadata=dict(metadata or {})), worker_module=__name__,
-                         source_timeout_s=self.config['max_receiver_age_s'], source_clock=time.perf_counter)
+        super().__init__(
+            dict(
+                directory=str(Path(directory)),
+                names=list(self.names),
+                config=self.config,
+                metadata=dict(metadata or {}),
+            ),
+            worker_module=__name__,
+            source_timeout_s=self.config['max_receiver_age_s'],
+            source_clock=time.perf_counter,
+        )
         with self._lock:
             self._state = dict(self._state, camera_roles=list(self.camera_roles))
 
@@ -41,8 +50,13 @@ class LiveTaskCaptureProcess(ProcessCapture):
         result = super().health()
         sample = self._latest
         deadline = self._state.get('camera_valid_until')
-        result['capture_ready'] = bool(result['capture_ready'] and sample and sample.get('command_valid')
-                                       and deadline is not None and time.perf_counter() <= deadline)
+        result['capture_ready'] = bool(
+            result['capture_ready']
+            and sample
+            and sample.get('command_valid')
+            and deadline is not None
+            and time.perf_counter() <= deadline
+        )
         return result
 
     def snapshot(self):
@@ -55,13 +69,14 @@ class LiveTaskCaptureProcess(ProcessCapture):
             if deadline is None or now > deadline:
                 camera['fresh'] = False
             if deadline is not None:
-                camera['age_s'] = now-(deadline-self.config['max_camera_age_s'])
+                camera['age_s'] = now - (deadline - self.config['max_camera_age_s'])
         return result
 
     def receive(self, result, rows, *, dropped=0, started_at, received_at, label=None):
         """`label`: {'authority', 'lifecycle'} for the frames this sample becomes (helm.teleop._capture_label)."""
-        sample = paired_receiver_sample(result, rows, self.names, self.config, dropped=dropped,
-                                        started_at=started_at, received_at=received_at)
+        sample = paired_receiver_sample(
+            result, rows, self.names, self.config, dropped=dropped, started_at=started_at, received_at=received_at
+        )
         if sample is None:
             return
         if label:
@@ -69,9 +84,9 @@ class LiveTaskCaptureProcess(ProcessCapture):
         with self._lock:
             last = self._state.get('last_command') or {}
             recording = self._state.get('recording') or {}
-            if ((last.get('action') == 'stop_record' and last.get('state') == 'complete'
-                    and recording.get('complete')) or
-                    (last.get('action') == 'start_record' and last.get('state') == 'failed')):
+            if (
+                last.get('action') == 'stop_record' and last.get('state') == 'complete' and recording.get('complete')
+            ) or (last.get('action') == 'start_record' and last.get('state') == 'failed'):
                 self._record_requested = False
             recording_expected = self._record_requested or recording.get('active')
         # Latch a transient loss before the latest-only mailbox can overwrite it.
@@ -102,13 +117,17 @@ def _sample(value):
             raise ValueError(f'capture sample {key} must be finite')
     for key in ('q', 'qcmd', 'qvel', 'effort', 'receiver_feedback_ms'):
         row = value.get(key)
-        if not isinstance(row, (list, tuple)) or len(row) != 14 or any(
-                type(v) not in (int, float) or not math.isfinite(v) for v in row):
+        if (
+            not isinstance(row, (list, tuple))
+            or len(row) != 14
+            or any(type(v) not in (int, float) or not math.isfinite(v) for v in row)
+        ):
             raise ValueError(f'capture sample {key} requires 14 finite values')
     if type(value.get('command_valid')) is not bool:
         raise ValueError('capture sample command_valid must be boolean')
-    if value['command_valid'] and (value.get('hardware_enabled') is not True
-                                  or value.get('receiver_state') not in ('holding', 'executing')):
+    if value['command_valid'] and (
+        value.get('hardware_enabled') is not True or value.get('receiver_state') not in ('holding', 'executing')
+    ):
         raise ValueError('capture sample command validity disagrees with receiver authority')
     if value.get('authority', 'human') not in AUTHORITIES:
         raise ValueError('capture sample authority must be human, policy or correction')
@@ -124,8 +143,10 @@ def _worker(*, factory=None, input_stream=None, output_stream=None):
         import h5py  # noqa: F401
         import numpy  # noqa: F401
         from PIL import Image
+
         Image.init()
         from .task_capture import LiveTaskCapture
+
         factory = LiveTaskCapture
     source, sink = input_stream or sys.stdin.buffer, output_stream or sys.stdout.buffer
     view, publisher, watchdog = None, None, None
@@ -147,14 +168,14 @@ def _worker(*, factory=None, input_stream=None, output_stream=None):
                 if command and command.get('id') in ids:
                     command['id'] = ids[command['id']]
                 _write(sink, state)
-                stopped.wait(.1)
+                stopped.wait(0.1)
         except (OSError, ValueError, TypeError):
             view.abort('Parent status pipe closed')
             stopped.set()
 
     def watch_parent():
-        while not stopped.wait(.1):
-            if time.monotonic()-last_parent[0] > STATUS_TIMEOUT_S:
+        while not stopped.wait(0.1):
+            if time.monotonic() - last_parent[0] > STATUS_TIMEOUT_S:
                 view.abort('Parent capture heartbeat stalled')
                 stopped.set()
 
@@ -221,6 +242,7 @@ def _worker(*, factory=None, input_stream=None, output_stream=None):
 
 def main():
     from robot_platform.control.scheduling import prefer_background
+
     prefer_background()  # Started by the robot's loop, this process would otherwise share its control CPUs.
     _worker()
 

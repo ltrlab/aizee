@@ -1,4 +1,5 @@
 """The teleop loop on the robot computer: framing, and a whole session over pipes and a loopback link."""
+
 import io
 import json
 import os
@@ -16,8 +17,11 @@ from robot_platform.teleop.leader_link import LeaderLinkInput, LeaderLinkServer,
 from robot_platform.teleop.openrb import LeaderSampleSkipped
 
 TELEOP = ROOT / 'config/devices/minerva-teleop.json'
-PROFILE = {'leaders': {'left': {'usb_serial': 'A1'}, 'right': {'usb_serial': 'B2'}}, 'max_age_s': .05,
-           'max_skew_s': .02}
+PROFILE = {
+    'leaders': {'left': {'usb_serial': 'A1'}, 'right': {'usb_serial': 'B2'}},
+    'max_age_s': 0.05,
+    'max_skew_s': 0.02,
+}
 ASSET = 'minerva-production-01'
 
 
@@ -36,7 +40,8 @@ def test_frames_round_trip_and_bad_streams_end():
 
 class Core:
     """A loop core that reads the leaders over the link each cycle, like TeleopCore."""
-    period_s = .01
+
+    period_s = 0.01
     clock = staticmethod(time.perf_counter)
     landing = False  # No arm to lower before closing.
     made = []
@@ -65,8 +70,15 @@ class Core:
             pass
 
     def view(self):
-        return {'phase': 'stopped' if self.closed else 'running', 'fault': self.fault, 'message': '',
-                'keys': list(self.keys), 'samples': self.samples, 'joints': [], 'bundle': self.bundle}
+        return {
+            'phase': 'stopped' if self.closed else 'running',
+            'fault': self.fault,
+            'message': '',
+            'keys': list(self.keys),
+            'samples': self.samples,
+            'joints': [],
+            'bundle': self.bundle,
+        }
 
     def guide(self):
         return {'sequence': len(self.keys)}
@@ -88,8 +100,9 @@ class Core:
 
 
 def fake_prepare(start, root):
-    return start['bundle'], LeaderLinkInput(bytes.fromhex(start['key']), PROFILE, bind=(start['bind'], 0),
-                                            timeout_s=.2)
+    return start['bundle'], LeaderLinkInput(
+        bytes.fromhex(start['key']), PROFILE, bind=(start['bind'], 0), timeout_s=0.2
+    )
 
 
 class Channel:
@@ -160,22 +173,34 @@ def serve_in_process(profile, key, robot, *, local, real):
 
 def session(tmp_path, robot, stored=None):
     device = json.loads((ROOT / 'config/devices/minerva-production-01.json').read_text(encoding='utf-8'))
-    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
-                           mapping={}, saved_limits={'joints': {}}, asset_id=ASSET, device=device)
+    helm = SimpleNamespace(
+        profile_path=ROOT / 'config/devices/minerva-joint-calibration.json',
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}},
+        asset_id=ASSET,
+        device=device,
+    )
     stored = [] if stored is None else stored
     leaders = SimpleNamespace(saved=None, missing=lambda routes: [], store_reference=stored.append)
 
     def factory(bundle, leader_profile, **options):
-        return EdgeWorker(bundle, PROFILE, open_ssh=lambda *a, **k: robot, serve_link=serve_in_process,
-                          **dict(options, address='127.0.0.1'))
+        return EdgeWorker(
+            bundle,
+            PROFILE,
+            open_ssh=lambda *a, **k: robot,
+            serve_link=serve_in_process,
+            **dict(options, address='127.0.0.1'),
+        )
+
     return TeleopSession(helm, TELEOP, runs=tmp_path, leaders=leaders, target='jetson', edge_factory=factory)
 
 
-def wait_until(predicate, timeout=5.):
+def wait_until(predicate, timeout=5.0):
     deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, 'timed out'
-        time.sleep(.01)
+        time.sleep(0.01)
 
 
 def test_a_session_on_the_robot_relays_keys_routes_and_the_zero(tmp_path, monkeypatch):
@@ -213,6 +238,7 @@ def test_a_session_on_the_robot_relays_keys_routes_and_the_zero(tmp_path, monkey
 def test_a_robot_that_cannot_start_the_loop_says_why(tmp_path, monkeypatch):
     def mismatch(start, root):
         raise ValueError("The robot's calibration files differ from this PC's. Deploy and start again.")
+
     monkeypatch.setattr(edge, 'prepare', mismatch)
     teleop = session(tmp_path, Robot())
     teleop.start()
@@ -221,8 +247,11 @@ def test_a_robot_that_cannot_start_the_loop_says_why(tmp_path, monkeypatch):
     teleop.stop()
     unreachable = session(tmp_path, None)
     unreachable.edge_factory = lambda bundle, profile, **options: EdgeWorker(
-        bundle, PROFILE, open_ssh=lambda *a, **k: (_ for _ in ()).throw(OSError('No route to host')),
-        **dict(options, address='127.0.0.1'))
+        bundle,
+        PROFILE,
+        open_ssh=lambda *a, **k: (_ for _ in ()).throw(OSError('No route to host')),
+        **dict(options, address='127.0.0.1'),
+    )
     unreachable.start()
     wait_until(lambda: unreachable.snapshot()['phase'] == 'fault')
     assert unreachable.snapshot()['message'] == "Teleop on Minerva's Jetson stopped: No route to host"
@@ -280,22 +309,22 @@ def test_beats_keep_a_quiet_session_alive_and_silence_ends_it(tmp_path, monkeypa
     loop of live-20261015T223850Z held the receiver until the Jetson was power-cycled. Helm beats; the robot ends a
     session that goes silent, as if Helm had closed it."""
     monkeypatch.setattr(edge, 'prepare', fake_prepare)
-    monkeypatch.setattr(edge, 'BEAT_S', .05)
-    monkeypatch.setattr(edge, 'SILENCE_S', .3)
+    monkeypatch.setattr(edge, 'BEAT_S', 0.05)
+    monkeypatch.setattr(edge, 'SILENCE_S', 0.3)
     teleop = session(tmp_path, Robot())
     teleop.start()
     try:
         wait_until(lambda: teleop.snapshot()['phase'] == 'running')
-        time.sleep(1.)  # Over three silences, with nothing but beats.
+        time.sleep(1.0)  # Over three silences, with nothing but beats.
         assert teleop.snapshot()['phase'] == 'running' and not Core.made[-1].gone
     finally:
         teleop.stop()
-    monkeypatch.setattr(edge, 'BEAT_S', 30.)  # Helm still connected, but nothing reaches the robot.
+    monkeypatch.setattr(edge, 'BEAT_S', 30.0)  # Helm still connected, but nothing reaches the robot.
     teleop = session(tmp_path, Robot())
     teleop.start()
     try:
         wait_until(lambda: teleop.snapshot()['phase'] == 'running')
-        wait_until(lambda: Core.made[-1].closed, timeout=3.)
+        wait_until(lambda: Core.made[-1].closed, timeout=3.0)
         assert Core.made[-1].gone == ['Helm went silent for 0.3 s']
         wait_until(lambda: teleop.snapshot()['phase'] != 'running')
     finally:
@@ -308,7 +337,7 @@ def test_a_silent_helm_stops_a_sweep_after_lowering_the_arm():
     from robot_platform.helm.tune import run_tune_loop
 
     class Sweep:
-        period_s, fault, stage = .01, None, 'sweeping'
+        period_s, fault, stage = 0.01, None, 'sweeping'
         clock = staticmethod(time.perf_counter)
 
         def __init__(self):
@@ -341,13 +370,14 @@ def test_a_silent_helm_stops_a_sweep_after_lowering_the_arm():
     core, commands, sent = Sweep(), Inbox(), []
     commands.put(['beat'])
     started = time.monotonic()
-    run_tune_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
-    assert .2 <= time.monotonic() - started < 2.
+    run_tune_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=0.2)
+    assert 0.2 <= time.monotonic() - started < 2.0
     assert core.stage == 'disabled' and core.closed and core.fault is None
 
 
 def test_sigterm_ends_the_session_like_a_closed_channel():
     import signal
+
     previous = signal.getsignal(signal.SIGTERM)
     inbox = Inbox()
     try:
@@ -373,9 +403,11 @@ def test_no_session_starts_while_the_ups_announces_a_shutdown(tmp_path):
 
         def close(self):
             sent.append('closed')
+
     assert serve({'bundle': {}}, Inbox(), Views(), ups_state=state) == 1
     assert sent[0][0] == 'error' and 'about 9% charge' in sent[0][1] and sent[1] == 'closed'
     from robot_platform.ops.ups import shutdown_announced
+
     state.write_text(json.dumps({'updated_at': time.time() - 60, 'shutdown': {'reason': 'old'}}))
     assert shutdown_announced(state) is None  # A stopped service's last word blocks nothing.
 
@@ -386,6 +418,7 @@ def test_live_head_alone_takes_no_leader_link_on_the_robot(monkeypatch):
     def prepare(start, root, *, leaders=True):
         seen['leaders'] = leaders
         return dict(start['bundle']), None
+
     monkeypatch.setattr(edge, 'prepare', prepare)
 
     class Views:
@@ -397,7 +430,8 @@ def test_live_head_alone_takes_no_leader_link_on_the_robot(monkeypatch):
 
     class HeadCore:
         """Stands in for helm.head_only.HeadOnlyCore."""
-        period_s, collision_mode, landing = .04, None, False
+
+        period_s, collision_mode, landing = 0.04, None, False
         clock = staticmethod(time.perf_counter)
 
         def __init__(self, bundle):
@@ -421,6 +455,7 @@ def test_live_head_alone_takes_no_leader_link_on_the_robot(monkeypatch):
 
         def close(self):
             pass
+
     commands = Inbox()
     commands.end('Helm closed the session')
     start = {'bundle': {'receiver': {'mode': 'live', 'arm': 'head'}}}
@@ -436,7 +471,7 @@ def test_live_head_alone_needs_the_head_set_up_and_drives_no_replay(tmp_path):
     with pytest.raises(ValueError, match="head's servos will be powered"):
         teleop.start()
     with pytest.raises(ValueError, match='choose Left, Right or Both'):
-        teleop.start(confirm=True, replay={'episode': 'live-20261024T120000Z/task_episode_' + '0' * 32, 'speed': .5})
+        teleop.start(confirm=True, replay={'episode': 'live-20261024T120000Z/task_episode_' + '0' * 32, 'speed': 0.5})
     with pytest.raises(ValueError, match='Limits → Head'):
         teleop.start(confirm=True)  # This checkout keeps no head reference or limits.
     assert not teleop.active
@@ -446,14 +481,30 @@ def test_the_heads_jog_starts_on_the_robot_without_the_arms_calibration(monkeypa
     # The head's Tune bundle names no arms' calibration, and its profile is the head's: the robot side refused the
     # first live jog with KeyError: 'calibration_profile' (2026-10-30).
     from robot_platform.ops import release
+
     monkeypatch.setattr(release, 'activate', lambda root: {})
-    start = {'bundle': {'kind': 'tune', 'mode': 'jog', 'arm': 'head', 'receiver': {'mode': 'live', 'arm': 'head'},
-                        'teleop_profile': 'config/devices/minerva-head.json'}, 'key': '00' * 32, 'bind': '127.0.0.1'}
+    start = {
+        'bundle': {
+            'kind': 'tune',
+            'mode': 'jog',
+            'arm': 'head',
+            'receiver': {'mode': 'live', 'arm': 'head'},
+            'teleop_profile': 'config/devices/minerva-head.json',
+        },
+        'key': '00' * 32,
+        'bind': '127.0.0.1',
+    }
     bundle, link = edge.prepare(start, ROOT, leaders=False)
     assert link is None and 'calibration_profile' not in bundle
     assert bundle['teleop_profile'] == str(ROOT / 'config/devices/minerva-head.json')
-    arms = dict(start, bundle=dict(start['bundle'], calibration_profile='config/devices/minerva-joint-calibration.json',
-                                   bindings={'left_arm_j1': 'mismatch'}))
+    arms = dict(
+        start,
+        bundle=dict(
+            start['bundle'],
+            calibration_profile='config/devices/minerva-joint-calibration.json',
+            bindings={'left_arm_j1': 'mismatch'},
+        ),
+    )
     with pytest.raises(ValueError, match='calibration files differ'):  # The arms' check still holds.
         edge.prepare(arms, ROOT, leaders=False)
 
@@ -461,21 +512,22 @@ def test_the_heads_jog_starts_on_the_robot_without_the_arms_calibration(monkeypa
 def test_the_robots_poses_are_stamped_on_arrival_with_or_without_a_full_view():
     # The 3D view ages a guide by Helm's clock: a full view's and the pose sent alone between them (run_loop) alike.
     inbox = edge.ArrivalInbox()
-    inbox.put(['view', {'phase': 'running'}, {'sequence': 1, 'updated_at': 1.}])
-    inbox.put(['guide', {'sequence': 2, 'updated_at': 1.}, {'neck_z': .1}])
-    inbox.put(['guide', None, {'neck_z': .2}])  # The neck alone: nothing to stamp.
+    inbox.put(['view', {'phase': 'running'}, {'sequence': 1, 'updated_at': 1.0}])
+    inbox.put(['guide', {'sequence': 2, 'updated_at': 1.0}, {'neck_z': 0.1}])
+    inbox.put(['guide', None, {'neck_z': 0.2}])  # The neck alone: nothing to stamp.
     view, pose, neck = inbox.recv(), inbox.recv(), inbox.recv()
     assert abs(view[2]['updated_at'] - time.time()) < 1 and abs(pose[1]['updated_at'] - time.time()) < 1
-    assert neck == ['guide', None, {'neck_z': .2}]
+    assert neck == ['guide', None, {'neck_z': 0.2}]
 
 
 class SlowViews(Core):
     """As on Minerva in a live session beside the head: direct mode, and full views (the only ones carrying the 3D
     views' pose until 2026-10-31) slower than what any cycle has left."""
+
     collision_mode = 'disabled'
 
     def view(self):
-        end = time.perf_counter() + .009
+        end = time.perf_counter() + 0.009
         while time.perf_counter() < end:
             pass
         return super().view()
@@ -487,11 +539,17 @@ class SlowViews(Core):
         pass
 
     def guide(self):
-        return {'model': 'minerva', 'positions': {'right_arm_j1': self.samples / 1000}, 'sequence': self.samples,
-                'live': True, 'updated_at': 0., 'source_age_seconds': 0.}
+        return {
+            'model': 'minerva',
+            'positions': {'right_arm_j1': self.samples / 1000},
+            'sequence': self.samples,
+            'live': True,
+            'updated_at': 0.0,
+            'source_age_seconds': 0.0,
+        }
 
     def pose_view(self):
-        return self.guide(), {'neck_z': .1, 'neck_y': 0.}
+        return self.guide(), {'neck_z': 0.1, 'neck_y': 0.0}
 
 
 def test_a_session_on_the_robot_keeps_the_3d_views_pose_fresh_when_full_views_do_not_fit(tmp_path, monkeypatch):
@@ -503,13 +561,13 @@ def test_a_session_on_the_robot_keeps_the_3d_views_pose_fresh_when_full_views_do
     teleop.start()
     try:
         wait_until(lambda: teleop.snapshot()['phase'] == 'running')
-        time.sleep(.5)
+        time.sleep(0.5)
         sequences = []
         for _ in range(8):
             guide = teleop.guide()
-            assert guide is not None and 0 <= time.time() - guide['updated_at'] < .4, guide
+            assert guide is not None and 0 <= time.time() - guide['updated_at'] < 0.4, guide
             sequences.append(guide['sequence'])
-            time.sleep(.1)
+            time.sleep(0.1)
         assert sequences[-1] > sequences[0]  # The leaders' samples move it.
     finally:
         teleop.stop()

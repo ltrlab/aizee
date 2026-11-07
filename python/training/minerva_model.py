@@ -51,24 +51,25 @@ from python.training.flow_matching_head import FlowMatchingActionHead
 from python.training.sigreg import SIGReg
 
 # Canonical camera order → identity-embedding index.
-_CAMERAS: List[str] = ["left_wrist", "right_wrist", "head"]
-_WRIST_CAMERAS = ("left_wrist", "right_wrist")
+_CAMERAS: List[str] = ['left_wrist', 'right_wrist', 'head']
+_WRIST_CAMERAS = ('left_wrist', 'right_wrist')
 
 
 # ---------------------------------------------------------------------------
 # 2D sin-cos spatial position embedding
 # ---------------------------------------------------------------------------
 
+
 def build_2d_sincos_pos_embed(h: int, w: int, dim: int, device, dtype) -> torch.Tensor:
     """Return a [h*w, dim] 2D sin-cos position embedding (half for rows, half cols)."""
-    assert dim % 4 == 0, "d_model must be divisible by 4 for 2D sin-cos pos embed"
+    assert dim % 4 == 0, 'd_model must be divisible by 4 for 2D sin-cos pos embed'
     quarter = dim // 4
     omega = torch.arange(quarter, device=device, dtype=torch.float32) / quarter
-    omega = 1.0 / (10000.0 ** omega)                       # [quarter]
+    omega = 1.0 / (10000.0**omega)  # [quarter]
     y = torch.arange(h, device=device, dtype=torch.float32)
     x = torch.arange(w, device=device, dtype=torch.float32)
-    yy, xx = torch.meshgrid(y, x, indexing="ij")           # [h, w]
-    yy = yy.reshape(-1)[:, None] * omega[None, :]          # [h*w, quarter]
+    yy, xx = torch.meshgrid(y, x, indexing='ij')  # [h, w]
+    yy = yy.reshape(-1)[:, None] * omega[None, :]  # [h*w, quarter]
     xx = xx.reshape(-1)[:, None] * omega[None, :]
     pe = torch.cat([yy.sin(), yy.cos(), xx.sin(), xx.cos()], dim=1)  # [h*w, dim]
     return pe.to(dtype)
@@ -78,39 +79,52 @@ def build_2d_sincos_pos_embed(h: int, w: int, dim: int, device, dtype) -> torch.
 # Action-conditioned JEPA predictor (training only)
 # ---------------------------------------------------------------------------
 
+
 class ActionConditionedJEPAPredictor(nn.Module):
     """Predict future image tokens from current tokens, conditioned on the action
     chunk. Action-conditioning (V-JEPA 2-AC style) forces the encoder to retain
     controllable-dynamics information — exactly what a manipulation policy needs."""
 
-    def __init__(self, d_model: int, action_dim: int, chunk_size: int,
-                 nhead: int = 8, num_layers: int = 3, dim_feedforward: int = 1024,
-                 dropout: float = 0.1):
+    def __init__(
+        self,
+        d_model: int,
+        action_dim: int,
+        chunk_size: int,
+        nhead: int = 8,
+        num_layers: int = 3,
+        dim_feedforward: int = 1024,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.future_embed = nn.Parameter(torch.zeros(1, 1, d_model))
         nn.init.normal_(self.future_embed, std=0.02)
         # Pool the (normalized) action chunk to one conditioning vector.
         self.action_pool = nn.Sequential(
-            nn.Linear(action_dim * chunk_size, d_model), nn.GELU(),
+            nn.Linear(action_dim * chunk_size, d_model),
+            nn.GELU(),
             nn.Linear(d_model, d_model),
         )
         layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward,
-            dropout=dropout, batch_first=True,
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=num_layers)
 
     def forward(self, ctx_tokens: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         """ctx_tokens: [B, N, d]  actions: [B, K, A] -> predicted future [B, N, d]."""
         B = ctx_tokens.size(0)
-        a = self.action_pool(actions.reshape(B, -1)).unsqueeze(1)   # [B, 1, d]
-        x = ctx_tokens + self.future_embed + a                      # broadcast cond
+        a = self.action_pool(actions.reshape(B, -1)).unsqueeze(1)  # [B, 1, d]
+        x = ctx_tokens + self.future_embed + a  # broadcast cond
         return self.transformer(x)
 
 
 # ---------------------------------------------------------------------------
 # MinervaPolicy
 # ---------------------------------------------------------------------------
+
 
 class MinervaPolicy(nn.Module):
     def __init__(
@@ -119,8 +133,8 @@ class MinervaPolicy(nn.Module):
         num_joints: int = 17,
         chunk_size: int = 32,
         d_model: int = 512,
-        state_dim: int = 34,            # e.g. qpos+qcmd = 2*17
-        lang_dim: int = 0,              # 0 disables language conditioning
+        state_dim: int = 34,  # e.g. qpos+qcmd = 2*17
+        lang_dim: int = 0,  # 0 disables language conditioning
         nhead: int = 8,
         head_layers: int = 6,
         head_ff: int = 2048,
@@ -159,19 +173,26 @@ class MinervaPolicy(nn.Module):
         # --- action head (conditioned on state + language) ---
         cond_dim = state_dim + lang_dim
         self.flow_head = FlowMatchingActionHead(
-            action_dim=num_joints, chunk_size=chunk_size, d_model=d_model,
-            cond_dim=cond_dim, nhead=nhead, num_layers=head_layers,
-            dim_feedforward=head_ff, dropout=dropout,
+            action_dim=num_joints,
+            chunk_size=chunk_size,
+            d_model=d_model,
+            cond_dim=cond_dim,
+            nhead=nhead,
+            num_layers=head_layers,
+            dim_feedforward=head_ff,
+            dropout=dropout,
         )
 
         # --- JEPA auxiliary (training only) ---
         self.jepa_predictor = ActionConditionedJEPAPredictor(
-            d_model=d_model, action_dim=num_joints, chunk_size=chunk_size,
-            nhead=nhead, num_layers=predictor_layers,
+            d_model=d_model,
+            action_dim=num_joints,
+            chunk_size=chunk_size,
+            nhead=nhead,
+            num_layers=predictor_layers,
         )
         self.sigreg_proj = nn.Linear(d_model, d_model)  # separate projection head
-        self.sigreg = SIGReg(num_slices=sigreg_slices, num_points=sigreg_points,
-                             resample_slices=True)
+        self.sigreg = SIGReg(num_slices=sigreg_slices, num_points=sigreg_points, resample_slices=True)
 
     # ------------------------------------------------------------------
     # Encoding
@@ -179,13 +200,13 @@ class MinervaPolicy(nn.Module):
     def _encode_one(self, img: torch.Tensor, cam_name: str) -> torch.Tensor:
         """img: [B,3,H,W] -> tokens [B, N, d] with 2D spatial PE + camera-id."""
         encoder = self.wrist_encoder if cam_name in _WRIST_CAMERAS else self.head_encoder
-        feat = encoder(img)                                # [B, 512, Hp, Wp]
+        feat = encoder(img)  # [B, 512, Hp, Wp]
         B, C, Hp, Wp = feat.shape
         tokens = feat.permute(0, 2, 3, 1).reshape(B, Hp * Wp, C)
-        tokens = self.img_proj(tokens)                     # [B, N, d]
+        tokens = self.img_proj(tokens)  # [B, N, d]
         pe = build_2d_sincos_pos_embed(Hp, Wp, self.d_model, tokens.device, tokens.dtype)
         cam_idx = torch.tensor(_CAMERAS.index(cam_name), device=tokens.device)
-        cam_vec = self.camera_id_embed(cam_idx)            # [d]
+        cam_vec = self.camera_id_embed(cam_idx)  # [d]
         return tokens + pe.unsqueeze(0) + cam_vec.view(1, 1, -1)
 
     def _build_memory(
@@ -210,7 +231,7 @@ class MinervaPolicy(nn.Module):
 
         # Language task token (never masked → always ≥1 valid key).
         if self.lang_mem_proj is not None and language is not None:
-            seq.append(self.lang_mem_proj(language).unsqueeze(1))     # [B,1,d]
+            seq.append(self.lang_mem_proj(language).unsqueeze(1))  # [B,1,d]
             mask.append(torch.zeros(B, 1, dtype=torch.bool, device=device))
 
         # Per-camera dropout flags: [B, num_cams] True = drop this stream.
@@ -225,13 +246,13 @@ class MinervaPolicy(nn.Module):
             drop = torch.zeros(B, len(cams), dtype=torch.bool, device=device)
 
         for ci, cam in enumerate(cams):
-            toks = per_cam[cam]                                       # [B,N,d]
+            toks = per_cam[cam]  # [B,N,d]
             seq.append(toks)
             n = toks.size(1)
-            mask.append(drop[:, ci:ci + 1].expand(B, n))             # [B,N]
+            mask.append(drop[:, ci : ci + 1].expand(B, n))  # [B,N]
 
-        memory = torch.cat(seq, dim=1)                               # [B,S,d]
-        key_padding_mask = torch.cat(mask, dim=1)                    # [B,S]
+        memory = torch.cat(seq, dim=1)  # [B,S,d]
+        key_padding_mask = torch.cat(mask, dim=1)  # [B,S]
         return memory, key_padding_mask, per_cam
 
     def _ensure_language(self, language, state):
@@ -253,10 +274,10 @@ class MinervaPolicy(nn.Module):
     # ------------------------------------------------------------------
     def forward(
         self,
-        state: torch.Tensor,                       # [B, state_dim] normalized
-        images: Dict[str, torch.Tensor],           # {cam: [B,3,H,W]}
-        actions: torch.Tensor,                     # [B, K, num_joints] normalized
-        language: Optional[torch.Tensor] = None,   # [B, lang_dim] or None
+        state: torch.Tensor,  # [B, state_dim] normalized
+        images: Dict[str, torch.Tensor],  # {cam: [B,3,H,W]}
+        actions: torch.Tensor,  # [B, K, num_joints] normalized
+        language: Optional[torch.Tensor] = None,  # [B, lang_dim] or None
         future_images: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict[str, torch.Tensor]:
         language = self._ensure_language(language, state)
@@ -275,9 +296,7 @@ class MinervaPolicy(nn.Module):
                     fut = self._encode_one(future_images[cam], cam)  # target, no grad
                 pred = self.jepa_predictor(per_cam[cam], actions)
                 obs_losses.append(F.smooth_l1_loss(pred, fut))
-                reg_losses.append(self.sigreg(
-                    self.sigreg_proj(per_cam[cam]).reshape(-1, self.d_model)
-                ))
+                reg_losses.append(self.sigreg(self.sigreg_proj(per_cam[cam]).reshape(-1, self.d_model)))
             obs_loss = torch.stack(obs_losses).mean() if obs_losses else flow_loss * 0.0
             reg_loss = torch.stack(reg_losses).mean() if reg_losses else flow_loss * 0.0
         else:
@@ -285,7 +304,7 @@ class MinervaPolicy(nn.Module):
             reg_loss = flow_loss * 0.0
 
         total = flow_loss + self.lambda_obs * obs_loss + self.lambda_reg * reg_loss
-        return {"flow": flow_loss, "obs": obs_loss, "reg": reg_loss, "total": total}
+        return {'flow': flow_loss, 'obs': obs_loss, 'reg': reg_loss, 'total': total}
 
     # ------------------------------------------------------------------
     # Inference
@@ -306,7 +325,9 @@ class MinervaPolicy(nn.Module):
         memory, kpm, _ = self._build_memory(images, language, apply_dropout=False)
         cond = self._cond(state, language)
         return self.flow_head.sample(
-            cond, memory, num_steps=num_steps or self.flow_steps,
+            cond,
+            memory,
+            num_steps=num_steps or self.flow_steps,
             memory_key_padding_mask=kpm,
             prefix_actions=prefix_actions,
             generator=generator,
@@ -323,4 +344,4 @@ class MinervaPolicy(nn.Module):
         return [p for p in self.parameters() if id(p) not in bb]
 
 
-__all__ = ["MinervaPolicy", "ActionConditionedJEPAPredictor", "build_2d_sincos_pos_embed"]
+__all__ = ['MinervaPolicy', 'ActionConditionedJEPAPredictor', 'build_2d_sincos_pos_embed']

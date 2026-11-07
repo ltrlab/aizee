@@ -1,4 +1,5 @@
 """The leader setup script's frames match firmware 2's INFO and RETURN_DELAY layouts."""
+
 import importlib.util
 from pathlib import Path
 import struct
@@ -6,7 +7,8 @@ import struct
 import pytest
 
 spec = importlib.util.spec_from_file_location(
-    'openrb_leader_setup', Path(__file__).resolve().parents[2] / 'scripts/openrb_leader_setup.py')
+    'openrb_leader_setup', Path(__file__).resolve().parents[2] / 'scripts/openrb_leader_setup.py'
+)
 setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 

@@ -2,6 +2,7 @@
 set the reference (both servos centred; both offsets restored if either fails), flip and accept directions, sweep
 and save the limits (with the servos' own limits just outside), stale limits after a new reference, the 3D view's
 neck from the readings, and Helm's endpoints for each step."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -22,7 +23,7 @@ ASSET = 'minerva-production-01'
 
 @pytest.fixture(autouse=True)
 def quick_reader(monkeypatch):
-    monkeypatch.setattr(head_setup_module, 'PERIOD_S', .01)
+    monkeypatch.setattr(head_setup_module, 'PERIOD_S', 0.01)
 
 
 def bench_servos():
@@ -39,8 +40,13 @@ def bench_servos():
 def rig(tmp_path):
     pan, tilt = bench_servos()
     bus = realtime_bus([pan, tilt])
-    setup = HeadSetup(tmp_path / 'operator', ASSET, tmp_path / 'runs', profile=PROFILE,
-                      open_bus=lambda: FeetechBus(bus, timeout_s=.005))
+    setup = HeadSetup(
+        tmp_path / 'operator',
+        ASSET,
+        tmp_path / 'runs',
+        profile=PROFILE,
+        open_bus=lambda: FeetechBus(bus, timeout_s=0.005),
+    )
     yield setup, pan, tilt
     setup.close()
 
@@ -51,7 +57,7 @@ def settle(setup, readings=3):
     deadline = time.monotonic() + 3
     while setup.sequence < start + readings:
         assert time.monotonic() < deadline, 'the reader stopped polling'
-        time.sleep(.005)
+        time.sleep(0.005)
 
 
 def hand(setup, servo, steps):
@@ -70,9 +76,12 @@ def test_the_reader_reads_both_servos_limp_and_steps_wait_for_a_reference(rig):
     assert state['fresh'] and [s['steps'] for s in state['servos']] == [2224, 1307]
     assert all(s['torque'] is False and s['alarms'] == [] for s in state['servos'])  # Never enabled.
     assert state['reference'] is None and state['rows'] == [] and setup.joints() is None
-    for step in (lambda: setup.limit('confirm', 'head_pan'), lambda: setup.direction('accept', 'head_pan'),
-                 setup.save_limits):
-        with pytest.raises(ValueError, match="reference first"):
+    for step in (
+        lambda: setup.limit('confirm', 'head_pan'),
+        lambda: setup.direction('accept', 'head_pan'),
+        setup.save_limits,
+    ):
+        with pytest.raises(ValueError, match='reference first'):
             step()
     setup.stop()
     assert not setup.snapshot()['reading'] and not setup.fresh()
@@ -148,7 +157,7 @@ def test_the_limits_sweep_saves_both_joints_and_sets_the_servos_own_limits(rig, 
     joints = saved['joints']
     assert (joints['head_pan']['min_steps'], joints['head_pan']['max_steps']) == (1648, 2548)
     assert (joints['head_tilt']['min_steps'], joints['head_tilt']['max_steps']) == (1748, 2448)
-    margin = round(MARGIN_RAD / RAD_PER_STEP + .5)
+    margin = round(MARGIN_RAD / RAD_PER_STEP + 0.5)
     assert (pan.get('Min_Position_Limit'), pan.get('Max_Position_Limit')) == (1648 - margin, 2548 + margin)
     assert (tilt.get('Min_Position_Limit'), tilt.get('Max_Position_Limit')) == (1748 - margin, 2448 + margin)
     assert pan.eeprom_writes_locked == tilt.eeprom_writes_locked == 0
@@ -182,15 +191,20 @@ def test_helm_serves_each_step_and_refuses_to_read_while_a_session_holds_the_mot
     from robot_platform.helm.cli import SimulationLink
     from robot_platform.helm.server import create_app
     from robot_platform.helm.session import HelmSession
+
     setup, pan, tilt = rig
-    helm = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'helm-runs',
-                       limits=tmp_path / 'limits.json')
+    helm = HelmSession(
+        ROOT / 'config/devices/minerva-joint-calibration.json',
+        runs=tmp_path / 'helm-runs',
+        limits=tmp_path / 'limits.json',
+    )
     teleop = Teleop()
 
     async def run():
         from robot_platform.helm.display_model import DisplayModel
         from robot_platform.models import ModelProfile, UrdfModel
         from robot_platform.ops.release import HEAD_MODEL
+
         display = DisplayModel(helm.model, UrdfModel(ModelProfile.load(ROOT / HEAD_MODEL)))
         app = create_app(helm, SimulationLink(), teleop=teleop, token='secret', head_setup=setup, display=display)
         async with TestClient(TestServer(app)) as client:
@@ -240,6 +254,7 @@ def test_helm_serves_each_step_and_refuses_to_read_while_a_session_holds_the_mot
             assert (await (await post('/api/helm/head/read', {'on': False})).json())['head_setup']['reading'] is False
             bad = await post('/api/helm/head/limits', {'action': 'confirm'})
             assert bad.status == 422
+
     try:
         asyncio.run(run())
     finally:
@@ -251,14 +266,19 @@ def test_helm_without_the_head_board_says_where_the_head_is_set_up(tmp_path):
     from robot_platform.helm.cli import SimulationLink
     from robot_platform.helm.server import create_app
     from robot_platform.helm.session import HelmSession
-    helm = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'helm-runs',
-                       limits=tmp_path / 'limits.json')
+
+    helm = HelmSession(
+        ROOT / 'config/devices/minerva-joint-calibration.json',
+        runs=tmp_path / 'helm-runs',
+        limits=tmp_path / 'limits.json',
+    )
 
     async def run():
         async with TestClient(TestServer(create_app(helm, SimulationLink(), token='secret'))) as client:
             assert (await (await client.get('/api/helm/state')).json())['head_setup'] is None
             refused = await client.post('/api/helm/head/read', json={'on': True}, headers={'X-Helm-Token': 'secret'})
             assert refused.status == 422 and 'Helm on Minerva' in (await refused.json())['error']
+
     try:
         asyncio.run(run())
     finally:
@@ -278,11 +298,12 @@ def test_the_shoulder_corners_are_recorded_by_hand_and_saved_with_the_limits(rig
     # Turned to a side and tilted all the way down, the head reaches its shoulder (2026-10-29): each corner is the
     # head turned and tilted down until just clear, read limp; together they make the floor (neck.clearance).
     from robot_platform.neck import clearance
+
     setup, pan, tilt = rig
     setup.start()
     settle(setup)
     setup.set_reference()
-    with pytest.raises(ValueError, match="limits first"):
+    with pytest.raises(ValueError, match='limits first'):
         setup.corner('record')
     sweep_and_save(setup, pan, tilt)
     hand(setup, pan, 2348)
@@ -293,15 +314,17 @@ def test_the_shoulder_corners_are_recorded_by_hand_and_saved_with_the_limits(rig
     hand(setup, pan, 1748)
     setup.corner('record')
     state = setup.snapshot()
-    assert state['corners'] == [pytest.approx({'pan': 300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP}),
-                                pytest.approx({'pan': -300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP})]
+    assert state['corners'] == [
+        pytest.approx({'pan': 300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP}),
+        pytest.approx({'pan': -300 * RAD_PER_STEP, 'tilt': -200 * RAD_PER_STEP}),
+    ]
     assert state['clearance'] is None
     setup.save_clearance()
     saved = json.loads((tmp_path / 'operator' / f'{ASSET}-head-limits.json').read_text())
     assert saved['clearance']['down'] == -1 and len(saved['clearance']['corners']) == 2
     assert set(saved['joints']) == {'head_pan', 'head_tilt'} and saved['reference_id'] == setup.reference['id']
     floor = clearance.from_limits(saved, setup.reference)
-    assert floor.depth(0.) == pytest.approx(300 * RAD_PER_STEP)  # Its whole tilt range below level (swept to 1748).
+    assert floor.depth(0.0) == pytest.approx(300 * RAD_PER_STEP)  # Its whole tilt range below level (swept to 1748).
     assert floor.depth(300 * RAD_PER_STEP) == pytest.approx(200 * RAD_PER_STEP - clearance.MARGIN_RAD)
     state = setup.snapshot()
     assert state['corners'] == [] and state['clearance']['margin_rad'] == clearance.MARGIN_RAD
@@ -320,13 +343,17 @@ def test_the_shoulder_corners_are_recorded_by_hand_and_saved_with_the_limits(rig
 def test_live_sessions_take_the_head_only_once_its_shoulder_clearance_is_saved(rig, tmp_path):
     from types import SimpleNamespace
     from robot_platform.helm.teleop import TeleopSession
+
     setup, pan, tilt = rig
     setup.start()
     settle(setup)
     setup.set_reference()
     sweep_and_save(setup, pan, tilt)
-    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', asset_id=ASSET,
-                           operator_files=tmp_path / 'operator')
+    helm = SimpleNamespace(
+        profile_path=ROOT / 'config/devices/minerva-joint-calibration.json',
+        asset_id=ASSET,
+        operator_files=tmp_path / 'operator',
+    )
     session = TeleopSession.__new__(TeleopSession)  # Only its head bundle: no profile, routes or settings needed.
     session.helm, session.receiver = helm, {'mode': 'live', 'arm': 'both'}
     assert session._head_bundle() is None  # Reference and limits, no clearance: the head stays out.

@@ -1,4 +1,5 @@
 """Independent buses overlap, but partial/stale pairs never reach a consumer."""
+
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import threading
@@ -9,19 +10,23 @@ from robot_platform.teleop.openrb import LeaderSample, LeaderSampleSkipped, Open
 
 
 def pair(barrier, *, failure=None, stale=False):
-    group = OpenRBInputs({'leaders': {'left': {'usb_serial': 'L'}, 'right': {'usb_serial': 'R'}}}, clock=lambda: 10.)
-    base = LeaderSample((0.,) * 7, (0,) * 7, 1, 9.995, 10., (0, 0, 1, 1), 1, 2)
+    group = OpenRBInputs({'leaders': {'left': {'usb_serial': 'L'}, 'right': {'usb_serial': 'R'}}}, clock=lambda: 10.0)
+    base = LeaderSample((0.0,) * 7, (0,) * 7, 1, 9.995, 10.0, (0, 0, 1, 1), 1, 2)
+
     class Reader:
         def __init__(self, name):
             self.name, self.closed, self.finished = name, False, False
+
         def poll(self):
-            barrier.wait(timeout=2.)  # Sequential polling cannot pass this test.
+            barrier.wait(timeout=2.0)  # Sequential polling cannot pass this test.
             self.finished = True
             if self.name == failure:
                 raise ValueError('incomplete board read')
             return replace(base, sampled_at=9.8) if stale and self.name == 'left' else base
+
         def close(self):
             self.closed = True
+
     readers = {name: Reader(name) for name in group.pins}
     group.readers = readers
     group._pool = ThreadPoolExecutor(max_workers=2)
@@ -61,12 +66,20 @@ def test_late_or_skewed_complete_pair_is_skipped_without_closing_either_board():
 
 
 def test_skipped_board_read_never_masks_a_hard_failure_on_the_other_board():
-    group = OpenRBInputs({'leaders': {'left': {'usb_serial': 'L'}, 'right': {'usb_serial': 'R'}}}, clock=lambda: 10.)
+    group = OpenRBInputs({'leaders': {'left': {'usb_serial': 'L'}, 'right': {'usb_serial': 'R'}}}, clock=lambda: 10.0)
+
     class Reader:
         closed = False
-        def __init__(self, error): self.error = error
-        def poll(self): raise self.error
-        def close(self): self.closed = True
+
+        def __init__(self, error):
+            self.error = error
+
+        def poll(self):
+            raise self.error
+
+        def close(self):
+            self.closed = True
+
     readers = dict(left=Reader(LeaderSampleSkipped('late')), right=Reader(ValueError('bad CRC')))
     group.readers, group._pool = dict(readers), ThreadPoolExecutor(max_workers=2)
     with pytest.raises(ValueError, match='bad CRC'):

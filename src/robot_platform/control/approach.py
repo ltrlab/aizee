@@ -19,19 +19,20 @@ OVERSPEED_HEADROOM, and commands toward an end stay within COMMAND_HEADROOM of
 the curve. Over the last few hundredths of a radian of the usable range they slow
 to rest (arrival_factor) rather than stopping at its end from the curve's floor.
 """
+
 import math
 
-APPROACH_FLOOR_RAD_S = .5  # collision::APPROACH_FLOOR_RAD_S
-SPEED_NOISE_RAD_S = .25  # collision::SPEED_NOISE_RAD_S: speed readings' noise, moving as at rest.
+APPROACH_FLOOR_RAD_S = 0.5  # collision::APPROACH_FLOOR_RAD_S
+SPEED_NOISE_RAD_S = 0.25  # collision::SPEED_NOISE_RAD_S: speed readings' noise, moving as at rest.
 OVERSPEED_HEADROOM = 1.25  # The receiver's speed cap over the commanded one.
 COMMAND_HEADROOM = 1 / OVERSPEED_HEADROOM  # Commands toward an end: this share of the curve.
-OVERTRAVEL_RAD = .02  # A joint may pass its hand-swept end by this much before the receiver faults.
-FRICTION_FF_FRACTION = .7  # Friction feed-forward: this share of the measured friction, never all of it.
-FRICTION_SMOOTH_RAD_S = .05  # Friction feed-forward reaches its share at this commanded speed.
-ARRIVAL_ZONE_RAD = .04  # Commands slow to rest over the last this much of a joint's usable range,
-ARRIVAL_CREEP_RAD_S = .05  # and no slower than this, so they arrive.
-INERTIA_FF_FRACTION = .7  # Acceleration feed-forward: this share of a joint's fitted inertia (it varies with pose).
-ACCELERATION_FF_LIMIT = 32.  # rad/s2: the acceleration fed forward, at most.
+OVERTRAVEL_RAD = 0.02  # A joint may pass its hand-swept end by this much before the receiver faults.
+FRICTION_FF_FRACTION = 0.7  # Friction feed-forward: this share of the measured friction, never all of it.
+FRICTION_SMOOTH_RAD_S = 0.05  # Friction feed-forward reaches its share at this commanded speed.
+ARRIVAL_ZONE_RAD = 0.04  # Commands slow to rest over the last this much of a joint's usable range,
+ARRIVAL_CREEP_RAD_S = 0.05  # and no slower than this, so they arrive.
+INERTIA_FF_FRACTION = 0.7  # Acceleration feed-forward: this share of a joint's fitted inertia (it varies with pose).
+ACCELERATION_FF_LIMIT = 32.0  # rad/s2: the acceleration fed forward, at most.
 
 
 def reaction_s(receiver):
@@ -44,8 +45,9 @@ def reaction_s(receiver):
 
 def limit_reaction_s(receiver):
     """The receiver's reaction time at a joint limit (s): the feedback timeout and reaction allowance."""
-    reaction = (receiver['direct']['limit_reaction_ms'] if receiver.get('direct')
-                else receiver['collision']['reaction_ms'])
+    reaction = (
+        receiver['direct']['limit_reaction_ms'] if receiver.get('direct') else receiver['collision']['reaction_ms']
+    )
     return (receiver['feedback_timeout_ms'] + reaction) / 1000
 
 
@@ -68,7 +70,7 @@ def approach_speed(joint, reaction, distance):
 def reserve_toward(joint, reaction, distance):
     """The stopping reserve a collision box keeps toward a limit `distance` from the joint's extreme position."""
     if joint.get('gripper'):
-        return 0.
+        return 0.0
     v = approach_speed(joint, reaction, distance)
     return joint['max_tracking_error'] + v * reaction + v * v / (2 * joint['stop_acceleration'])
 
@@ -90,7 +92,7 @@ def limit_speed(joint, reaction, distance):
 def limit_reserve(joint, reaction, distance):
     """How far a joint moving toward a limit `distance` away travels before it stops (collision::limit_reserve)."""
     if joint.get('gripper'):
-        return 0.
+        return 0.0
     v = limit_speed(joint, reaction, distance)
     return v * reaction + v * v / (2 * joint['stop_acceleration'])
 
@@ -101,8 +103,9 @@ def speed_bound(joint, commanded):
     commands carry no velocity (collision::speed_bound)."""
     if joint.get('gripper'):
         return joint['max_velocity']
-    return max(OVERSPEED_HEADROOM * abs(commanded) + SPEED_NOISE_RAD_S,
-               min(APPROACH_FLOOR_RAD_S, joint['max_velocity']))
+    return max(
+        OVERSPEED_HEADROOM * abs(commanded) + SPEED_NOISE_RAD_S, min(APPROACH_FLOOR_RAD_S, joint['max_velocity'])
+    )
 
 
 def tracking_bound(joint, speed):
@@ -114,7 +117,7 @@ def tracking_bound(joint, speed):
     span = joint['max_velocity'] - floor
     if rest is None or not span > 0:
         return whole
-    return rest + (whole - rest) * min(1., max(0., (speed - floor) / span))
+    return rest + (whole - rest) * min(1.0, max(0.0, (speed - floor) / span))
 
 
 def motion_reserve(joint, reaction, speeds):
@@ -122,7 +125,7 @@ def motion_reserve(joint, reaction, speeds):
     speed bounds (down, up): the tracking bound at the faster of them, then on each side the limit reaction and
     braking distances at its bound toward that side. None for a gripper (collision::motion_reserve)."""
     if joint.get('gripper'):
-        return 0., 0.
+        return 0.0, 0.0
     tracking = tracking_bound(joint, max(speeds))
     return tuple(tracking + v * reaction + v * v / (2 * joint['stop_acceleration']) for v in speeds)
 
@@ -130,14 +133,14 @@ def motion_reserve(joint, reaction, speeds):
 def speed_bounds(joint, commanded):
     """A command's speed bounds (down, up): its overshoot toward the way it moves, the floor the other
     (collision::speed_bounds)."""
-    return speed_bound(joint, min(commanded, 0.)), speed_bound(joint, max(commanded, 0.))
+    return speed_bound(joint, min(commanded, 0.0)), speed_bound(joint, max(commanded, 0.0))
 
 
 def end_margin(joint, reaction):
     """How far inside a limit a joint's targets stay: the stopping margin of its approach floor at the
     limit reaction time, plus a hair so a pose exactly on the edge still certifies. Nothing for a gripper."""
     if joint.get('gripper'):
-        return 0.
+        return 0.0
     floor = min(APPROACH_FLOOR_RAD_S, joint['max_velocity'])
     return floor * reaction + floor * floor / (2 * joint['stop_acceleration']) + 1e-6
 
@@ -160,10 +163,10 @@ def arrival_factor(joint, reaction, position, direction):
     reached its end 0.01 rad behind a command at the curve's floor (0.4 rad/s), ran at 0.6, over its limit
     curve, and tripped (2026-09-29)."""
     if joint.get('gripper'):
-        return 1.
+        return 1.0
     distance = joint['upper'] - position if direction > 0 else position - joint['lower']
     room = distance - end_margin(joint, reaction)
-    return 1. if room >= ARRIVAL_ZONE_RAD else math.sqrt(max(0., room) / ARRIVAL_ZONE_RAD)
+    return 1.0 if room >= ARRIVAL_ZONE_RAD else math.sqrt(max(0.0, room) / ARRIVAL_ZONE_RAD)
 
 
 def command_step(joint, reaction, position, direction, cap, period):
@@ -173,15 +176,17 @@ def command_step(joint, reaction, position, direction, cap, period):
     right J1 ran at 1.5 rad/s into the part of its curve that allows 1.55, and its speed noise tripped the
     overspeed check (in rehearsal); taken where a step at the starting speed would end, a command short of an
     end crawled at the creep over the last few hundredths of a radian."""
+
     def speed_at(q):
         speed = command_speed(joint, reaction, q, direction, cap)
         return min(speed, max(ARRIVAL_CREEP_RAD_S, speed * arrival_factor(joint, reaction, q, direction)))
+
     most = period * speed_at(position)
     if period * speed_at(position + direction * most) >= most:
         return most
-    low, high = 0., most  # The speed allowed only falls toward the end: bisect for the largest step.
+    low, high = 0.0, most  # The speed allowed only falls toward the end: bisect for the largest step.
     for _ in range(12):
-        middle = .5 * (low + high)
+        middle = 0.5 * (low + high)
         if period * speed_at(position + direction * middle) >= middle:
             low = middle
         else:
@@ -214,8 +219,8 @@ def friction_feedforward(friction_nm, velocity):
     """Friction feed-forward for a commanded `velocity`: FRICTION_FF_FRACTION of the joint's measured
     friction, in the direction of motion, reaching it at FRICTION_SMOOTH_RAD_S."""
     if not friction_nm or not velocity:
-        return 0.
-    return FRICTION_FF_FRACTION * friction_nm * max(-1., min(1., velocity / FRICTION_SMOOTH_RAD_S))
+        return 0.0
+    return FRICTION_FF_FRACTION * friction_nm * max(-1.0, min(1.0, velocity / FRICTION_SMOOTH_RAD_S))
 
 
 def ramp_effort(inertia, velocity, previous, period, effort, max_effort):
@@ -225,7 +230,7 @@ def ramp_effort(inertia, velocity, previous, period, effort, max_effort):
     `effort` within 90% of the joint's effort limit. The receiver adds it only while it ramps to the command, so
     a stop never holds it."""
     if not inertia or not period or period <= 0:
-        return 0.
+        return 0.0
     acceleration = max(-ACCELERATION_FF_LIMIT, min(ACCELERATION_FF_LIMIT, (velocity - previous) / period))
-    limit = .9 * max_effort
+    limit = 0.9 * max_effort
     return max(-limit - effort, min(limit - effort, INERTIA_FF_FRACTION * inertia * acceleration))

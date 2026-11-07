@@ -1,4 +1,5 @@
 """Immediate references preserve acceleration, freshness and trace meaning."""
+
 from dataclasses import replace
 
 import pytest
@@ -13,108 +14,131 @@ from robot_platform.teleop.lifecycle import TeleopLifecycle
 def test_direct_cache_owns_feedback_without_copying_recorder_history():
     from types import SimpleNamespace
     from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
+
     class RecorderOnly:
         def __deepcopy__(self, memo):
             raise AssertionError('Recorder history entered the control cache')
-    raw = dict(position=.2, velocity=.1, effort=0., sequence=1, sampled_at_ms=90, fault=False)
+
+    raw = dict(position=0.2, velocity=0.1, effort=0.0, sequence=1, sampled_at_ms=90, fault=False)
     reply = dict(status=dict(now_ms=100))
     snapshot = dict(reply=reply, status=reply['status'], feedback=[raw], recent=RecorderOnly())
     session = DirectLifecycleSession.__new__(DirectLifecycleSession)
     session.controller = SimpleNamespace(joint_names=('q',))
     session.snapshot, session.clock, session._samples = lambda: snapshot, lambda: 10.002, None
-    _, rows, feedback = session._cache(reply, 10.)
+    _, rows, feedback = session._cache(reply, 10.0)
     assert rows[0]['sampled_at'] == pytest.approx(9.99)
     assert session._offer_received == 10.002
-    raw['position'] = .3
-    assert feedback[0]['position'] == .2
-    assert session._samples[1][0]['position'] == .2
+    raw['position'] = 0.3
+    assert feedback[0]['position'] == 0.2
+    assert session._samples[1][0]['position'] == 0.2
     with pytest.raises(ValueError, match='without a new sequence'):
         session._cache(reply, 10.01)
 
 
 def test_direct_cache_rejects_mismatched_reply_before_reading_feedback():
     from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
+
     session = DirectLifecycleSession.__new__(DirectLifecycleSession)
     session.snapshot = lambda: dict(reply={'status': {'now_ms': 99}}, status={'now_ms': 99})
     with pytest.raises(ValueError, match='same receiver reply'):
-        session._cache({'status': {'now_ms': 100}}, 10.)
+        session._cache({'status': {'now_ms': 100}}, 10.0)
 
 
 def direct_joint():
-    return dict(name='q', lower=-2., upper=2., hold_kp=10., hold_kd=1., max_velocity=1.,
-                 align_speed=.1, shutdown_speed=.1, max_lead=.2, tolerance=.01,
-                 settled_velocity=.05, zero_position=0., interpolation_s=0., direct_velocity=True,
-                 approach=dict(lower=-2., upper=2., max_velocity=1.25, max_tracking_error=.3,
-                               stop_acceleration=2., reaction_s=.04))
+    return dict(
+        name='q',
+        lower=-2.0,
+        upper=2.0,
+        hold_kp=10.0,
+        hold_kd=1.0,
+        max_velocity=1.0,
+        align_speed=0.1,
+        shutdown_speed=0.1,
+        max_lead=0.2,
+        tolerance=0.01,
+        settled_velocity=0.05,
+        zero_position=0.0,
+        interpolation_s=0.0,
+        direct_velocity=True,
+        approach=dict(
+            lower=-2.0, upper=2.0, max_velocity=1.25, max_tracking_error=0.3, stop_acceleration=2.0, reaction_s=0.04
+        ),
+    )
 
 
-def direct_rows(t, q=0.):
-    return [dict(name='q', position=q, velocity=0., sequence=round(t*1000)+1, sampled_at=t)]
+def direct_rows(t, q=0.0):
+    return [dict(name='q', position=q, velocity=0.0, sequence=round(t * 1000) + 1, sampled_at=t)]
 
 
 def following_direct(**options):
-    life = TeleopLifecycle([direct_joint()], settle_time_s=0., **options)
-    life.action('idle', direct_rows(0.), now=0.)
-    life.action('enable', direct_rows(0.), now=0.)
-    life.action('engage', direct_rows(0.), target=direct_rows(0.), now=0.)
-    life.step(direct_rows(.05), target=direct_rows(.05), now=.05)
+    life = TeleopLifecycle([direct_joint()], settle_time_s=0.0, **options)
+    life.action('idle', direct_rows(0.0), now=0.0)
+    life.action('enable', direct_rows(0.0), now=0.0)
+    life.action('engage', direct_rows(0.0), target=direct_rows(0.0), now=0.0)
+    life.step(direct_rows(0.05), target=direct_rows(0.05), now=0.05)
     assert life.state == 'TELEOP'
     return life
 
 
 def test_zero_interpolation_keeps_acceleration_and_velocity_feedforward():
     life = following_direct()
-    def rows(t, q=0.):
+
+    def rows(t, q=0.0):
         return direct_rows(t, q)
-    first = life.step(rows(.06), target=rows(.06, 1.), now=.06)
-    assert first['positions'][0] == pytest.approx(2 * .01**2)
-    assert first['joints'][0]['velocity'] == pytest.approx(.02)
+
+    first = life.step(rows(0.06), target=rows(0.06, 1.0), now=0.06)
+    assert first['positions'][0] == pytest.approx(2 * 0.01**2)
+    assert first['joints'][0]['velocity'] == pytest.approx(0.02)
     assert 'acceleration' in first['limits']['q']
-    hold = life.step(rows(.07), target=None, now=.07)
+    hold = life.step(rows(0.07), target=None, now=0.07)
     assert hold['positions'] == first['positions'] and hold['joints'][0]['velocity'] == 0
 
 
 def test_fresh_repeats_continue_bounded_motion_without_refreshing_source_or_loss_budget():
     life = following_direct(allow_repeated_source=True)
-    source = direct_rows(.06, 1.)
-    first = life.step(direct_rows(.06), target=source, now=.06)
-    repeat = life.step(direct_rows(.07, first['positions'][0]), target=source, now=.07)
+    source = direct_rows(0.06, 1.0)
+    first = life.step(direct_rows(0.06), target=source, now=0.06)
+    repeat = life.step(direct_rows(0.07, first['positions'][0]), target=source, now=0.07)
     assert repeat['positions'][0] > first['positions'][0]
-    assert repeat['joints'][0]['velocity'] == pytest.approx(.04)
+    assert repeat['joints'][0]['velocity'] == pytest.approx(0.04)
     assert life._source == source and life._misses == 1
-    second = life.step(direct_rows(.08, repeat['positions'][0]), target=source, now=.08)
-    assert second['joints'][0]['velocity'] == pytest.approx(.06)
-    held = life.step(direct_rows(.09, second['positions'][0]), target=source, now=.09)
+    second = life.step(direct_rows(0.08, repeat['positions'][0]), target=source, now=0.08)
+    assert second['joints'][0]['velocity'] == pytest.approx(0.06)
+    held = life.step(direct_rows(0.09, second['positions'][0]), target=source, now=0.09)
     assert held['state'] == 'HOLD' and held['joints'][0]['velocity'] == 0
-    resumed_source = direct_rows(.10, 1.)
-    assert life.step(direct_rows(.10, second['positions'][0]), target=resumed_source, now=.10)['state'] == 'HOLD'
+    resumed_source = direct_rows(0.10, 1.0)
+    assert life.step(direct_rows(0.10, second['positions'][0]), target=resumed_source, now=0.10)['state'] == 'HOLD'
 
 
 def test_repeated_and_missing_samples_share_the_same_loss_budget():
     life = following_direct(allow_repeated_source=True)
-    source = direct_rows(.06, .5)
-    life.step(direct_rows(.06), target=source, now=.06)
-    life.step(direct_rows(.07), target=source, now=.07)
-    life.step(direct_rows(.08), target=None, now=.08)
-    assert life.step(direct_rows(.09), target=source, now=.09)['state'] == 'HOLD'
+    source = direct_rows(0.06, 0.5)
+    life.step(direct_rows(0.06), target=source, now=0.06)
+    life.step(direct_rows(0.07), target=source, now=0.07)
+    life.step(direct_rows(0.08), target=None, now=0.08)
+    assert life.step(direct_rows(0.09), target=source, now=0.09)['state'] == 'HOLD'
 
 
 def test_repeated_stationary_goal_never_invents_position_or_velocity():
     life = following_direct(allow_repeated_source=True)
-    proposal = life.step(direct_rows(.06), target=direct_rows(.05), now=.06)
-    assert proposal['positions'] == [0.] and proposal['joints'][0]['velocity'] == 0.
+    proposal = life.step(direct_rows(0.06), target=direct_rows(0.05), now=0.06)
+    assert proposal['positions'] == [0.0] and proposal['joints'][0]['velocity'] == 0.0
 
 
 @pytest.mark.parametrize('invalid', ['position', 'timestamp', 'stale', 'backwards'])
 def test_repeat_opt_in_still_rejects_mutated_stale_or_reordered_source(invalid):
     life = following_direct(allow_repeated_source=True)
-    source = direct_rows(.06, .5)
-    life.step(direct_rows(.06), target=source, now=.06)
-    now = .07
-    if invalid == 'position': source[0]['position'] = .6
-    elif invalid == 'timestamp': source[0]['sampled_at'] = .061
-    elif invalid == 'backwards': source[0]['sequence'] -= 1
-    else: now = .111
+    source = direct_rows(0.06, 0.5)
+    life.step(direct_rows(0.06), target=source, now=0.06)
+    now = 0.07
+    if invalid == 'position':
+        source[0]['position'] = 0.6
+    elif invalid == 'timestamp':
+        source[0]['sampled_at'] = 0.061
+    elif invalid == 'backwards':
+        source[0]['sequence'] -= 1
+    else:
+        now = 0.111
     with pytest.raises(ValueError):
         life.step(direct_rows(now), target=source, now=now)
     assert life.state == 'FAULT'
@@ -124,73 +148,102 @@ def test_valid_repeat_uses_the_same_approach_lead_bounds_as_a_new_goal():
     # Measured motion passed the previous target during a reversal. A normal
     # duplicate must re-evaluate the bounded goal rather than enter static HOLD.
     life = following_direct(allow_repeated_source=True)
-    life.target = (-.17,)
-    life._last_measured = (-.35,)
-    life._sent_velocities = (.1,)
-    source = direct_rows(.05, .5)
+    life.target = (-0.17,)
+    life._last_measured = (-0.35,)
+    life._sent_velocities = (0.1,)
+    source = direct_rows(0.05, 0.5)
     life._source = source
-    repeated = life.step(direct_rows(.06, -.38), target=source, now=.06)
+    repeated = life.step(direct_rows(0.06, -0.38), target=source, now=0.06)
     assert repeated['state'] == 'TELEOP'
-    assert abs(repeated['positions'][0] - (-.38)) <= direct_joint()['max_lead'] + 1e-12
+    assert abs(repeated['positions'][0] - (-0.38)) <= direct_joint()['max_lead'] + 1e-12
     assert abs(repeated['joints'][0]['velocity']) <= direct_joint()['max_velocity']
     assert 'tracking_lead' in repeated['limits']['q']
 
 
-@pytest.mark.parametrize('direction', [-1., 1.])
+@pytest.mark.parametrize('direction', [-1.0, 1.0])
 def test_constructed_direct_lead_endpoint_survives_next_missing_sample(direction):
     joint = direct_joint()
-    joint['max_lead'] = .027731747305049924
+    joint['max_lead'] = 0.027731747305049924
     life = TeleopLifecycle([joint], allow_repeated_source=True)
     measured = direction * 1.399970531463623
     life.state, life.target = 'TELEOP', (direction * 1.3704579049057413,)
-    life._last_time, life._last_measured = .05, (measured,)
-    life._source = direct_rows(.05)
-    command = life.step(direct_rows(.06, measured), target=direct_rows(.05), now=.06)
-    assert abs(command['positions'][0]-measured) <= joint['max_lead']
-    held = life.step(direct_rows(.07, measured), target=None, now=.07)
+    life._last_time, life._last_measured = 0.05, (measured,)
+    life._source = direct_rows(0.05)
+    command = life.step(direct_rows(0.06, measured), target=direct_rows(0.05), now=0.06)
+    assert abs(command['positions'][0] - measured) <= joint['max_lead']
+    held = life.step(direct_rows(0.07, measured), target=None, now=0.07)
     assert held['state'] == 'TELEOP' and held['positions'] == command['positions']
-    assert held['joints'][0]['velocity'] == 0.
+    assert held['joints'][0]['velocity'] == 0.0
 
 
 def test_mapper_repeated_samples_hold_without_new_age_and_changed_duplicates_fault():
-    mapper = AbsoluteLeaderMapper([dict(name='q', lower=-2., upper=2.)],
-        [dict(actuator='q', leader='left', channel=0, direction=1, raw_min=-1., raw_max=1.,
-              follower_min=-2., follower_max=2.)])
-    sample = LeaderSample((0.,)*7, (0,)*7, 1, 10., 10., (0,0,0,0), 1, 2)
-    assert mapper.map({'left': sample}, now=10., allow_repeated=True)
+    mapper = AbsoluteLeaderMapper(
+        [dict(name='q', lower=-2.0, upper=2.0)],
+        [
+            dict(
+                actuator='q',
+                leader='left',
+                channel=0,
+                direction=1,
+                raw_min=-1.0,
+                raw_max=1.0,
+                follower_min=-2.0,
+                follower_max=2.0,
+            )
+        ],
+    )
+    sample = LeaderSample((0.0,) * 7, (0,) * 7, 1, 10.0, 10.0, (0, 0, 0, 0), 1, 2)
+    assert mapper.map({'left': sample}, now=10.0, allow_repeated=True)
     assert mapper.map({'left': sample}, now=10.01, allow_repeated=True) is None
-    assert mapper.fault is None and mapper.previous['left'].sampled_at == 10.
+    assert mapper.fault is None and mapper.previous['left'].sampled_at == 10.0
     with pytest.raises(ValueError, match='without a new sequence'):
         mapper.map({'left': replace(sample, sampled_at=10.01)}, now=10.01, allow_repeated=True)
 
 
 def test_remote_duplicate_preserves_original_age_and_still_validates_payload():
-    sample = LeaderSample((0.,)*7, (0,)*7, 1, 100., 100., (0,0,0,0), 1, 2)
+    sample = LeaderSample((0.0,) * 7, (0,) * 7, 1, 100.0, 100.0, (0, 0, 0, 0), 1, 2)
+
     class Source:
         pins = {'left': 'L'}
-        def poll(self): return {'left': sample}
-    local, remote = [10.], [100.005]
+
+        def poll(self):
+            return {'left': sample}
+
+    local, remote = [10.0], [100.005]
+
     def exchange(request):
         return sample_reply(request, Source(), 'boot', clock=lambda: remote[0])
-    client = LeaderSnapshotClient(exchange, {'leaders': {'left': {'usb_serial':'L'}}},
-                                  clock=lambda: local[0], allow_repeated=True)
+
+    client = LeaderSnapshotClient(
+        exchange, {'leaders': {'left': {'usb_serial': 'L'}}}, clock=lambda: local[0], allow_repeated=True
+    )
     original = client.poll()['left']
-    local[0] += .01
-    remote[0] += .01
+    local[0] += 0.01
+    remote[0] += 0.01
     assert client.poll()['left'] == original
-    local[0] += .06
-    remote[0] += .06
-    with pytest.raises(LeaderSampleSkipped): client.poll()
+    local[0] += 0.06
+    remote[0] += 0.06
+    with pytest.raises(LeaderSampleSkipped):
+        client.poll()
     assert client.fault is None
 
 
 def test_trace_does_not_confuse_acknowledgement_with_application():
-    record = dict(operation='move', accepted=True, cycle_ms=2., rpc_ms=1., rpc_count=1,
-                  source_sequence=[10], source_age_ms=5., receiver_accepted_ms=100, request_sequence=8,
-                  receiver_applied=dict(sequence=7, accepted_at_ms=90, applied_at_ms=93))
+    record = dict(
+        operation='move',
+        accepted=True,
+        cycle_ms=2.0,
+        rpc_ms=1.0,
+        rpc_count=1,
+        source_sequence=[10],
+        source_age_ms=5.0,
+        receiver_accepted_ms=100,
+        request_sequence=8,
+        receiver_applied=dict(sequence=7, accepted_at_ms=90, applied_at_ms=93),
+    )
     previous = dict(record, receiver_accepted_ms=90, request_sequence=7, receiver_applied=None)
-    report = summarize([previous, record], .01)
-    assert report['receiver_apply_ms']['p99'] == 3.
+    report = summarize([previous, record], 0.01)
+    assert report['receiver_apply_ms']['p99'] == 3.0
     assert report['processing_deadline_misses'] == 0
     assert report['maximum_rpc_count'] == 1 and report['unique_source_samples'] == 1
 
@@ -201,53 +254,71 @@ def test_live_timing_includes_previous_trace_write_and_ui_and_counts_late_comple
     from robot_platform.helm.teleop import TeleopCore, run_loop
     from tests.unit.test_helm_teleop import FakeCore
 
-    now, ticks = [10.], [0]
+    now, ticks = [10.0], [0]
+
     class SlowTrace(io.StringIO):
         def write(self, value):
-            now[0] += .003
+            now[0] += 0.003
             return super().write(value)
+
     trace = SlowTrace()
+
     class Core(FakeCore):
         collision_mode = 'disabled'
         _record = TeleopCore._record
         _flush_latency = TeleopCore._flush_latency
         finish_cycle = TeleopCore.finish_cycle
         clock = staticmethod(lambda: now[0])
+
         def __init__(self):
             super().__init__()
             self._latency, self._pending_latency, self._recorded = trace, None, 0
             self._input_timing, self.cycles, self._loop_timings = {}, [], []
             self._loop_max_ms = self._loop_misses = self._loop_skipped = 0
             self.slowest_ms = self.overruns = 0
+
         def tick(self, key, started):
             self._flush_latency()
-            now[0] += .002
+            now[0] += 0.002
             ticks[0] += 1
             self._record(dict(started_at=started, completed_at=now[0], accepted=True))
+
         def view(self):
-            now[0] += .003
+            now[0] += 0.003
             return super().view()
+
         def guide(self):
-            now[0] += .001
+            now[0] += 0.001
             return None
+
         def close(self):
             self._flush_latency()
             super().close()
+
     class Pipe:
-        def poll(self): return ticks[0] >= 2
-        def recv(self): return ('stop',)
-        def send(self, value): pass
-        def close(self): pass
+        def poll(self):
+            return ticks[0] >= 2
+
+        def recv(self):
+            return ('stop',)
+
+        def send(self, value):
+            pass
+
+        def close(self):
+            pass
+
     def late_wakeup(duration):
-        now[0] += duration + .004
+        now[0] += duration + 0.004
+
     monkeypatch.setattr('robot_platform.helm.teleop.time.sleep', late_wakeup)
     core = Core()
     run_loop(Pipe(), Pipe(), core)
     records = [json.loads(line) for line in trace.getvalue().splitlines()]
     assert core.fault is None and len(records) == 2
-    assert records[0]['full_loop_ms'] == pytest.approx(6.)
-    assert records[1]['full_loop_ms'] == pytest.approx(9.)
-    assert records[1]['start_lateness_ms'] == pytest.approx(4.)
+    assert records[0]['full_loop_ms'] == pytest.approx(6.0)
+    assert records[1]['full_loop_ms'] == pytest.approx(9.0)
+    assert records[1]['start_lateness_ms'] == pytest.approx(4.0)
     assert records[1]['scheduled_deadline_miss'] is True
     assert records[1]['skipped_slots'] == 1
 
@@ -261,19 +332,27 @@ def test_cycle_history_keeps_only_recent_timing_and_never_trims_in_batches():
     from robot_platform.helm.teleop import CYCLE_HISTORY, TeleopCore
 
     class Core:
-        collision_mode, period_s = 'enforced', .01
+        collision_mode, period_s = 'enforced', 0.01
         _record, _recent_cycle_s = TeleopCore._record, TeleopCore._recent_cycle_s
 
     core = Core()
-    core.cycles, core.slowest_ms, core.overruns = deque(maxlen=CYCLE_HISTORY), 0., 0
+    core.cycles, core.slowest_ms, core.overruns = deque(maxlen=CYCLE_HISTORY), 0.0, 0
     for i in range(1000):
-        core._record(dict(started_at=i * .01, completed_at=i * .01 + .004 + i * 1e-6, accepted=True, action='move',
-                          desired=[0.] * 7, limits={'left_arm_j1': []}))
+        core._record(
+            dict(
+                started_at=i * 0.01,
+                completed_at=i * 0.01 + 0.004 + i * 1e-6,
+                accepted=True,
+                action='move',
+                desired=[0.0] * 7,
+                limits={'left_arm_j1': []},
+            )
+        )
     assert len(core.cycles) == CYCLE_HISTORY
     assert set(core.cycles[-1]) == {'started_at', 'completed_at'}
     assert core.cycles[-1]['started_at'] == pytest.approx(9.99)
-    recent = sorted(.004 + i * 1e-6 for i in range(975, 1000))
-    assert core._recent_cycle_s() == pytest.approx(recent[int(.9 * 24)])
+    recent = sorted(0.004 + i * 1e-6 for i in range(975, 1000))
+    assert core._recent_cycle_s() == pytest.approx(recent[int(0.9 * 24)])
 
 
 def test_the_3d_views_pose_goes_between_full_views_too_slow_for_the_cycle(monkeypatch):
@@ -284,30 +363,30 @@ def test_the_3d_views_pose_goes_between_full_views_too_slow_for_the_cycle(monkey
     from robot_platform.helm.teleop import POSE_INTERVAL_S, run_loop
     from tests.unit.test_helm_teleop import FakeCore
 
-    now, cycles, poses, late = [10.], [0], [], []
+    now, cycles, poses, late = [10.0], [0], [], []
 
     class Core(FakeCore):
         collision_mode = 'disabled'
         clock = staticmethod(lambda: now[0])
 
         def tick(self, key, started):
-            now[0] += .0056  # That session's median tick.
+            now[0] += 0.0056  # That session's median tick.
             cycles[0] += 1
 
         def finish_cycle(self, started, scheduled, completed, skipped):
             late.append((completed > scheduled + self.period_s, len(poses)))
 
         def view(self):
-            now[0] += .006  # More than any cycle has left: after the first, none fits.
+            now[0] += 0.006  # More than any cycle has left: after the first, none fits.
             return super().view()
 
         def status_view(self):
             return {'phase': self.phase}
 
         def pose_view(self):
-            now[0] += .0001
+            now[0] += 0.0001
             poses.append(now[0])
-            return {'positions': {'right_arm_j1': cycles[0] / 100}}, {'neck_z': .1}
+            return {'positions': {'right_arm_j1': cycles[0] / 100}}, {'neck_z': 0.1}
 
     class Commands:
         def poll(self):
@@ -323,9 +402,9 @@ def test_the_3d_views_pose_goes_between_full_views_too_slow_for_the_cycle(monkey
     monkeypatch.setattr('robot_platform.helm.teleop.time.sleep', lambda s: now.__setitem__(0, now[0] + s))
     run_loop(Commands(), SimpleNamespace(send=sent.append, close=lambda: None), Core())
     assert 24 <= len(poses) <= 31  # Three seconds of cycles: about ten a second (the next cycle after 0.1 s).
-    assert min(b - a for a, b in zip(poses, poses[1:])) >= POSE_INTERVAL_S - .01
+    assert min(b - a for a, b in zip(poses, poses[1:])) >= POSE_INTERVAL_S - 0.01
     # Only the one full view that fitted at first ran late; no cycle that sent a pose did.
     sent_pose = [is_late for (is_late, count), (_, before) in zip(late[1:], late) if count > before]
     assert sent_pose and not any(sent_pose)
     assert sum(is_late for is_late, _ in late) <= 1
-    assert any(message[0] == 'guide' and message[2] == {'neck_z': .1} for message in sent)
+    assert any(message[0] == 'guide' and message[2] == {'neck_z': 0.1} for message in sent)

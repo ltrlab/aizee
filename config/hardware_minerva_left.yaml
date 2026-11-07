@@ -34,7 +34,7 @@ motors:
     id: left_arm_j1
     can_id: 0x04
     can_bus: arm
-    type: ROBSTRIDE03      # ASSUMED — confirm the id-4 shoulder model
+    type: ROBSTRIDE03 # ASSUMED — confirm the id-4 shoulder model
     min_position: -3.5
     max_position: 3.5
     max_velocity: 10.0
@@ -42,7 +42,7 @@ motors:
 
   # j2..j6 + gripper (ids 5..10) = arm-group indices 1..6, in order.
   arm:
-    - id: left_arm_j2      # id 5  (AIZEE gantry_base)
+    - id: left_arm_j2 # id 5  (AIZEE gantry_base)
       can_id: 0x05
       can_bus: arm
       type: ROBSTRIDE04
@@ -50,7 +50,7 @@ motors:
       max_position: 2.5
       max_velocity: 10.0
       max_torque: 60.0
-    - id: left_arm_j3      # id 6  (AIZEE gantry_mid)
+    - id: left_arm_j3 # id 6  (AIZEE gantry_mid)
       can_id: 0x06
       can_bus: arm
       type: ROBSTRIDE03
@@ -58,7 +58,7 @@ motors:
       max_position: 3.2
       max_velocity: 5.0
       max_torque: 40.0
-    - id: left_arm_j4      # id 7  (AIZEE gantry_end)
+    - id: left_arm_j4 # id 7  (AIZEE gantry_end)
       can_id: 0x07
       can_bus: arm
       type: ROBSTRIDE02
@@ -66,7 +66,7 @@ motors:
       max_position: 4.5
       max_velocity: 10.0
       max_torque: 12.0
-    - id: left_arm_j5      # id 8  (AIZEE wrist_pitch)
+    - id: left_arm_j5 # id 8  (AIZEE wrist_pitch)
       can_id: 0x08
       can_bus: arm
       type: ROBSTRIDE02
@@ -74,7 +74,7 @@ motors:
       max_position: 3.5
       max_velocity: 10.0
       max_torque: 12.0
-    - id: left_arm_j6      # id 9  (AIZEE wrist_roll)
+    - id: left_arm_j6 # id 9  (AIZEE wrist_roll)
       can_id: 0x09
       can_bus: arm
       type: ROBSTRIDE00
@@ -82,7 +82,7 @@ motors:
       max_position: 3.2
       max_velocity: 30.0
       max_torque: 1.5
-    - id: left_gripper     # id 10 (AIZEE gripper)
+    - id: left_gripper # id 10 (AIZEE gripper)
       can_id: 0x0A
       can_bus: arm
       type: ROBSTRIDE00
@@ -92,10 +92,10 @@ motors:
       max_torque: 1.5
 
 control:
-  arm_frequency: 400.0     # Hz — 7 motors on one bus
-  base_frequency: 100.0    # unused (no wheels) but required by the schema
-  telemetry_rate: 50.0     # Hz — published motor states
-  watchdog_timeout: 0.5    # s  — hold position if no command for 500 ms
+  arm_frequency: 400.0 # Hz — 7 motors on one bus
+  base_frequency: 100.0 # unused (no wheels) but required by the schema
+  telemetry_rate: 50.0 # Hz — published motor states
+  watchdog_timeout: 0.5 # s  — hold position if no command for 500 ms
 
 can:
   # Logical bus "arm" -> kernel CAN interface. Udev pins names to verified USB
@@ -109,5 +109,5 @@ network:
     ip: 192.168.0.27
     hostname: aizee-jetson
     zmq:
-      command_sub: "tcp://*:5555"      # PULL — receives commands
-      telemetry_pub: "tcp://*:5556"    # PUB  — publishes motor states
+      command_sub: 'tcp://*:5555' # PULL — receives commands
+      telemetry_pub: 'tcp://*:5556' # PUB  — publishes motor states

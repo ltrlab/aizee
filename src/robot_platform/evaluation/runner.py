@@ -25,6 +25,7 @@ reports success, a drop, a forbidden penetration or the cube settled out of sequ
 timeout. Commands outside the receiver's joint limits are clipped (and counted), as the leader
 mapping clips its targets.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -42,15 +43,15 @@ from . import report as reports, trials as trial_records
 from .grid import GridSpec, cube_poses
 from .plants import PlantFault, derive_stack, open_plant
 
-MAX_SCENE_STEP_S = .1  # MinervaTaskScene.update's largest dt.
+MAX_SCENE_STEP_S = 0.1  # MinervaTaskScene.update's largest dt.
 GRIPPERS = ('kinematic', 'driven')
 
 
 @dataclass
 class RunConfig:
     plant: str = 'armplant'
-    timeout_s: float = 30.
-    staging_timeout_s: float = 30.
+    timeout_s: float = 30.0
+    staging_timeout_s: float = 30.0
     grid: GridSpec = field(default_factory=GridSpec)
     trials: tuple | None = None  # Indices into the grid's poses; None runs them all.
     plant_seed: int = 1
@@ -62,8 +63,10 @@ class RunConfig:
     # their drives, stall on the cube, and the receiver reads that back (MinervaTaskScene.step_driven).
     grippers: str = 'kinematic'
     # Disturbances, each drawn per trial from disturbance_seed and the trial's index:
-    latency_s: float = 0.  # A chunk takes effect this long after its observation; one inference at a time.
-    actuator_spread: float = 0.  # Each armplant joint's inertia, friction and damping x U[1-s, 1+s], unknown to the receiver.
+    latency_s: float = 0.0  # A chunk takes effect this long after its observation; one inference at a time.
+    actuator_spread: float = (
+        0.0  # Each armplant joint's inertia, friction and damping x U[1-s, 1+s], unknown to the receiver.
+    )
     appearance: dict | None = None  # MinervaTaskScene.randomize_appearance bounds: lights, colours, camera places.
     disturbance_seed: int = 0
 
@@ -78,13 +81,23 @@ class RunConfig:
             raise ValueError('actuator_spread is in [0, 1) and needs the armplant plant')
 
     def describe(self):
-        return {'plant': self.plant, 'timeout_s': self.timeout_s, 'staging_timeout_s': self.staging_timeout_s,
-                'grid': self.grid.describe(), 'trials': None if self.trials is None else list(self.trials),
-                'plant_seed': self.plant_seed, 'scene_pose': self.scene_pose,
-                'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode,
-                'workcell': resolve_workcell(self.workcell).name, 'grippers': self.grippers,
-                'latency_s': self.latency_s, 'actuator_spread': self.actuator_spread,
-                'appearance': self.appearance, 'disturbance_seed': self.disturbance_seed}
+        return {
+            'plant': self.plant,
+            'timeout_s': self.timeout_s,
+            'staging_timeout_s': self.staging_timeout_s,
+            'grid': self.grid.describe(),
+            'trials': None if self.trials is None else list(self.trials),
+            'plant_seed': self.plant_seed,
+            'scene_pose': self.scene_pose,
+            'camera_size': list(self.camera_size),
+            'visual_mode': self.visual_mode,
+            'workcell': resolve_workcell(self.workcell).name,
+            'grippers': self.grippers,
+            'latency_s': self.latency_s,
+            'actuator_spread': self.actuator_spread,
+            'appearance': self.appearance,
+            'disturbance_seed': self.disturbance_seed,
+        }
 
 
 @dataclass
@@ -121,7 +134,7 @@ def _chunk(raw, joints):
 
 def _command(chunk, tau, action_dt):
     """Row k is meant for k * action_dt after the chunk's observation: linear between rows, the last held."""
-    f = max(0., tau / action_dt)
+    f = max(0.0, tau / action_dt)
     k = int(math.floor(f + 1e-9))
     if k >= len(chunk) - 1:
         return chunk[-1].copy()
@@ -130,17 +143,19 @@ def _command(chunk, tau, action_dt):
 
 
 def _quat_yaw(yaw):
-    return np.array([math.cos(yaw / 2), 0., 0., math.sin(yaw / 2)])
+    return np.array([math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)])
 
 
 def git_identity(root=None):
     root = Path(root or Path(__file__).resolve().parents[3])
     try:
-        commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, capture_output=True, text=True,
-                                timeout=10).stdout.strip()
+        commit = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], cwd=root, capture_output=True, text=True, timeout=10
+        ).stdout.strip()
         # Untracked source counts: an uncommitted policy or harness file is not reproducible from the commit.
-        changed = subprocess.run(['git', 'status', '--porcelain'], cwd=root, capture_output=True, text=True,
-                                 timeout=10).stdout.splitlines()
+        changed = subprocess.run(
+            ['git', 'status', '--porcelain'], cwd=root, capture_output=True, text=True, timeout=10
+        ).stdout.splitlines()
         return {'commit': commit or None, 'uncommitted_paths': len(changed)}
     except (OSError, subprocess.SubprocessError):
         return {'commit': None, 'uncommitted_paths': None}
@@ -163,9 +178,11 @@ class TrialRunner:
         if self.plant is None:
             options = {}
             if self.config.plant == 'armplant':
-                options = dict(seed=self.config.plant_seed + self._plant_builds, scene_pose=self.config.scene_pose,
-                               directory=None if self.directory is None else
-                               self.directory / f'receiver-{self._plant_builds}')
+                options = dict(
+                    seed=self.config.plant_seed + self._plant_builds,
+                    scene_pose=self.config.scene_pose,
+                    directory=None if self.directory is None else self.directory / f'receiver-{self._plant_builds}',
+                )
             self.plant = open_plant(self.config.plant, self.stack, **options)
             self._plant_builds += 1
             self._description = self.plant.describe()
@@ -182,9 +199,15 @@ class TrialRunner:
         if self.scene is None:
             width, height = self.config.camera_size
             drives = self._open_plant().gripper_drives() if self.config.grippers == 'driven' else None
-            self.scene = MinervaTaskScene(self.stack['derived']['joint_map'], self.stack['names'], width=width,
-                                          height=height, visual_mode=self.config.visual_mode,
-                                          workcell=self.config.workcell, grippers=drives)
+            self.scene = MinervaTaskScene(
+                self.stack['derived']['joint_map'],
+                self.stack['names'],
+                width=width,
+                height=height,
+                visual_mode=self.config.visual_mode,
+                workcell=self.config.workcell,
+                grippers=drives,
+            )
         return self.scene
 
     def close(self):
@@ -206,10 +229,19 @@ class TrialRunner:
         """None if `policy` plans a trial from `pose` on `workcell` (its reset, with the context run_trial gives it),
         else why not. Nothing moves and no scene is built."""
         plant = self._open_plant()
-        context = TrialContext(index=int(pose.get('index', 0)), cube_start=dict(pose), joint_names=tuple(plant.names),
-                               joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
-                               home=plant.home.copy(), period_s=plant.period_s, plant=self.config.plant,
-                               workcell=resolve_workcell(workcell), lead=plant.lead.copy())
+        context = TrialContext(
+            index=int(pose.get('index', 0)),
+            cube_start=dict(pose),
+            joint_names=tuple(plant.names),
+            joint_map=plant.joint_map,
+            lower=plant.lower.copy(),
+            upper=plant.upper.copy(),
+            home=plant.home.copy(),
+            period_s=plant.period_s,
+            plant=self.config.plant,
+            workcell=resolve_workcell(workcell),
+            lead=plant.lead.copy(),
+        )
         if not hasattr(policy, 'reset'):
             return None
         try:
@@ -233,9 +265,9 @@ class TrialRunner:
         scene, mj = self.scene, self.scene.mj
         address = scene.cube_qadr
         workcell = scene.workcell
-        scene.data.qpos[address:address + 3] = (pose['x'], pose['y'], workcell.table_top + workcell.cube_half + .002)
-        scene.data.qpos[address + 3:address + 7] = _quat_yaw(pose['yaw'])
-        scene.data.qvel[:] = 0.
+        scene.data.qpos[address : address + 3] = (pose['x'], pose['y'], workcell.table_top + workcell.cube_half + 0.002)
+        scene.data.qpos[address + 3 : address + 7] = _quat_yaw(pose['yaw'])
+        scene.data.qvel[:] = 0.0
         mj.mj_forward(scene.model, scene.data)
         for i in range(scene.data.ncon):
             contact = scene.data.contact[i]
@@ -256,12 +288,27 @@ class TrialRunner:
     def _run_trial(self, policy, pose, index, recorder):
         config, name = self.config, policy_name(policy)
         plant, scene = self._open_plant(), self._open_scene()
-        context = TrialContext(index=index, cube_start=dict(pose), joint_names=tuple(plant.names),
-                               joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
-                               home=plant.home.copy(), period_s=plant.period_s, plant=config.plant,
-                               workcell=scene.workcell, lead=plant.lead.copy())
-        record = {'schema': trial_records.SCHEMA, 'trial': index, 'source': 'simulation', 'policy': name,
-                  'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw', 'cell')}, 'seed': config.grid.seed}
+        context = TrialContext(
+            index=index,
+            cube_start=dict(pose),
+            joint_names=tuple(plant.names),
+            joint_map=plant.joint_map,
+            lower=plant.lower.copy(),
+            upper=plant.upper.copy(),
+            home=plant.home.copy(),
+            period_s=plant.period_s,
+            plant=config.plant,
+            workcell=scene.workcell,
+            lead=plant.lead.copy(),
+        )
+        record = {
+            'schema': trial_records.SCHEMA,
+            'trial': index,
+            'source': 'simulation',
+            'policy': name,
+            'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw', 'cell')},
+            'seed': config.grid.seed,
+        }
         aborted = timed_out = False
         state, staged, ready = None, None, False
         clipped = calls = 0
@@ -281,11 +328,11 @@ class TrialRunner:
                 raise _PolicyError(exc) from exc
             staged = plant.stage(start, config.staging_timeout_s)
             if not staged['ok']:
-                return self._excluded(record, f"staging: {staged.get('detail')}", staged)
+                return self._excluded(record, f'staging: {staged.get("detail")}', staged)
             # The object scene skips staging: jump its robot to the staged pose, then reset there. Reset
             # restores the cube and discards anything that jump did.
             try:
-                self._advance_scene(plant.scene_pose(), .05)
+                self._advance_scene(plant.scene_pose(), 0.05)
             except RuntimeError:
                 pass
             scene.reset(seed=config.grid.seed * 1000 + index)
@@ -304,10 +351,10 @@ class TrialRunner:
             action_dt = float(getattr(policy, 'action_dt', None) or plant.period_s)
             execute = getattr(policy, 'execute_steps', None)
             roles = tuple(getattr(policy, 'camera_roles', None) or ())
-            chunk, chunk_t, horizon = None, 0., 0
+            chunk, chunk_t, horizon = None, 0.0, 0
             pending = None  # One inference in flight: (chunk, observed at, takes effect at).
             held = np.asarray(plant.observation()['qcmd'], dtype=float)  # Until the first chunk takes effect.
-            t = 0.
+            t = 0.0
             while True:
                 if pending is None and (chunk is None or t - chunk_t >= horizon * action_dt - 1e-9):
                     observation = dict(plant.observation(), t=t, joint_names=plant.names)
@@ -356,18 +403,28 @@ class TrialRunner:
                 self._restore_actuators(self.plant)
             scene.restore_appearance()
         # Events belong to this trial only once its reset happened.
-        state = scene.snapshot() if ready else {'events': [], 'scene_time': 0., 'run_id': None}
-        stages, outcome, eligible, detail = trial_records.outcome_from_events(state['events'], timed_out=timed_out,
-                                                                              aborted=aborted)
+        state = scene.snapshot() if ready else {'events': [], 'scene_time': 0.0, 'run_id': None}
+        stages, outcome, eligible, detail = trial_records.outcome_from_events(
+            state['events'], timed_out=timed_out, aborted=aborted
+        )
         if outcome is None:
             outcome, detail = 'source_gap_or_abort', 'trial ended without a terminal event'
-        record.update(outcome=outcome, eligible=eligible, stages=stages, detail=detail,
-                      duration_s=float(state['scene_time']), events=state['events'], run_id=state['run_id'],
-                      policy_calls=calls, commands_clipped_cycles=clipped,
-                      max_abs_pose_minus_command_rad=dict(zip(plant.names, np.round(tracking, 5).tolist())),
-                      staging=None if staged is None else {'duration_s': staged['duration_s'],
-                                                          'max_abs_error_rad': float(np.max(np.abs(staged['error'])))},
-                      wall_s=time.perf_counter() - started)
+        record.update(
+            outcome=outcome,
+            eligible=eligible,
+            stages=stages,
+            detail=detail,
+            duration_s=float(state['scene_time']),
+            events=state['events'],
+            run_id=state['run_id'],
+            policy_calls=calls,
+            commands_clipped_cycles=clipped,
+            max_abs_pose_minus_command_rad=dict(zip(plant.names, np.round(tracking, 5).tolist())),
+            staging=None
+            if staged is None
+            else {'duration_s': staged['duration_s'], 'max_abs_error_rad': float(np.max(np.abs(staged['error'])))},
+            wall_s=time.perf_counter() - started,
+        )
         return record
 
     def _vary_actuators(self, plant, rng):
@@ -385,22 +442,30 @@ class TrialRunner:
             spec['inertia'] = nominal['inertia'] * f[0]
             spec['friction'] = nominal['friction'] * f[1]
             spec['static'] = nominal.get('static', nominal['friction']) * f[1]
-            spec['viscous'] = nominal.get('viscous', 0.) * f[2]
+            spec['viscous'] = nominal.get('viscous', 0.0) * f[2]
             factors[spec['name']] = f.round(4).tolist()
         return factors
 
     @staticmethod
     def _restore_actuators(plant):
-        for spec, nominal in zip(getattr(getattr(plant, 'plant', None), 'specs', ()), getattr(plant, '_nominal_specs', ())):
+        for spec, nominal in zip(
+            getattr(getattr(plant, 'plant', None), 'specs', ()), getattr(plant, '_nominal_specs', ())
+        ):
             spec.clear()
             spec.update(nominal)
 
     def _excluded(self, record, detail, staged):
-        record.update(outcome='invalid_start', eligible=True, stages=dict.fromkeys(trial_records.STAGES),
-                      detail=detail, duration_s=0.,
-                      events=[], staging=None if staged is None else {
-                          'duration_s': staged['duration_s'],
-                          'max_abs_error_rad': float(np.max(np.abs(staged['error'])))})
+        record.update(
+            outcome='invalid_start',
+            eligible=True,
+            stages=dict.fromkeys(trial_records.STAGES),
+            detail=detail,
+            duration_s=0.0,
+            events=[],
+            staging=None
+            if staged is None
+            else {'duration_s': staged['duration_s'], 'max_abs_error_rad': float(np.max(np.abs(staged['error'])))},
+        )
         return record
 
     # -- a run -------------------------------------------------------------
@@ -411,31 +476,53 @@ class TrialRunner:
         records = []
         for pose in selected:
             record = self.run_trial(policy, pose, pose['index'])
-            self.progress(f"trial {record['trial']}: {record['outcome']}"
-                          + (f" ({record['detail']})" if record.get('detail') else ''))
+            self.progress(
+                f'trial {record["trial"]}: {record["outcome"]}'
+                + (f' ({record["detail"]})' if record.get('detail') else '')
+            )
             records.append(record)
         return records
 
     def meta(self, policy):
         capabilities = self._open_scene().capabilities
         description = self._description if self._description is not None else self._open_plant().describe()
-        return {'policy': policy_name(policy),
-                'protocol': dict(self.config.describe(), cube_poses=cube_poses(self.config.grid),
-                                 max_source_gap_s=MAX_SOURCE_GAP_S,
-                                 stop_conditions='success, dropped cube, forbidden penetration, bucket out of '
-                                                 'sequence, timeout, abort'),
-                'provenance': dict(description, plant_builds=self._plant_builds, git=git_identity(),
-                                   policy=getattr(policy, 'describe', lambda: {})(),
-                                   scene={key: capabilities[key] for key in
-                                          ('scene_sha256', 'contact_geometry_sha256', 'mujoco_version',
-                                           'visual_mode', 'task_parameters', 'workcell', 'workcell_placeholders',
-                                           'contact_parameters_measured', 'limitations')})}
+        return {
+            'policy': policy_name(policy),
+            'protocol': dict(
+                self.config.describe(),
+                cube_poses=cube_poses(self.config.grid),
+                max_source_gap_s=MAX_SOURCE_GAP_S,
+                stop_conditions='success, dropped cube, forbidden penetration, bucket out of sequence, timeout, abort',
+            ),
+            'provenance': dict(
+                description,
+                plant_builds=self._plant_builds,
+                git=git_identity(),
+                policy=getattr(policy, 'describe', lambda: {})(),
+                scene={
+                    key: capabilities[key]
+                    for key in (
+                        'scene_sha256',
+                        'contact_geometry_sha256',
+                        'mujoco_version',
+                        'visual_mode',
+                        'task_parameters',
+                        'workcell',
+                        'workcell_placeholders',
+                        'contact_parameters_measured',
+                        'limitations',
+                    )
+                },
+            ),
+        }
 
 
 def evaluate(policy, config=None, out=None, *, stack=None, progress=None):
     """Run every configured trial and write trials.jsonl, report.json and report.md under `out`."""
     out = Path(out) if out else None
-    runner = TrialRunner(config or RunConfig(), stack=stack, directory=None if out is None else out / 'receiver', progress=progress)
+    runner = TrialRunner(
+        config or RunConfig(), stack=stack, directory=None if out is None else out / 'receiver', progress=progress
+    )
     try:
         records = runner.run(policy)
         meta = runner.meta(policy)

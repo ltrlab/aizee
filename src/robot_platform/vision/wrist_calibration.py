@@ -26,20 +26,32 @@ The report adds each camera's error per still and over the image, the parameters
 cross-validated error (each fold's stills predicted from a fit of the other stills, intrinsics, tags and joints held),
 and each camera's own fit of the board's placement: their difference tells how well the two arms' kinematics agree.
 """
+
 from dataclasses import dataclass, field
 import math
 
 import numpy as np
 from scipy.optimize import least_squares
 
-from .geometry import (chordal_mean, homography, invert, invert_each, matrix_rpy, normalize, plane_pose, pose_matrix,
-                       pose_vector, rotations, rotvec)
+from .geometry import (
+    chordal_mean,
+    homography,
+    invert,
+    invert_each,
+    matrix_rpy,
+    normalize,
+    plane_pose,
+    pose_matrix,
+    pose_vector,
+    rotations,
+    rotvec,
+)
 
 INTRINSICS = ('fx', 'fy', 'cx', 'cy', 'k1', 'k2', 'p1', 'p2', 'k3')
 MIN_STILLS = 5
-FIELD_OF_VIEW_STARTS_DEG = (60., 80., 100., 120.)
+FIELD_OF_VIEW_STARTS_DEG = (60.0, 80.0, 100.0, 120.0)
 # A planar fit this good has found the camera; further starting focal lengths only cost time.
-ACCEPT_PLANAR_PX = 2.
+ACCEPT_PLANAR_PX = 2.0
 
 
 @dataclass
@@ -64,6 +76,7 @@ class CalibrationError(ValueError):
 
 
 # ----------------------------------------------------------------------------------------------------- shared helpers
+
 
 def _project_each(cameras, points):
     """Pixels of camera-frame points (P, 3), each with its own nine camera numbers (P, 9)."""
@@ -118,7 +131,7 @@ def _grouped_jacobian(fun, x, rows_of, groups):
     """Forward-difference Jacobian, perturbing each group of columns (with disjoint rows) at once."""
     f0 = fun(x)
     jac = np.zeros((len(f0), len(x)))
-    step = np.sqrt(np.finfo(float).eps) * np.maximum(1., np.abs(x))
+    step = np.sqrt(np.finfo(float).eps) * np.maximum(1.0, np.abs(x))
     for group in groups:
         dx = np.zeros_like(x)
         dx[group] = step[group]
@@ -163,21 +176,28 @@ class _Fit:
     message: str
 
 
-def _solve(fun, x0, rows_of, *, f_scale=1., max_nfev=400):
+def _solve(fun, x0, rows_of, *, f_scale=1.0, max_nfev=400):
     """Levenberg-Marquardt (MINPACK, with its own QR) on soft-L1 residuals and the grouped Jacobian."""
     robust = lambda x: _soft_l1(fun(x), f_scale)  # noqa: E731
     groups = _groups(rows_of, len(fun(x0)))
-    result = least_squares(robust, x0, jac=lambda x: _grouped_jacobian(robust, x, rows_of, groups), method='lm',
-                           x_scale='jac', max_nfev=max_nfev)
+    result = least_squares(
+        robust,
+        x0,
+        jac=lambda x: _grouped_jacobian(robust, x, rows_of, groups),
+        method='lm',
+        x_scale='jac',
+        max_nfev=max_nfev,
+    )
     return _Fit(result.x, fun(result.x), float(result.cost), int(result.nfev), int(result.status), str(result.message))
 
 
 def _rms(values):
     values = np.asarray(values, float).reshape(-1, 2)
-    return float(np.sqrt((values ** 2).sum(axis=1).mean())) if len(values) else None
+    return float(np.sqrt((values**2).sum(axis=1).mean())) if len(values) else None
 
 
 # ----------------------------------------------------------------------------------------------------- stage 1: planar
+
 
 def _plane_points(still, board):
     plane, pixels = [], []
@@ -203,11 +223,13 @@ def _focal_from_homographies(stills, board, size):
         h = h / np.linalg.norm(h[:, 0])
         (a1, b1, c1), (a2, b2, c2) = h[:, 0], h[:, 1]
         # Each constraint reads (1/f^2) * denominator = numerator.
-        for numerator, denominator in ((-c1 * c2, a1 * a2 + b1 * b2), (c2 * c2 - c1 * c1, a1 * a1 + b1 * b1
-                                                                         - a2 * a2 - b2 * b2)):
+        for numerator, denominator in (
+            (-c1 * c2, a1 * a2 + b1 * b2),
+            (c2 * c2 - c1 * c1, a1 * a1 + b1 * b1 - a2 * a2 - b2 * b2),
+        ):
             if abs(numerator) > 1e-12 and denominator / numerator > 0:
                 f = math.sqrt(denominator / numerator)
-                if .2 * size[0] < f < 5 * size[0]:
+                if 0.2 * size[0] < f < 5 * size[0]:
                     estimates.append(f)
     return float(np.median(estimates)) if estimates else None
 
@@ -224,8 +246,11 @@ def _planar(board, stills, size, f0, fit_k3, loss_px, held=None):
     obs = _Observations(stills, [stills[0].camera], tags)
     n_still, n_tag = len(stills), len(tags)
     n_intr = 0 if held is not None else 9 if fit_k3 else 8
-    camera0 = (np.array(held, float) if held is not None else
-               np.array([f0, f0, (size[0] - 1) / 2, (size[1] - 1) / 2, 0., 0., 0., 0., 0.]))
+    camera0 = (
+        np.array(held, float)
+        if held is not None
+        else np.array([f0, f0, (size[0] - 1) / 2, (size[1] - 1) / 2, 0.0, 0.0, 0.0, 0.0, 0.0])
+    )
     poses = np.array([pose_vector(_initial_pose(s, board, camera0)) for s in stills])
     x0 = np.concatenate([camera0[:n_intr], poses.ravel(), np.zeros(3 * n_tag)])
     sigmas = np.array([board.sigma_m, board.sigma_m, board.sigma_yaw])
@@ -233,8 +258,8 @@ def _planar(board, stills, size, f0, fit_k3, loss_px, held=None):
     def unpack(x):
         camera = camera0.copy()
         camera[:n_intr] = x[:n_intr]
-        pose = x[n_intr:n_intr + 6 * n_still].reshape(n_still, 6)
-        offsets = x[n_intr + 6 * n_still:].reshape(n_tag, 3)
+        pose = x[n_intr : n_intr + 6 * n_still].reshape(n_still, 6)
+        offsets = x[n_intr + 6 * n_still :].reshape(n_tag, 3)
         return camera, pose, offsets
 
     def residuals(x):
@@ -254,11 +279,17 @@ def _planar(board, stills, size, f0, fit_k3, loss_px, held=None):
         rows_of.extend(np.r_[rows, 2 * obs.count + 3 * t + k] for k in range(3))
     fit = _solve(residuals, x0, rows_of, f_scale=loss_px)
     camera, pose, offsets = unpack(fit.x)
-    return dict(camera=camera, poses=[pose_matrix(p) for p in pose], offsets=offsets, cost=fit.cost,
-                residuals=fit.fun[:2 * obs.count])
+    return dict(
+        camera=camera,
+        poses=[pose_matrix(p) for p in pose],
+        offsets=offsets,
+        cost=fit.cost,
+        residuals=fit.fun[: 2 * obs.count],
+    )
 
 
 # --------------------------------------------------------------------------------------------- stage 2: closed form
+
 
 def robot_world_hand_eye(links, views):
     """X = T_link_camera and Y = T_base_board from F_i X C_i = Y, with F_i = T_base_link and C_i = T_camera_board
@@ -286,6 +317,7 @@ def robot_world_hand_eye(links, views):
 
 # --------------------------------------------------------------------------------------------- stage 3: joint fit
 
+
 @dataclass
 class _State:
     intrinsics: dict  # camera -> nine numbers
@@ -312,8 +344,9 @@ class _Model:
         self.camera_of = np.array([self.cameras.index(s.camera) for s in stills], int)
         self.chains = {name: specs[name].chain for name in self.cameras}
         self.index = {name: np.flatnonzero(self.camera_of == c) for c, name in enumerate(self.cameras)}
-        self.positions = {name: self.chains[name].positions([stills[i].joints for i in self.index[name]])
-                          for name in self.cameras}
+        self.positions = {
+            name: self.chains[name].positions([stills[i].joints for i in self.index[name]]) for name in self.cameras
+        }
         self.slots = {name: [self.chains[name].joints.index(j) for j in self.joints[name]] for name in self.cameras}
         self.fixed_inverse = None
 
@@ -328,7 +361,7 @@ class _Model:
     def pack(self, state):
         parts = []
         for name in self.cameras:
-            parts += [state.intrinsics[name][:self.n_intr], pose_vector(state.mounts[name])]
+            parts += [state.intrinsics[name][: self.n_intr], pose_vector(state.mounts[name])]
             if self.free_joints:
                 parts.append(np.asarray(state.joints.get(name, np.zeros(len(self.joints[name]))), float))
         parts.append(pose_vector(state.placement))
@@ -340,19 +373,19 @@ class _Model:
         i, intrinsics, mounts, joints = 0, {}, {}, {}
         for name in self.cameras:
             camera = np.array(held.intrinsics[name], float)
-            camera[:self.n_intr] = x[i:i + self.n_intr]
+            camera[: self.n_intr] = x[i : i + self.n_intr]
             intrinsics[name] = camera
             i += self.n_intr
-            mounts[name] = pose_matrix(x[i:i + 6])
+            mounts[name] = pose_matrix(x[i : i + 6])
             i += 6
             if self.free_joints:
-                joints[name] = x[i:i + len(self.joints[name])]
+                joints[name] = x[i : i + len(self.joints[name])]
                 i += len(self.joints[name])
             else:
                 joints[name] = np.asarray(held.joints.get(name, np.zeros(len(self.joints[name]))), float)
-        placement = pose_matrix(x[i:i + 6])
+        placement = pose_matrix(x[i : i + 6])
         i += 6
-        tags = x[i:i + 3 * len(self.tags)].reshape(-1, 3) if self.free_tags else np.asarray(held.tags, float)
+        tags = x[i : i + 3 * len(self.tags)].reshape(-1, 3) if self.free_tags else np.asarray(held.tags, float)
         return _State(intrinsics, mounts, placement, tags, joints)
 
     def predict(self, state):
@@ -380,6 +413,7 @@ class _Model:
             if self.free_joints:
                 parts += [state.joints[name] / self.joint_sigma for name in self.cameras]
             return np.concatenate(parts)
+
         return residuals
 
     def rows_of(self):
@@ -410,6 +444,7 @@ class _Model:
 
 # ----------------------------------------------------------------------------------------------------- the calibration
 
+
 def _check(board, cameras, stills):
     names = [c.name for c in cameras]
     if len(set(names)) != len(names) or not names:
@@ -422,8 +457,10 @@ def _check(board, cameras, stills):
             usable[still.camera].append(still)
     for name, items in usable.items():
         if len(items) < MIN_STILLS:
-            raise CalibrationError(f'{name}: {len(items)} stills see the board; capture at least {MIN_STILLS}, '
-                                   'better 15-25, from varied distances and angles')
+            raise CalibrationError(
+                f'{name}: {len(items)} stills see the board; capture at least {MIN_STILLS}, '
+                'better 15-25, from varied distances and angles'
+            )
     return usable
 
 
@@ -449,7 +486,7 @@ def _fitted_joints(cameras, joint_offsets):
         if unknown:
             raise CalibrationError(f'{c.name}: no joints {unknown} on its chain')
         if c.chain.joints and c.chain.joints[-1] in names:
-            raise CalibrationError(f'{c.name}: the last joint\'s offset is the mount\'s; leave it out')
+            raise CalibrationError(f"{c.name}: the last joint's offset is the mount's; leave it out")
         result[c.name] = names
     return result
 
@@ -464,14 +501,26 @@ def _held_intrinsics(intrinsics, names):
     for name in names:
         camera = np.asarray(intrinsics[name], float)
         if camera.shape != (9,) or not np.isfinite(camera).all() or min(camera[:2]) <= 0:
-            raise CalibrationError(f'{name}: held intrinsics are nine finite numbers (fx, fy, cx, cy, k1, k2, p1, p2, '
-                                   'k3), the focal lengths positive')
+            raise CalibrationError(
+                f'{name}: held intrinsics are nine finite numbers (fx, fy, cx, cy, k1, k2, p1, p2, '
+                'k3), the focal lengths positive'
+            )
         held[name] = camera
     return held
 
 
-def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint_sigma_deg=1., loss_px=1., folds=5,
-              intrinsics=None):
+def calibrate(
+    board,
+    cameras,
+    stills,
+    *,
+    fit_k3=False,
+    joint_offsets=None,
+    joint_sigma_deg=1.0,
+    loss_px=1.0,
+    folds=5,
+    intrinsics=None,
+):
     """Calibrate the cameras (CameraSpec) from stills (Still). `joint_offsets` is None, True (each chain's joints but
     the last) or {camera: joint names}. `intrinsics` ({camera: nine numbers} for every camera, or None) holds each
     camera's intrinsics as given, a camera's own published calibration, instead of fitting them. Returns a JSON-ready
@@ -487,8 +536,11 @@ def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint
     for name in names:
         items = usable[name]
         starts = [] if held_intrinsics else _focal_starts(specs[name], items, board)
-        best = _planar(board, items, specs[name].size, None, fit_k3, loss_px,
-                       held=held_intrinsics[name]) if held_intrinsics else None
+        best = (
+            _planar(board, items, specs[name].size, None, fit_k3, loss_px, held=held_intrinsics[name])
+            if held_intrinsics
+            else None
+        )
         for f0 in starts:  # The likeliest first; stop at the first that fits.
             fit = _planar(board, items, specs[name].size, f0, fit_k3, loss_px)
             if best is None or fit['cost'] < best['cost']:
@@ -500,34 +552,52 @@ def calibrate(board, cameras, stills, *, fit_k3=False, joint_offsets=None, joint
         mount, placement, condition = robot_world_hand_eye(links, best['poses'])
         mounts[name] = mount
         placements.append(placement)
-        planar[name] = dict(rms_px=round(_rms(best['residuals']), 3), focal_starts=[round(f, 1) for f in starts],
-                            rotation_condition=round(condition, 4))
+        planar[name] = dict(
+            rms_px=round(_rms(best['residuals']), 3),
+            focal_starts=[round(f, 1) for f in starts],
+            rotation_condition=round(condition, 4),
+        )
     start = np.eye(4)
     start[:3, :3] = chordal_mean([p[:3, :3] for p in placements])
     start[:3, 3] = np.mean([p[:3, 3] for p in placements], axis=0)
-    held = _State(intrinsics, mounts, start, np.zeros((len(board.tags), 3)),
-                  {name: np.zeros(len(joints.get(name, ()))) for name in names})
+    held = _State(
+        intrinsics,
+        mounts,
+        start,
+        np.zeros((len(board.tags), 3)),
+        {name: np.zeros(len(joints.get(name, ()))) for name in names},
+    )
     free = {'tags'} | (set() if held_intrinsics else {'intrinsics'}) | ({'joints'} if joints else set())
     model = _Model(board, specs, stills, fit_k3=fit_k3, free=free, joints=joints, joint_sigma=joint_sigma)
     fit, state = model.fit(held, loss_px)
     report = _report(model, specs, fit, state, planar)
-    report['options'] = dict(fit_k3=fit_k3, joint_offsets={k: list(v) for k, v in joints.items()},
-                             joint_sigma_deg=joint_sigma_deg, loss_px=loss_px,
-                             intrinsics='held' if held_intrinsics else 'fitted')
-    report['cross_validation'] = _cross_validate(board, specs, stills, state, fit_k3, folds, loss_px, joints,
-                                                 joint_sigma)
-    report['per_camera_placement'] = _per_camera_placement(board, specs, stills, state, fit_k3, loss_px, joints,
-                                                           joint_sigma)
+    report['options'] = dict(
+        fit_k3=fit_k3,
+        joint_offsets={k: list(v) for k, v in joints.items()},
+        joint_sigma_deg=joint_sigma_deg,
+        loss_px=loss_px,
+        intrinsics='held' if held_intrinsics else 'fitted',
+    )
+    report['cross_validation'] = _cross_validate(
+        board, specs, stills, state, fit_k3, folds, loss_px, joints, joint_sigma
+    )
+    report['per_camera_placement'] = _per_camera_placement(
+        board, specs, stills, state, fit_k3, loss_px, joints, joint_sigma
+    )
     return report
 
 
 # ------------------------------------------------------------------------------------------------------- the report
 
+
 def _pose_report(t, sigma=None):
     roll, pitch, yaw = matrix_rpy(t[:3, :3])
-    result = dict(matrix=np.round(t, 7).tolist(), xyz_m=np.round(t[:3, 3], 5).tolist(),
-                  rpy_deg=[round(math.degrees(a), 3) for a in (roll, pitch, yaw)],
-                  rotvec=np.round(rotvec(t[:3, :3]), 6).tolist())
+    result = dict(
+        matrix=np.round(t, 7).tolist(),
+        xyz_m=np.round(t[:3, 3], 5).tolist(),
+        rpy_deg=[round(math.degrees(a), 3) for a in (roll, pitch, yaw)],
+        rotvec=np.round(rotvec(t[:3, :3]), 6).tolist(),
+    )
     if sigma is not None:
         result['sigma_xyz_mm'] = [round(float(v) * 1e3, 2) for v in sigma[3:]]
         result['sigma_rotation_deg'] = round(math.degrees(float(np.linalg.norm(sigma[:3]))), 3)
@@ -540,24 +610,38 @@ def _sigmas(model, fit, held, rms_px):
     rows_of = model.rows_of()
     jac = _grouped_jacobian(residuals, fit.x, rows_of, _groups(rows_of, len(fit.fun)))
     scale = np.ones(len(fit.fun))
-    scale[:2 * model.obs.count] = 1 / max(rms_px / math.sqrt(2), 1e-6)
+    scale[: 2 * model.obs.count] = 1 / max(rms_px / math.sqrt(2), 1e-6)
     weighted = jac * scale[:, None]
-    return np.sqrt(np.maximum(np.diag(np.linalg.pinv(weighted.T @ weighted)), 0.))
+    return np.sqrt(np.maximum(np.diag(np.linalg.pinv(weighted.T @ weighted)), 0.0))
 
 
 def _report(model, specs, fit, state, planar):
     obs, board = model.obs, model.board
-    pixel = fit.fun[:2 * obs.count].reshape(-1, 2)
-    error = np.sqrt((pixel ** 2).sum(axis=1))
-    rms_all = float(np.sqrt((error ** 2).mean()))
+    pixel = fit.fun[: 2 * obs.count].reshape(-1, 2)
+    error = np.sqrt((pixel**2).sum(axis=1))
+    rms_all = float(np.sqrt((error**2).mean()))
     sigma = _sigmas(model, fit, state, rms_all)
-    report = dict(cameras={}, board={}, fit=dict(cost=fit.cost, evaluations=fit.nfev, status=fit.status,
-                                                  message=fit.message, corners=int(obs.count),
-                                                  stills=len(model.stills), rms_px=round(rms_all, 3)))
+    report = dict(
+        cameras={},
+        board={},
+        fit=dict(
+            cost=fit.cost,
+            evaluations=fit.nfev,
+            status=fit.status,
+            message=fit.message,
+            corners=int(obs.count),
+            stills=len(model.stills),
+            rms_px=round(rms_all, 3),
+        ),
+    )
     i = 0
     for c, name in enumerate(model.cameras):
         n, k = model.n_intr, len(model.joints[name]) if model.free_joints else 0
-        sigma_intr, sigma_mount, sigma_joints = sigma[i:i + n], sigma[i + n:i + n + 6], sigma[i + n + 6:i + n + 6 + k]
+        sigma_intr, sigma_mount, sigma_joints = (
+            sigma[i : i + n],
+            sigma[i + n : i + n + 6],
+            sigma[i + n + 6 : i + n + 6 + k],
+        )
         i += n + 6 + k
         mine = obs.camera == c
         stills = []
@@ -565,38 +649,66 @@ def _report(model, specs, fit, state, planar):
             if still.camera != name:
                 continue
             e = error[obs.still == s]
-            stills.append(dict(name=still.name, tags=sorted(int(t) for t in still.corners if t in board.tags),
-                               rms_px=round(float(np.sqrt((e ** 2).mean())), 3), max_px=round(float(e.max()), 3)))
+            stills.append(
+                dict(
+                    name=still.name,
+                    tags=sorted(int(t) for t in still.corners if t in board.tags),
+                    rms_px=round(float(np.sqrt((e**2).mean())), 3),
+                    max_px=round(float(e.max()), 3),
+                )
+            )
         typical = float(np.median([row['rms_px'] for row in stills]))
         for row in stills:
-            row['outlier'] = row['rms_px'] > max(3 * typical, 2.)
+            row['outlier'] = row['rms_px'] > max(3 * typical, 2.0)
         size, camera = specs[name].size, state.intrinsics[name]
         report['cameras'][name] = dict(
-            size=list(size), link=specs[name].chain.tip,
+            size=list(size),
+            link=specs[name].chain.tip,
             intrinsics={key: round(float(v), 5) for key, v in zip(INTRINSICS, camera)},
             sigma_intrinsics={key: round(float(v), 5) for key, v in zip(INTRINSICS, sigma_intr)},
-            camera_matrix=[[float(camera[0]), 0., float(camera[2])], [0., float(camera[1]), float(camera[3])],
-                           [0., 0., 1.]],
+            camera_matrix=[
+                [float(camera[0]), 0.0, float(camera[2])],
+                [0.0, float(camera[1]), float(camera[3])],
+                [0.0, 0.0, 1.0],
+            ],
             distortion=[float(v) for v in camera[4:]],
             field_of_view_deg=_field_of_view(camera, size),
             mount=_pose_report(state.mounts[name], sigma_mount),
-            joint_offsets={j: dict(deg=round(math.degrees(float(v)), 3),
-                                   sigma_deg=round(math.degrees(float(sigma_joints[q])), 3) if k else None)
-                           for q, (j, v) in enumerate(zip(model.joints[name], state.joints.get(name, ())))},
+            joint_offsets={
+                j: dict(
+                    deg=round(math.degrees(float(v)), 3),
+                    sigma_deg=round(math.degrees(float(sigma_joints[q])), 3) if k else None,
+                )
+                for q, (j, v) in enumerate(zip(model.joints[name], state.joints.get(name, ())))
+            },
             rms_px=round(float(np.sqrt((error[mine] ** 2).mean())), 3),
-            p95_px=round(float(np.percentile(error[mine], 95)), 3), corners=int(mine.sum()), stills=stills,
+            p95_px=round(float(np.percentile(error[mine], 95)), 3),
+            corners=int(mine.sum()),
+            stills=stills,
             coverage=_coverage(obs.pixels[mine], size),
-            by_radius=_by_radius(obs.pixels[mine], error[mine], camera, size), planar=planar[name])
-    report['board'] = dict(placement=_pose_report(state.placement, sigma[i:i + 6]), tag_offsets={
-        str(t): dict(dx_mm=round(float(o[0]) * 1e3, 2), dy_mm=round(float(o[1]) * 1e3, 2),
-                     dyaw_deg=round(math.degrees(float(o[2])), 3)) for t, o in zip(model.tags, state.tags)},
-        seen={str(t): int((obs.tag == k).sum() // 4) for k, t in enumerate(model.tags)})
+            by_radius=_by_radius(obs.pixels[mine], error[mine], camera, size),
+            planar=planar[name],
+        )
+    report['board'] = dict(
+        placement=_pose_report(state.placement, sigma[i : i + 6]),
+        tag_offsets={
+            str(t): dict(
+                dx_mm=round(float(o[0]) * 1e3, 2),
+                dy_mm=round(float(o[1]) * 1e3, 2),
+                dyaw_deg=round(math.degrees(float(o[2])), 3),
+            )
+            for t, o in zip(model.tags, state.tags)
+        },
+        seen={str(t): int((obs.tag == k).sum() // 4) for k, t in enumerate(model.tags)},
+    )
     return report
 
 
 def _field_of_view(camera, size):
-    return dict(horizontal=round(math.degrees(2 * math.atan(size[0] / 2 / camera[0])), 2),
-                vertical=round(math.degrees(2 * math.atan(size[1] / 2 / camera[1])), 2))
+    return dict(
+        horizontal=round(math.degrees(2 * math.atan(size[0] / 2 / camera[0])), 2),
+        vertical=round(math.degrees(2 * math.atan(size[1] / 2 / camera[1])), 2),
+    )
 
 
 def _coverage(pixels, size, columns=4, rows=3):
@@ -617,8 +729,13 @@ def _by_radius(pixels, error, camera, size, bins=4):
     for k in range(bins):
         sel = (radius >= k / bins) & (radius < (k + 1) / bins) if k < bins - 1 else radius >= k / bins
         if sel.any():
-            rows.append(dict(radius=[round(k / bins, 2), round((k + 1) / bins, 2)], corners=int(sel.sum()),
-                             rms_px=round(float(np.sqrt((error[sel] ** 2).mean())), 3)))
+            rows.append(
+                dict(
+                    radius=[round(k / bins, 2), round((k + 1) / bins, 2)],
+                    corners=int(sel.sum()),
+                    rms_px=round(float(np.sqrt((error[sel] ** 2).mean())), 3),
+                )
+            )
     return rows
 
 
@@ -643,9 +760,16 @@ def _cross_validate(board, specs, stills, state, fit_k3, folds, loss_px, joints,
         e = np.sqrt(((test.predict(fold) - test.obs.pixels) ** 2).sum(axis=1))
         for c, name in enumerate(test.cameras):
             errors[name].extend(e[test.obs.camera == c].tolist())
-    return dict(folds=folds, cameras={name: dict(rms_px=round(float(np.sqrt(np.mean(np.square(v)))), 3),
-                                                 p95_px=round(float(np.percentile(v, 95)), 3))
-                                      for name, v in errors.items() if v})
+    return dict(
+        folds=folds,
+        cameras={
+            name: dict(
+                rms_px=round(float(np.sqrt(np.mean(np.square(v)))), 3), p95_px=round(float(np.percentile(v, 95)), 3)
+            )
+            for name, v in errors.items()
+            if v
+        },
+    )
 
 
 def _per_camera_placement(board, specs, stills, state, fit_k3, loss_px, joints, joint_sigma):
@@ -661,7 +785,9 @@ def _per_camera_placement(board, specs, stills, state, fit_k3, loss_px, joints, 
         own[name] = fitted.placement
         result[name] = _pose_report(fitted.placement)
     a, b = own[names[0]], own[names[1]]
-    result['difference'] = dict(between=names[:2], translation_mm=round(float(np.linalg.norm(
-        a[:3, 3] - b[:3, 3])) * 1e3, 2), rotation_deg=round(math.degrees(float(np.linalg.norm(
-            rotvec((invert(a) @ b)[:3, :3])))), 3))
+    result['difference'] = dict(
+        between=names[:2],
+        translation_mm=round(float(np.linalg.norm(a[:3, 3] - b[:3, 3])) * 1e3, 2),
+        rotation_deg=round(math.degrees(float(np.linalg.norm(rotvec((invert(a) @ b)[:3, :3])))), 3),
+    )
     return result

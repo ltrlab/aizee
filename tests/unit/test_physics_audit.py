@@ -25,11 +25,14 @@ def test_placeholder_or_invalid_mass_is_rejected(tmp_path, mass):
     assert audit_urdf(urdf(tmp_path, mass=mass))['errors']
 
 
-@pytest.mark.parametrize('inertia', [
-    'ixx="1" ixy="2" ixz="0" iyy="1" iyz="0" izz="1"',
-    'ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="3"',
-    'ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"',
-])
+@pytest.mark.parametrize(
+    'inertia',
+    [
+        'ixx="1" ixy="2" ixz="0" iyy="1" iyz="0" izz="1"',
+        'ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="3"',
+        'ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"',
+    ],
+)
 def test_nonphysical_full_tensor_is_rejected(tmp_path, inertia):
     assert audit_urdf(urdf(tmp_path, inertia=inertia))['errors']
 

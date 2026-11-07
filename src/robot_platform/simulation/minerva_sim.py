@@ -14,6 +14,7 @@ command delay and a scale on its gravity. The file binds each to the motor it wa
 This is the receiver and operator loop on measured joints, not a physics scene: there are no
 objects or contacts, and the joints do not load one another beyond the measured gravity.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,13 +31,20 @@ ROOT = Path(__file__).resolve().parents[3]
 SCENE = ROOT / 'urdf/minerva/mujoco/scene.xml'
 # Inertia (kg m2), friction and static friction (Nm) where no sweep measured them: rough, not
 # measured (tests/contract/test_rehearsal.py SPECS).
-NOMINAL = {'j1': (.3, .33, .45), 'j2': (.25, .67, .9), 'j3': (.08, .41, .55), 'j4': (.01, .19, .25),
-           'j5': (.004, .15, .2), 'j6': (.003, .11, .15), 'gripper': (.002, .1, .15)}
-POSITION_NOISE_RAD = .0006  # Reading noise before the drives' 16-bit steps, as the rehearsals use.
+NOMINAL = {
+    'j1': (0.3, 0.33, 0.45),
+    'j2': (0.25, 0.67, 0.9),
+    'j3': (0.08, 0.41, 0.55),
+    'j4': (0.01, 0.19, 0.25),
+    'j5': (0.004, 0.15, 0.2),
+    'j6': (0.003, 0.11, 0.15),
+    'gripper': (0.002, 0.1, 0.15),
+}
+POSITION_NOISE_RAD = 0.0006  # Reading noise before the drives' 16-bit steps, as the rehearsals use.
 # A sweep accepts gains whose steps overshoot at most 10%: a damping ratio of 0.6 or more. Where
 # the gains' own damping falls short of it, the gearbox makes up the rest (the rehearsals' rule).
-DAMPING_RATIO = .6
-VIEW_HZ = 30.
+DAMPING_RATIO = 0.6
+VIEW_HZ = 30.0
 VIEW_GROUPS = (0, 2)  # The floor and the source visuals.
 ACTUATORS_KIND = 'sim_actuator_calibration'  # The simulator's actuator file (characterization.sim2real).
 FITTED = ('inertia', 'friction', 'static', 'viscous')
@@ -53,8 +61,12 @@ def _fitted(entry):
     values = {key: entry.get(key) for key in FITTED + ('gravity_scale', 'delay_ticks')}
     if not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in values.values()):
         return None, 'a value is missing or not a finite number'
-    if not (values['inertia'] > 0 and 0 <= values['friction'] <= values['static'] and values['viscous'] >= 0
-            and values['gravity_scale'] > 0):
+    if not (
+        values['inertia'] > 0
+        and 0 <= values['friction'] <= values['static']
+        and values['viscous'] >= 0
+        and values['gravity_scale'] > 0
+    ):
         return None, 'a value is out of range'
     if not 0 <= values['delay_ticks'] <= 1:
         return None, 'a command delay over one tick is not modelled'
@@ -83,7 +95,7 @@ def calibrated_actuators(path, servo, names, terms):
         return {}, dict(record, reason='not a simulator actuator file')
     asset = (servo or {}).get('asset_id')
     if document.get('asset_id') != asset:
-        return {}, dict(record, reason=f"fitted on {document.get('asset_id')}, not {asset}")
+        return {}, dict(record, reason=f'fitted on {document.get("asset_id")}, not {asset}')
     motors = document.get('motors') if isinstance(document.get('motors'), dict) else {}
     bound = (servo or {}).get('joints') or {}
     calibrated, refused, unscaled = {}, {}, {}
@@ -94,8 +106,10 @@ def calibrated_actuators(path, servo, names, terms):
         fitted_on = (entry.get('uid'), entry.get('firmware'))
         binds = ((bound.get(name) or {}).get('uid'), (bound.get(name) or {}).get('firmware'))
         if fitted_on != binds:
-            refused[name] = (f'fitted on UID {fitted_on[0]} firmware {fitted_on[1]}; the servo calibration binds UID '
-                             f'{binds[0]} firmware {binds[1]}')
+            refused[name] = (
+                f'fitted on UID {fitted_on[0]} firmware {fitted_on[1]}; the servo calibration binds UID '
+                f'{binds[0]} firmware {binds[1]}'
+            )
             continue
         fitted, problem = _fitted(entry)
         if problem:
@@ -104,7 +118,7 @@ def calibrated_actuators(path, servo, names, terms):
         here = [[float(coefficient), dict(angle)] for coefficient, angle in terms.get(name, ())]
         if fitted['gravity_scale'] != 1 and here != entry.get('gravity_terms'):
             unscaled[name] = 'its gravity terms differ from those the scale was fitted against'
-            fitted['gravity_scale'] = 1.
+            fitted['gravity_scale'] = 1.0
         calibrated[name] = fitted
     record['used'] = list(calibrated)
     if refused:
@@ -121,26 +135,31 @@ def joint_specs(names, servo, calibrated=None):
     for name in names:
         fitted = (calibrated or {}).get(name)
         if fitted:
-            specs.append(dict(name=name, **{key: fitted[key] for key in FITTED},
-                              **({'delay': fitted['delay']} if fitted['delay'] else {})))
+            specs.append(
+                dict(
+                    name=name,
+                    **{key: fitted[key] for key in FITTED},
+                    **({'delay': fitted['delay']} if fitted['delay'] else {}),
+                )
+            )
             continue
         inertia, friction, static = NOMINAL[name.split('_')[-1]]
         saved = ((servo or {}).get('joints') or {}).get(name) or {}
         torque = (saved.get('measured') or {}).get('torque') or {}
         missing = []
-        if (torque.get('inertia') or 0.) > 0.:
+        if (torque.get('inertia') or 0.0) > 0.0:
             inertia = float(torque['inertia'])
         else:
             missing.append('inertia')
         # Left J1's drive reports no torque, so its sweep fitted a friction of ~1e-19.
-        if (torque.get('friction') or 0.) > 1e-6:
+        if (torque.get('friction') or 0.0) > 1e-6:
             friction = float(torque['friction'])
             static = max(static, 4 / 3 * friction)
         else:
             missing += ['friction', 'static']
-        viscous = 0.
+        viscous = 0.0
         if saved.get('hold_kp') and saved.get('hold_kd') is not None:
-            viscous = max(0., 2 * DAMPING_RATIO * math.sqrt(saved['hold_kp'] * inertia) - saved['hold_kd'])
+            viscous = max(0.0, 2 * DAMPING_RATIO * math.sqrt(saved['hold_kp'] * inertia) - saved['hold_kd'])
         specs.append(dict(name=name, inertia=inertia, friction=friction, static=static, viscous=viscous))
         if missing:
             nominal[name] = missing
@@ -153,6 +172,7 @@ class ModelPose:
 
     def __init__(self, model, joint_map, names):
         import mujoco
+
         self._mujoco, self.model = mujoco, model
         index = {name: i for i, name in enumerate(names)}
         self.rows = []
@@ -162,11 +182,19 @@ class ModelPose:
             jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint)
             if jid < 0:
                 raise ValueError(f'The simulation model has no joint {joint}')
-            self.rows.append((int(model.jnt_qposadr[jid]), index[row['actuator']], float(row['scale']),
-                              float(row['offset'])))
-        self.mimic = [(int(model.jnt_qposadr[model.eq_obj1id[e]]), int(model.jnt_qposadr[model.eq_obj2id[e]]),
-                       float(model.eq_data[e][0]), float(model.eq_data[e][1]))
-                      for e in range(model.neq) if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT]
+            self.rows.append(
+                (int(model.jnt_qposadr[jid]), index[row['actuator']], float(row['scale']), float(row['offset']))
+            )
+        self.mimic = [
+            (
+                int(model.jnt_qposadr[model.eq_obj1id[e]]),
+                int(model.jnt_qposadr[model.eq_obj2id[e]]),
+                float(model.eq_data[e][0]),
+                float(model.eq_data[e][1]),
+            )
+            for e in range(model.neq)
+            if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT
+        ]
 
     def apply(self, data, q):
         for address, i, scale, offset in self.rows:
@@ -183,6 +211,7 @@ class ModelView:
 
     def __init__(self, scene, joint_map, names, *, rate_hz=VIEW_HZ):
         import mujoco
+
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
         self.pose = ModelPose(self.model, joint_map, names)
@@ -197,6 +226,7 @@ class ModelView:
 
     def _run(self):
         from mujoco import viewer
+
         with viewer.launch_passive(self.model, self.data, show_left_ui=False, show_right_ui=False) as window:
             with window.lock():
                 for group in range(len(window.opt.geomgroup)):
@@ -233,11 +263,15 @@ class SimulatedReceiver(PlantReceiver):
             recent = (self.last or {}).get('recent') or []
             if recent:
                 row = recent[-1]
-                self.task_view.show([row[1 + 4*i] for i in range(len(self.plant.names))],
-                                    qcmd=[row[4 + 4*i] for i in range(len(self.plant.names))],
-                                    source_time=self.epoch + row[0] / 1000,
-                                    command_valid=(self.last.get('hardware_enabled') is True
-                                        and (self.last.get('status') or {}).get('state') in ('holding', 'executing')))
+                self.task_view.show(
+                    [row[1 + 4 * i] for i in range(len(self.plant.names))],
+                    qcmd=[row[4 + 4 * i] for i in range(len(self.plant.names))],
+                    source_time=self.epoch + row[0] / 1000,
+                    command_valid=(
+                        self.last.get('hardware_enabled') is True
+                        and (self.last.get('status') or {}).get('state') in ('holding', 'executing')
+                    ),
+                )
         elif self.view is not None:
             self.view.show(self.plant.q)
         return reply
@@ -256,8 +290,23 @@ def _holding(terms, scale):
     return lambda pose: scale * gravity_effort(terms, pose)
 
 
-def open_simulation(derived, *, model, directions, motors, servo, directory, clock, scene=SCENE, viewer=True,
-                    seed=1, actuators=None, task_scene=False, visual_mode='collision_proxy', workcell=None):
+def open_simulation(
+    derived,
+    *,
+    model,
+    directions,
+    motors,
+    servo,
+    directory,
+    clock,
+    scene=SCENE,
+    viewer=True,
+    seed=1,
+    actuators=None,
+    task_scene=False,
+    visual_mode='collision_proxy',
+    workcell=None,
+):
     """A SimulatedReceiver for a derived receiver (guarded_config.derive_receiver), resting at its initial pose.
 
     `model` is the URDF model the receiver was derived against, `directions` Helm's confirmed mapping and
@@ -271,16 +320,28 @@ def open_simulation(derived, *, model, directions, motors, servo, directory, clo
     specs, nominal = joint_specs(names, servo, calibrated)
     for spec, q in zip(specs, derived['initial']):
         spec['q'] = float(q)
-    plant = ArmPlant(specs, gravity={n: _holding(terms[n], calibrated.get(n, {}).get('gravity_scale', 1.))
-                                     for n in names if n in terms},
-                     position_noise=POSITION_NOISE_RAD, seed=seed)
+    plant = ArmPlant(
+        specs,
+        gravity={n: _holding(terms[n], calibrated.get(n, {}).get('gravity_scale', 1.0)) for n in names if n in terms},
+        position_noise=POSITION_NOISE_RAD,
+        seed=seed,
+    )
     if task_scene:
         from .task_scene import TaskSceneView
-        view = TaskSceneView(scene, derived['joint_map'], names, directory=Path(directory) / 'episodes',
-                             metadata={'actuators': record, 'nominal': nominal,
-                                       'receiver_identity': config['identity']},
-                             seed=seed, viewer=viewer, visual_mode=visual_mode, workcell=workcell)
+
+        view = TaskSceneView(
+            scene,
+            derived['joint_map'],
+            names,
+            directory=Path(directory) / 'episodes',
+            metadata={'actuators': record, 'nominal': nominal, 'receiver_identity': config['identity']},
+            seed=seed,
+            viewer=viewer,
+            visual_mode=visual_mode,
+            workcell=workcell,
+        )
     else:
         view = ModelView(scene, derived['joint_map'], names) if viewer else None
-    return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal,
-                             actuators=record)
+    return SimulatedReceiver(
+        config, plant, clock=clock, directory=directory, view=view, nominal=nominal, actuators=record
+    )

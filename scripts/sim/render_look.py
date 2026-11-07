@@ -13,6 +13,7 @@ scene: the physics does not depend on it. `render` builds this checkout's CAD sc
 wrist), and a wide 3/4 view of the whole scene; it writes the images and looks.json, each view's mean brightness of the
 grippers', the table top's and the other things' pixels (sRGB luma, 0-255, from a segmentation render). `compare` lays two renders side by side.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,11 +27,14 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
 WIDTH, HEIGHT = 640, 480
 # The moments rendered: a stage the demonstrator starts, and how long after its start.
-MOMENTS = {'start': (None, .5), 'left grasp': ('left closes', .25), 'right take': ('right closes', .25)}
-VIEWS = {'start': ('head', 'wide'), 'left grasp': ('head', 'left_wrist', 'wide'),
-         'right take': ('head', 'right_wrist', 'wide')}
+MOMENTS = {'start': (None, 0.5), 'left grasp': ('left closes', 0.25), 'right take': ('right closes', 0.25)}
+VIEWS = {
+    'start': ('head', 'wide'),
+    'left grasp': ('head', 'left_wrist', 'wide'),
+    'right take': ('head', 'right_wrist', 'wide'),
+}
 # The wide view: a free camera behind the robot's right shoulder, taking in the robot, the table, the box and the room.
-WIDE = {'lookat': (0., -.7, .6), 'distance': 1.6, 'azimuth': -35., 'elevation': -20., 'fovy': 75.}
+WIDE = {'lookat': (0.0, -0.7, 0.6), 'distance': 1.6, 'azimuth': -35.0, 'elevation': -20.0, 'fovy': 75.0}
 
 
 def capture(out, workcell):
@@ -40,6 +44,7 @@ def capture(out, workcell):
     from robot_platform.evaluation.runner import RunConfig, TrialRunner
     from robot_platform.simulation import task_scene
     from robot_platform.simulation.workcell import load_workcell
+
     kept = []
     original = task_scene.MinervaTaskScene.step_driven
 
@@ -52,12 +57,16 @@ def capture(out, workcell):
             self.mj.mj_getState(self.model, self.data, buffer, spec)
             kept.append((float(self.data.time), buffer))
         return state
+
     task_scene.MinervaTaskScene.step_driven = traced
     loaded = load_workcell(workcell)
     grid = GridSpec.for_workcell(loaded)
     with tempfile.TemporaryDirectory() as directory:
-        runner = TrialRunner(RunConfig(grippers='driven', timeout_s=70., workcell=str(workcell), grid=grid),
-                             stack=derive_stack(), directory=directory)
+        runner = TrialRunner(
+            RunConfig(grippers='driven', timeout_s=70.0, workcell=str(workcell), grid=grid),
+            stack=derive_stack(),
+            directory=directory,
+        )
         demo = HandoffDemonstrator()
         try:
             drives = runner._open_plant().gripper_drives()
@@ -67,20 +76,27 @@ def capture(out, workcell):
             runner.close()
             demo.close()
     task_scene.MinervaTaskScene.step_driven = original
-    np.savez_compressed(out, times=np.array([t for t, _ in kept]), states=np.array([s for _, s in kept]),
-                        log=json.dumps(log), drives=json.dumps(drives), workcell=json.dumps(loaded.describe()),
-                        outcome=result['outcome'])
-    print(f"{len(kept)} states, {result['outcome']}; moves: " + ', '.join(f'{name} {t:.2f} s' for name, t in log))
+    np.savez_compressed(
+        out,
+        times=np.array([t for t, _ in kept]),
+        states=np.array([s for _, s in kept]),
+        log=json.dumps(log),
+        drives=json.dumps(drives),
+        workcell=json.dumps(loaded.describe()),
+        outcome=result['outcome'],
+    )
+    print(f'{len(kept)} states, {result["outcome"]}; moves: ' + ', '.join(f'{name} {t:.2f} s' for name, t in log))
 
 
 def _luma(pixels):
     pixels = np.asarray(pixels, dtype=float)
-    return pixels[..., 0] * .2126 + pixels[..., 1] * .7152 + pixels[..., 2] * .0722
+    return pixels[..., 0] * 0.2126 + pixels[..., 1] * 0.7152 + pixels[..., 2] * 0.0722
 
 
 def _flags(scene, renderer):
     """The flags the scene renders with (task_scene.RENDER_FLAGS where it has them)."""
     from robot_platform.simulation import task_scene
+
     flags = getattr(task_scene, 'RENDER_FLAGS', None)
     if flags is None:
         flags = {name: False for name in ('mjRND_SHADOW', 'mjRND_REFLECTION', 'mjRND_FOG')}
@@ -93,25 +109,35 @@ def render(states, out, real=None):
     from robot_platform.simulation.task_scene import JAW_BODIES, WRISTS, MinervaTaskScene
     from robot_platform.simulation.workcell import Workcell
     from PIL import Image
+
     saved = np.load(states)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     stack = derive_stack()
     workcell = Workcell.from_description(json.loads(str(saved['workcell'])))
-    scene = MinervaTaskScene(stack['derived']['joint_map'], stack['names'], width=WIDTH, height=HEIGHT,
-                             visual_mode='cad', workcell=workcell, grippers=json.loads(str(saved['drives'])))
+    scene = MinervaTaskScene(
+        stack['derived']['joint_map'],
+        stack['names'],
+        width=WIDTH,
+        height=HEIGHT,
+        visual_mode='cad',
+        workcell=workcell,
+        grippers=json.loads(str(saved['drives'])),
+    )
     mj, model, data = scene.mj, scene.model, scene.data
     log = {name: t for name, t in json.loads(str(saved['log']))}
     spec = mj.mjtState.mjSTATE_INTEGRATION
     gripper_bodies = {*WRISTS.values(), *(jaw for pair in JAW_BODIES.values() for jaw in pair)}
     names = [mj.mj_id2name(model, mj.mjtObj.mjOBJ_GEOM, g) or '' for g in range(model.ngeom)]
     body = [mj.mj_id2name(model, mj.mjtObj.mjOBJ_BODY, int(model.geom_bodyid[g])) or '' for g in range(model.ngeom)]
-    classes = {'gripper': [g for g in range(model.ngeom) if body[g] in gripper_bodies],
-               'table': [g for g in range(model.ngeom) if names[g] == 'task/table'],
-               'trim': [g for g in range(model.ngeom) if names[g].startswith('task/table/trim/')],
-               'box': [g for g in range(model.ngeom) if names[g].startswith('task/bucket/')],
-               'block': [scene._id('geom', 'task/cube/geom')],
-               'tags': [g for g in range(model.ngeom) if names[g].startswith('task/fiducial/')]}
+    classes = {
+        'gripper': [g for g in range(model.ngeom) if body[g] in gripper_bodies],
+        'table': [g for g in range(model.ngeom) if names[g] == 'task/table'],
+        'trim': [g for g in range(model.ngeom) if names[g].startswith('task/table/trim/')],
+        'box': [g for g in range(model.ngeom) if names[g].startswith('task/bucket/')],
+        'block': [scene._id('geom', 'task/cube/geom')],
+        'tags': [g for g in range(model.ngeom) if names[g].startswith('task/fiducial/')],
+    }
     renderer = mj.Renderer(model, height=HEIGHT, width=WIDTH)
     options = mj.MjvOption()
     options.geomgroup[:] = scene.visual_groups
@@ -122,7 +148,7 @@ def render(states, out, real=None):
     looks = {}
     try:
         for moment, (stage, after) in MOMENTS.items():
-            at = (log[stage] if stage else 0.) + after
+            at = (log[stage] if stage else 0.0) + after
             index = int(np.argmin(np.abs(saved['times'] - at)))
             mj.mj_setState(model, data, saved['states'][index], spec)
             mj.mj_forward(model, data)
@@ -143,7 +169,7 @@ def render(states, out, real=None):
                 finally:
                     if fovy is not None:
                         model.vis.global_.fovy = fovy
-                name = f"{moment.replace(' ', '-')}-{view}"
+                name = f'{moment.replace(" ", "-")}-{view}'
                 Image.fromarray(image).save(out / f'{name}.png')
                 geoms = np.where(segments[..., 1] == int(mj.mjtObj.mjOBJ_GEOM), segments[..., 0], -1)
                 stats = {}
@@ -168,13 +194,14 @@ def render(states, out, real=None):
         scene.close()
     (out / 'looks.json').write_text(json.dumps(looks, indent=1) + '\n', encoding='utf-8')
     for name, stats in looks.items():
-        parts = [f"{key} {value['luma']}" for key, value in stats.items() if isinstance(value, dict)]
+        parts = [f'{key} {value["luma"]}' for key, value in stats.items() if isinstance(value, dict)]
         print(f'{name} (t {stats["time_s"]} s): ' + ', '.join(parts))
 
 
 def compare(before, after, out, real=None):
     """Side by side: each view before and after; and a crop around the gripper in the head and wrist views."""
     from PIL import Image, ImageDraw
+
     before, after, out = Path(before), Path(after), Path(out)
     out.mkdir(parents=True, exist_ok=True)
     looks = json.loads((after / 'looks.json').read_text(encoding='utf-8'))
@@ -186,8 +213,11 @@ def compare(before, after, out, real=None):
         pair.paste(b, (a.width + 8, 22))
         draw = ImageDraw.Draw(pair)
         for x, label, stats in ((4, 'before', old.get(name, {})), (a.width + 12, 'after', looks[name])):
-            text = ', '.join(f"{key} {value['luma']}" for key, value in stats.items() if isinstance(value, dict)
-                             and key in ('gripper', 'table'))
+            text = ', '.join(
+                f'{key} {value["luma"]}'
+                for key, value in stats.items()
+                if isinstance(value, dict) and key in ('gripper', 'table')
+            )
             draw.text((x, 4), f'{label}: {name}; mean luma {text}', fill=(0, 0, 0))
         pair.save(out / f'{name}-before-after.png')
         box = looks[name].get('gripper', {}).get('box')

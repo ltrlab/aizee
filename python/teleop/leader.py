@@ -29,47 +29,47 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Tuple
 
-from so101_leader  import So101Leader,  find_so101_port,  _probe_so101
-from so101_leader  import CALIB_PATH as _SO101_CALIB
+from so101_leader import So101Leader, find_so101_port, _probe_so101
+from so101_leader import CALIB_PATH as _SO101_CALIB
 from openrb_leader import OpenRBLeader, find_openrb_port, _probe_openrb
 from openrb_leader import CALIB_PATH as _OPENRB_CALIB
 
 # Public set of supported leader kinds.  "auto" is for arg-parsing convenience
 # at the script layer; the discovery helpers themselves return concrete kinds.
-LEADER_KINDS = ("so101", "openrb")
+LEADER_KINDS = ('so101', 'openrb')
 
 
 def get_leader_class(kind: str):
     """Return the leader class for a given kind string."""
-    if kind == "so101":
+    if kind == 'so101':
         return So101Leader
-    if kind == "openrb":
+    if kind == 'openrb':
         return OpenRBLeader
-    raise ValueError(f"Unknown leader kind: {kind!r}")
+    raise ValueError(f'Unknown leader kind: {kind!r}')
 
 
 def default_calib_path(kind: str) -> Path:
     """Return the default calibration JSON path for a given kind."""
-    if kind == "so101":
+    if kind == 'so101':
         return _SO101_CALIB
-    if kind == "openrb":
+    if kind == 'openrb':
         return _OPENRB_CALIB
-    raise ValueError(f"Unknown leader kind: {kind!r}")
+    raise ValueError(f'Unknown leader kind: {kind!r}')
 
 
 def probe_port(device: str, kind: str) -> Tuple[bool, str]:
     """Probe *device* as a leader of the given *kind*."""
-    if kind == "so101":
+    if kind == 'so101':
         return _probe_so101(device)
-    if kind == "openrb":
+    if kind == 'openrb':
         return _probe_openrb(device)
-    raise ValueError(f"Unknown leader kind: {kind!r}")
+    raise ValueError(f'Unknown leader kind: {kind!r}')
 
 
 def find_any_leader(
     exclude: Optional[list[str]] = None,
     verbose: bool = False,
-    prefer:  Optional[str] = None,
+    prefer: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Search the system for any supported leader arm.
 
@@ -85,16 +85,16 @@ def find_any_leader(
 
     for kind in order:
         if verbose:
-            print(f"[leader] searching for {kind}...")
-        if kind == "so101":
+            print(f'[leader] searching for {kind}...')
+        if kind == 'so101':
             port = find_so101_port(exclude=exclude, verbose=verbose)
-        elif kind == "openrb":
+        elif kind == 'openrb':
             port = find_openrb_port(exclude=exclude, verbose=verbose)
         else:
             continue
         if port is not None:
             if verbose:
-                print(f"[leader] {kind} found on {port}")
+                print(f'[leader] {kind} found on {port}')
             return port, kind
 
     return None, None

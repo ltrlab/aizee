@@ -54,12 +54,12 @@ camera:
 
 network:
   device:
-    ip: 192.168.0.27          # Jetson WiFi
+    ip: 192.168.0.27 # Jetson WiFi
     hostname: aizee-jetson
     zmq:
       # 5564 was freed when the stereo D435 wrist pair (arm_cam_right) was
       # retired on 2026-05-13 — see aizee-gripper-camera-migration memory.
-      camera_pub:  "tcp://*:5564"
+      camera_pub: 'tcp://*:5564'
 
 spatial:
   # Externally mounted, world-frame pose (arm base frame: +X forward,
@@ -82,7 +82,7 @@ spatial:
   # FOV used only by the GUI frustum visualization (not by the SDK).
   # D435 / D435i / D455 RGB are all ~87° H × 58° V; tweak per model.
   fov_horizontal_deg: 87.0
-  fov_vertical_deg:   58.0
+  fov_vertical_deg: 58.0
 
 logging:
   level: INFO

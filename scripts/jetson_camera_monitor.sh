@@ -21,7 +21,7 @@ if ! command -v tegrastats >/dev/null; then
     echo "tegrastats not found on PATH; skipping thermal/clock log" >&2
     TEGRA_PID=""
 else
-    tegrastats --interval 1000 > "${TEGRA}" &
+    tegrastats --interval 1000 >"${TEGRA}" &
     TEGRA_PID=$!
 fi
 
@@ -38,7 +38,7 @@ trap cleanup EXIT INT TERM
 # Process names we care about — extend if you add more node types.
 PROCS=(gripper_camera_node camera_node)
 
-echo "ts pid name rss_kb vmsize_kb threads" > "${RSS}"
+echo "ts pid name rss_kb vmsize_kb threads" >"${RSS}"
 while true; do
     now=$(date +%H:%M:%S)
     for proc in "${PROCS[@]}"; do
@@ -49,7 +49,7 @@ while true; do
                 rss=$(awk '/^VmRSS:/   {print $2}' /proc/${pid}/status)
                 vsz=$(awk '/^VmSize:/  {print $2}' /proc/${pid}/status)
                 thr=$(awk '/^Threads:/ {print $2}' /proc/${pid}/status)
-                echo "${now} ${pid} ${proc} ${rss:-?} ${vsz:-?} ${thr:-?}" >> "${RSS}"
+                echo "${now} ${pid} ${proc} ${rss:-?} ${vsz:-?} ${thr:-?}" >>"${RSS}"
             fi
         done < <(pgrep -af "${proc}" 2>/dev/null || true)
     done

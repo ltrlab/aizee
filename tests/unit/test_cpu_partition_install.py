@@ -1,6 +1,7 @@
 """ops.cpu_partition on a host directory: the cameras are confined and checked before the partition file the
 loop reads appears, and the file goes first when the split is removed. The split keeps CPU 3 for the head's
 receiver; the real-time limit an earlier install gave the robot user's service manager goes, with no restart."""
+
 import json
 import os
 import sys
@@ -10,8 +11,17 @@ import pytest
 
 from robot_platform.control.scheduling import cpu_partition, head_cpus
 from robot_platform.ops import cpu_partition as installer
-from robot_platform.ops.cpu_partition import (DROP_IN, SERVICES, STALE_DROP_IN, Host, cpu_list, drop_in, install,
-                                              remove, status)
+from robot_platform.ops.cpu_partition import (
+    DROP_IN,
+    SERVICES,
+    STALE_DROP_IN,
+    Host,
+    cpu_list,
+    drop_in,
+    install,
+    remove,
+    status,
+)
 
 
 class System:
@@ -80,14 +90,17 @@ def test_install_confines_the_cameras_then_writes_the_partition(jetson):
     for unit in SERVICES:
         assert (jetson.root / 'etc/systemd/system' / (unit + '.d') / DROP_IN).read_text(encoding='utf-8') == (
             '# robot_platform.ops.cpu_partition: this camera keeps off the control CPUs.\n'
-            '[Service]\nCPUAffinity=\nCPUAffinity=0 1 2\n')
+            '[Service]\nCPUAffinity=\nCPUAffinity=0 1 2\n'
+        )
     partition = jetson.root / 'etc/minerva/cpu-partition.json'
     assert cpu_partition(partition) == ({4, 5}, {0, 1, 2}) and head_cpus(partition) == {3}
     restarts = [args for args in jetson.system.calls if args[0] in ('daemon-reload', 'try-restart', 'restart')]
     assert restarts == [('daemon-reload',)] + [('try-restart', unit) for unit in SERVICES]  # Helm's manager: never.
-    assert report == {'partition': {'control': [4, 5], 'background': [0, 1, 2], 'head': [3]}, 'sessions': {},
-                      'cameras': {unit: {'drop_in': True, 'pid': jetson.system.pids[unit], 'cpus': [0, 1, 2]}
-                                  for unit in SERVICES}}
+    assert report == {
+        'partition': {'control': [4, 5], 'background': [0, 1, 2], 'head': [3]},
+        'sessions': {},
+        'cameras': {unit: {'drop_in': True, 'pid': jetson.system.pids[unit], 'cpus': [0, 1, 2]} for unit in SERVICES},
+    }
 
 
 def test_installing_again_moves_an_older_split_to_this_one(jetson):
@@ -101,8 +114,9 @@ def test_installing_again_moves_an_older_split_to_this_one(jetson):
         path.write_text(drop_in((0, 1, 2, 3)), encoding='utf-8')
     assert head_cpus(old) is None
     report = install(jetson.host)
-    assert report['partition']['head'] == [3] and all(camera['cpus'] == [0, 1, 2]
-                                                      for camera in report['cameras'].values())
+    assert report['partition']['head'] == [3] and all(
+        camera['cpus'] == [0, 1, 2] for camera in report['cameras'].values()
+    )
 
 
 def test_install_deletes_the_real_time_drop_in_that_never_took(jetson):
@@ -158,9 +172,10 @@ def test_remove_unpins_the_loop_before_the_cameras_return_everywhere(jetson):
     assert not (jetson.root / 'etc/minerva/cpu-partition.json').exists()
     assert not any((jetson.root / 'etc/systemd/system').iterdir())  # The stale drop-in too.
     assert not any(args[0] == 'restart' for args in jetson.system.calls)
-    assert report['partition'] is None and all(camera == {'drop_in': False, 'pid': camera['pid'],
-                                                          'cpus': [0, 1, 2, 3, 4, 5]}
-                                               for camera in report['cameras'].values())
+    assert report['partition'] is None and all(
+        camera == {'drop_in': False, 'pid': camera['pid'], 'cpus': [0, 1, 2, 3, 4, 5]}
+        for camera in report['cameras'].values()
+    )
 
 
 def test_status_reports_where_the_cameras_and_a_session_run(jetson):

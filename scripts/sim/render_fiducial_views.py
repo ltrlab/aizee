@@ -7,6 +7,7 @@ Writes top.png (looking straight down on the table, the robot at the bottom, as 
 head.png (the scene's head camera at the real head frame's 640 x 480), with the robot hanging. Renders with MuJoCo,
 so it needs a GL context (the GPU on Windows).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,9 +34,9 @@ def main() -> int:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     names = json.loads(FIXTURE.read_text())['joint_names']
-    joint_map = {n: dict(actuator=n, scale=1., offset=0.) for n in names if 'arm' in n}
+    joint_map = {n: dict(actuator=n, scale=1.0, offset=0.0) for n in names if 'arm' in n}
     for side in ('left', 'right'):
-        joint_map[f'{side}_gripper_finger_a_slide'] = dict(actuator=f'{side}_gripper', scale=.01, offset=0.)
+        joint_map[f'{side}_gripper_finger_a_slide'] = dict(actuator=f'{side}_gripper', scale=0.01, offset=0.0)
     workcell = load_workcell(args.workcell)
     scene = MinervaTaskScene(joint_map, names, width=640, height=480, visual_mode=args.visual_mode, workcell=workcell)
     try:
@@ -49,8 +50,8 @@ def main() -> int:
         camera.type = mujoco.mjtCamera.mjCAMERA_FREE
         # Straight down on the table and the robot in front of it; the image's up is away from the robot (-y).
         cx, cy = workcell.table_center
-        camera.lookat[:] = (cx, cy + .12, workcell.table_top)
-        camera.distance, camera.azimuth, camera.elevation = 1.9, -90., -89.99
+        camera.lookat[:] = (cx, cy + 0.12, workcell.table_top)
+        camera.distance, camera.azimuth, camera.elevation = 1.9, -90.0, -89.99
         with mujoco.Renderer(scene.model, height=960, width=1280) as renderer:
             renderer.update_scene(scene.data, camera=camera, scene_option=options)
             for flag in (mujoco.mjtRndFlag.mjRND_SHADOW, mujoco.mjtRndFlag.mjRND_REFLECTION):

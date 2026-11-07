@@ -17,6 +17,7 @@ without a handoff is not a bucket placement. A trial ends at the first of:
 
 Simulated outcomes are read from MinervaTaskScene's own events, never re-derived.
 """
+
 from __future__ import annotations
 
 import csv
@@ -34,8 +35,20 @@ EXCLUDED = ('invalid_start',)
 CATEGORIES = ('success',) + FAILURES + EXCLUDED
 SOURCES = ('simulation', 'real')
 # Hand-logging columns (CSV). Blank stage times mean the stage was not reached.
-CSV_COLUMNS = ('trial', 'cube_x', 'cube_y', 'cube_yaw', 'pickup_s', 'handoff_s', 'bucket_s', 'outcome',
-               'eligible', 'duration_s', 'detail', 'notes')
+CSV_COLUMNS = (
+    'trial',
+    'cube_x',
+    'cube_y',
+    'cube_yaw',
+    'pickup_s',
+    'handoff_s',
+    'bucket_s',
+    'outcome',
+    'eligible',
+    'duration_s',
+    'detail',
+    'notes',
+)
 
 
 def _time(value, name):
@@ -62,39 +75,43 @@ def validate(record):
     trial = dict(record)
     trial.setdefault('schema', SCHEMA)
     if trial['schema'] != SCHEMA:
-        raise ValueError(f"unknown trial schema {trial['schema']!r}")
+        raise ValueError(f'unknown trial schema {trial["schema"]!r}')
     if trial.get('source') not in SOURCES:
-        raise ValueError(f"source must be one of {SOURCES}")
+        raise ValueError(f'source must be one of {SOURCES}')
     if type(trial.get('trial')) is not int or trial['trial'] < 0:
         raise ValueError('trial must be a non-negative integer index')
     if trial.get('outcome') not in CATEGORIES:
-        raise ValueError(f"trial {trial['trial']}: outcome must be one of {CATEGORIES}")
+        raise ValueError(f'trial {trial["trial"]}: outcome must be one of {CATEGORIES}')
     stages = trial.get('stages') or {}
     if set(stages) - set(STAGES):
-        raise ValueError(f"trial {trial['trial']}: unknown stages {sorted(set(stages) - set(STAGES))}")
-    stages = {stage: _time(stages.get(stage), f"trial {trial['trial']} {stage}") for stage in STAGES}
+        raise ValueError(f'trial {trial["trial"]}: unknown stages {sorted(set(stages) - set(STAGES))}')
+    stages = {stage: _time(stages.get(stage), f'trial {trial["trial"]} {stage}') for stage in STAGES}
     times = [stages[s] for s in STAGES if reached(stages)[s]]
     if times != sorted(times):
-        raise ValueError(f"trial {trial['trial']}: stage times must not decrease (pickup <= handoff <= bucket)")
+        raise ValueError(f'trial {trial["trial"]}: stage times must not decrease (pickup <= handoff <= bucket)')
     trial['stages'] = stages
     if type(trial.get('eligible')) is not bool:
-        raise ValueError(f"trial {trial['trial']}: eligible must be true or false")
+        raise ValueError(f'trial {trial["trial"]}: eligible must be true or false')
     outcome = trial['outcome']
     if outcome == 'success' and not (all(reached(stages).values()) and trial['eligible']):
-        raise ValueError(f"trial {trial['trial']}: success needs all three stages and an eligible trial")
+        raise ValueError(f'trial {trial["trial"]}: success needs all three stages and an eligible trial')
     if outcome == 'forbidden_penetration' and trial['eligible']:
-        raise ValueError(f"trial {trial['trial']}: forbidden penetration makes a trial ineligible")
+        raise ValueError(f'trial {trial["trial"]}: forbidden penetration makes a trial ineligible')
     if outcome != 'forbidden_penetration' and not trial['eligible'] and outcome not in EXCLUDED:
-        raise ValueError(f"trial {trial['trial']}: only forbidden penetration (or an invalid start) is ineligible")
-    trial['duration_s'] = _time(trial.get('duration_s'), f"trial {trial['trial']} duration_s")
+        raise ValueError(f'trial {trial["trial"]}: only forbidden penetration (or an invalid start) is ineligible')
+    trial['duration_s'] = _time(trial.get('duration_s'), f'trial {trial["trial"]} duration_s')
     start = trial.get('cube_start')
     if start is not None:
-        if not isinstance(start, dict) or not all(isinstance(start.get(k), (int, float)) and math.isfinite(start[k])
-                                                  for k in ('x', 'y')):
-            raise ValueError(f"trial {trial['trial']}: cube_start needs finite x and y (m)")
-        trial['cube_start'] = {'x': float(start['x']), 'y': float(start['y']),
-                               'yaw': float(start.get('yaw') or 0.), **{k: v for k, v in start.items()
-                                                                        if k not in ('x', 'y', 'yaw')}}
+        if not isinstance(start, dict) or not all(
+            isinstance(start.get(k), (int, float)) and math.isfinite(start[k]) for k in ('x', 'y')
+        ):
+            raise ValueError(f'trial {trial["trial"]}: cube_start needs finite x and y (m)')
+        trial['cube_start'] = {
+            'x': float(start['x']),
+            'y': float(start['y']),
+            'yaw': float(start.get('yaw') or 0.0),
+            **{k: v for k, v in start.items() if k not in ('x', 'y', 'yaw')},
+        }
     trial['reached'] = reached(stages)
     trial['counted'] = outcome not in EXCLUDED
     return trial
@@ -123,7 +140,7 @@ def outcome_from_events(events, *, timed_out=False, aborted=None):
         elif kind in FORBIDDEN_EVENTS and eligible:
             # Ineligibility outranks every other outcome, a latched success included (the scene revokes it).
             eligible, outcome = False, 'forbidden_penetration'
-            detail = f"{' / '.join(event.get('geoms') or ())} {event.get('depth_m', 0) * 1000:.1f} mm at {at:.3f} s"
+            detail = f'{" / ".join(event.get("geoms") or ())} {event.get("depth_m", 0) * 1000:.1f} mm at {at:.3f} s'
     if outcome is None:
         if aborted:
             outcome, detail = 'source_gap_or_abort', str(aborted)
@@ -160,16 +177,24 @@ def from_csv(text):
             eligible = (_cell(row, 'eligible') or '').lower()
             if eligible not in ('', 'true', 'false', 'yes', 'no', '1', '0'):
                 raise ValueError('eligible must be true/false')
-            record = {'trial': int(_cell(row, 'trial')), 'outcome': _cell(row, 'outcome'),
-                      'stages': {stage: number_or_none(f'{stage}_s') for stage in STAGES},
-                      'duration_s': number_or_none('duration_s'),
-                      # Unlogged eligibility follows the outcome: only forbidden penetration is ineligible.
-                      'eligible': (eligible in ('true', 'yes', '1')) if eligible else
-                                  _cell(row, 'outcome') != 'forbidden_penetration',
-                      'detail': _cell(row, 'detail'), 'notes': _cell(row, 'notes')}
+            record = {
+                'trial': int(_cell(row, 'trial')),
+                'outcome': _cell(row, 'outcome'),
+                'stages': {stage: number_or_none(f'{stage}_s') for stage in STAGES},
+                'duration_s': number_or_none('duration_s'),
+                # Unlogged eligibility follows the outcome: only forbidden penetration is ineligible.
+                'eligible': (eligible in ('true', 'yes', '1'))
+                if eligible
+                else _cell(row, 'outcome') != 'forbidden_penetration',
+                'detail': _cell(row, 'detail'),
+                'notes': _cell(row, 'notes'),
+            }
             if _cell(row, 'cube_x') is not None or _cell(row, 'cube_y') is not None:
-                record['cube_start'] = {'x': number_or_none('cube_x'), 'y': number_or_none('cube_y'),
-                                        'yaw': number_or_none('cube_yaw') or 0.}
+                record['cube_start'] = {
+                    'x': number_or_none('cube_x'),
+                    'y': number_or_none('cube_y'),
+                    'yaw': number_or_none('cube_yaw') or 0.0,
+                }
         except (TypeError, ValueError) as exc:
             raise ValueError(f'CSV line {number}: {exc}') from exc
         records.append(record)

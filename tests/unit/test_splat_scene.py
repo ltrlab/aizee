@@ -2,6 +2,7 @@
 with its depth registered into the colour camera, the starting Gaussians on the scene's surfaces in the world the
 capture names, and the compact .splat the headset draws. Training itself (torch, gsplat) runs on the operator
 station, not here."""
+
 import json
 import sys
 
@@ -38,8 +39,8 @@ def test_the_depth_is_registered_into_the_colour_camera(capture):
     # 40 % of its pixels: the depth loss fits those alone.
     _image, truth = synthetic_scene.render(poses[0], synthetic_scene.COLOR_K)
     seen = (depths[0] > 0) & (truth > 0)
-    assert seen.mean() > .3
-    assert np.median(np.abs(depths[0][seen] - truth[seen])) < .002
+    assert seen.mean() > 0.3
+    assert np.median(np.abs(depths[0][seen] - truth[seen])) < 0.002
 
 
 def test_the_starting_gaussians_lie_on_the_scenes_surfaces(capture):
@@ -47,19 +48,24 @@ def test_the_starting_gaussians_lie_on_the_scenes_surfaces(capture):
     points, colours = train_head_scene.starting_points(images, poses, color_k, depths)
     assert len(points) > 1000 and colours.min() >= 0 and colours.max() <= 1
     # The table's top (z 0.75 m, the robot frame) carries its share of them, flat to within a voxel.
-    on_table = (np.abs(points[:, 0]) < .55) & (points[:, 1] > -.95) & (points[:, 1] < -.35) & (points[:, 2] < .8) \
-        & ~((np.abs(points[:, 0]) < .12) & (points[:, 1] > -.72) & (points[:, 1] < -.48))
+    on_table = (
+        (np.abs(points[:, 0]) < 0.55)
+        & (points[:, 1] > -0.95)
+        & (points[:, 1] < -0.35)
+        & (points[:, 2] < 0.8)
+        & ~((np.abs(points[:, 0]) < 0.12) & (points[:, 1] > -0.72) & (points[:, 1] < -0.48))
+    )
     assert on_table.sum() > 100
-    assert np.all(np.abs(points[on_table, 2] - .75) < .015)
+    assert np.all(np.abs(points[on_table, 2] - 0.75) < 0.015)
 
 
 def test_a_capture_taken_elsewhere_in_the_world_builds_the_scene_in_the_world(tmp_path):
     # Minerva stands turned and moved in the world (the board's frame): the frames' poses stay in her frame, each
     # with her pose in the world, and the scene comes out where it is in the world, the table's top at 0.75 m.
     robot_in_world = np.eye(4)
-    turn = np.radians(20.)
+    turn = np.radians(20.0)
     robot_in_world[:2, :2] = [[np.cos(turn), -np.sin(turn)], [np.sin(turn), np.cos(turn)]]
-    robot_in_world[:3, 3] = (.15, -.05, 0.)
+    robot_in_world[:3, 3] = (0.15, -0.05, 0.0)
     capture = synthetic_scene.write(tmp_path / 'capture', frames=3, robot_in_world=robot_in_world)
     scene = json.loads((capture / 'scene.json').read_text())
     assert scene['world'] == 'board' and len(scene['frames'][0]['robot_in_world']) == 7
@@ -67,30 +73,38 @@ def test_a_capture_taken_elsewhere_in_the_world_builds_the_scene_in_the_world(tm
     robot_pose = train_head_scene.pose_matrix(scene['frames'][0]['pose'])
     np.testing.assert_allclose(poses[0], robot_in_world @ robot_pose, atol=1e-9)
     points, _colours = train_head_scene.starting_points(images, poses, color_k, depths)
-    table = (np.abs(points[:, 0]) < .6) & (points[:, 1] > -1.) & (points[:, 1] < -.3) & (np.abs(points[:, 2] - .75) < .015)
+    table = (
+        (np.abs(points[:, 0]) < 0.6)
+        & (points[:, 1] > -1.0)
+        & (points[:, 1] < -0.3)
+        & (np.abs(points[:, 2] - 0.75) < 0.015)
+    )
     assert table.sum() > 100
 
 
 def test_the_compact_splat_keeps_what_shows_most_visible_first():
-    means = np.array([[0., 0., 1.], [1., 2., 3.], [4., 5., 6.]])
-    log_scales = np.log([[.01, .01, .01], [.05, .05, .02], [.1, .1, .1]])
-    quats = np.array([[1., 0., 0., 0.], [0., 1., 0., 0.], [2., 0., 0., 0.]])
-    opacity = np.array([3., 3., -8.])  # The last is all but transparent: left out.
-    sh0 = np.array([[0., 0., 0.], [1., -1., 0.], [0., 0., 0.]])
+    means = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    log_scales = np.log([[0.01, 0.01, 0.01], [0.05, 0.05, 0.02], [0.1, 0.1, 0.1]])
+    quats = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [2.0, 0.0, 0.0, 0.0]])
+    opacity = np.array([3.0, 3.0, -8.0])  # The last is all but transparent: left out.
+    sh0 = np.array([[0.0, 0.0, 0.0], [1.0, -1.0, 0.0], [0.0, 0.0, 0.0]])
     data = train_head_scene.splat_bytes(means, log_scales, quats, opacity, sh0)
     assert len(data) == 2 * 32
     record = np.frombuffer(data, dtype=[('mean', '<f4', 3), ('scale', '<f4', 3), ('rgba', 'u1', 4), ('rot', 'u1', 4)])
-    np.testing.assert_allclose(record['mean'][0], [1., 2., 3.])  # The larger of the two first.
-    np.testing.assert_allclose(record['scale'][0], [.05, .05, .02], rtol=1e-6)
+    np.testing.assert_allclose(record['mean'][0], [1.0, 2.0, 3.0])  # The larger of the two first.
+    np.testing.assert_allclose(record['scale'][0], [0.05, 0.05, 0.02], rtol=1e-6)
     assert list(record['rgba'][1]) == [128, 128, 128, 243]  # Grey from a zero harmonic; sigmoid(3) of 255.
-    assert list(record["rgba"][0][:3]) == [199, 56, 128]  # 0.5 +- C0, of 255.
+    assert list(record['rgba'][0][:3]) == [199, 56, 128]  # 0.5 +- C0, of 255.
     assert list(record['rot'][0]) == [128, 255, 128, 128] and list(record['rot'][1]) == [255, 128, 128, 128]
 
 
 def test_the_station_trains_the_newest_capture_without_a_map_and_makes_its_folders():
     import train_on_station
-    listing = {'captures': ['20261101T010000Z', '20261101T020000Z', '20261101T030000Z'],
-               'maps': ['20261101T010000Z', '20261101T030000Z']}
+
+    listing = {
+        'captures': ['20261101T010000Z', '20261101T020000Z', '20261101T030000Z'],
+        'maps': ['20261101T010000Z', '20261101T030000Z'],
+    }
     assert train_on_station.choose(listing, None) == '20261101T020000Z'
     assert train_on_station.choose(listing, '20261101T030000Z') == '20261101T030000Z'  # Named: trained again.
     with pytest.raises(SystemExit, match='No capture'):
@@ -109,10 +123,15 @@ def test_the_station_trains_the_newest_capture_without_a_map_and_makes_its_folde
         def mkdir(self, path):
             self.existing.add(path)
             self.made.append(path)
+
     robot = Folders({'/home', '/home/ltr', '/home/ltr/minerva'})
     train_on_station._mkdirs(robot, '/home/ltr/minerva/helm/maps/maps/20261101T020000Z')
-    assert robot.made == ['/home/ltr/minerva/helm', '/home/ltr/minerva/helm/maps', '/home/ltr/minerva/helm/maps/maps',
-                          '/home/ltr/minerva/helm/maps/maps/20261101T020000Z']
+    assert robot.made == [
+        '/home/ltr/minerva/helm',
+        '/home/ltr/minerva/helm/maps',
+        '/home/ltr/minerva/helm/maps/maps',
+        '/home/ltr/minerva/helm/maps/maps/20261101T020000Z',
+    ]
     station = Folders({'C:/Users', 'C:/Users/598Jo'})
     train_on_station._mkdirs(station, 'C:/Users/598Jo/minerva-splat/scripts')
     assert station.made == ['C:/Users/598Jo/minerva-splat', 'C:/Users/598Jo/minerva-splat/scripts']

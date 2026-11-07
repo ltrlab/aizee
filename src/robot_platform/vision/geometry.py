@@ -7,6 +7,7 @@ cv2.undistort or cv2.projectPoints unchanged.
 
 A transform T_a_b is a 4x4 matrix taking points in frame b to frame a.
 """
+
 import math
 
 import numpy as np
@@ -14,7 +15,7 @@ import numpy as np
 
 def skew(v):
     x, y, z = v
-    return np.array([[0., -z, y], [z, 0., -x], [-y, x, 0.]])
+    return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
 
 
 def rotation(rotvec):
@@ -23,7 +24,7 @@ def rotation(rotvec):
     theta2 = float(v @ v)
     k = skew(v)
     if theta2 < 1e-8:
-        a, b = 1 - theta2 / 6, .5 - theta2 / 24
+        a, b = 1 - theta2 / 6, 0.5 - theta2 / 24
     else:
         theta = math.sqrt(theta2)
         a, b = math.sin(theta) / theta, (1 - math.cos(theta)) / theta2
@@ -35,9 +36,9 @@ def rotations(rotvecs):
     v = np.asarray(rotvecs, float).reshape(-1, 3)
     theta2 = (v * v).sum(axis=1)
     small = theta2 < 1e-8
-    theta = np.sqrt(np.where(small, 1., theta2))
+    theta = np.sqrt(np.where(small, 1.0, theta2))
     a = np.where(small, 1 - theta2 / 6, np.sin(theta) / theta)
-    b = np.where(small, .5 - theta2 / 24, (1 - np.cos(theta)) / np.where(small, 1., theta2))
+    b = np.where(small, 0.5 - theta2 / 24, (1 - np.cos(theta)) / np.where(small, 1.0, theta2))
     k = np.zeros((len(v), 3, 3))
     k[:, 0, 1], k[:, 0, 2], k[:, 1, 0] = -v[:, 2], v[:, 1], v[:, 2]
     k[:, 1, 2], k[:, 2, 0], k[:, 2, 1] = -v[:, 0], -v[:, 1], v[:, 0]
@@ -50,14 +51,14 @@ def invert_each(t):
     rt = np.transpose(t[:, :3, :3], (0, 2, 1))
     result[:, :3, :3] = rt
     result[:, :3, 3] = -np.einsum('nij,nj->ni', rt, t[:, :3, 3])
-    result[:, 3, 3] = 1.
+    result[:, 3, 3] = 1.0
     return result
 
 
 def rotvec(matrix):
     """The rotation vector of a rotation matrix, angle in [0, pi]."""
     r = np.asarray(matrix, float)
-    cos = min(1., max(-1., (np.trace(r) - 1) / 2))
+    cos = min(1.0, max(-1.0, (np.trace(r) - 1) / 2))
     theta = math.acos(cos)
     vee = np.array([r[2, 1] - r[1, 2], r[0, 2] - r[2, 0], r[1, 0] - r[0, 1]]) / 2
     if theta < 1e-6:
@@ -76,18 +77,28 @@ def rotvec(matrix):
 
 def rpy_matrix(roll, pitch, yaw):
     """URDF's roll-pitch-yaw: about the fixed x, then y, then z axes."""
-    cr, sr, cp, sp, cy, sy = (math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw),
-                              math.sin(yaw))
-    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-                     [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-                     [-sp, cp * sr, cp * cr]])
+    cr, sr, cp, sp, cy, sy = (
+        math.cos(roll),
+        math.sin(roll),
+        math.cos(pitch),
+        math.sin(pitch),
+        math.cos(yaw),
+        math.sin(yaw),
+    )
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
 
 
 def matrix_rpy(r):
     """URDF roll, pitch and yaw of a rotation matrix (pitch in [-pi/2, pi/2])."""
-    pitch = math.asin(max(-1., min(1., -r[2, 0])))
+    pitch = math.asin(max(-1.0, min(1.0, -r[2, 0])))
     if abs(r[2, 0]) > 1 - 1e-9:  # Gimbal lock: put the whole turn in yaw.
-        return 0., pitch, math.atan2(-r[0, 1], r[1, 1])
+        return 0.0, pitch, math.atan2(-r[0, 1], r[1, 1])
     return math.atan2(r[2, 1], r[2, 2]), pitch, math.atan2(r[1, 0], r[0, 0])
 
 
@@ -153,10 +164,12 @@ def normalize(camera, pixels, iterations=20):
 def homography(source, target):
     """The plane-to-plane homography (3x3, H[2, 2] = 1) taking source (N, 2) to target (N, 2), N >= 4, by the
     normalized direct linear transform."""
+
     def conditioner(points):
         mean = points.mean(axis=0)
         scale = math.sqrt(2) / max(np.sqrt(((points - mean) ** 2).sum(axis=1)).mean(), 1e-12)
-        return np.array([[scale, 0., -scale * mean[0]], [0., scale, -scale * mean[1]], [0., 0., 1.]])
+        return np.array([[scale, 0.0, -scale * mean[0]], [0.0, scale, -scale * mean[1]], [0.0, 0.0, 1.0]])
+
     src, dst = np.asarray(source, float), np.asarray(target, float)
     if len(src) < 4 or len(src) != len(dst):
         raise ValueError('A homography needs at least four point pairs')
@@ -184,7 +197,7 @@ def plane_pose(h, points):
     u, _, vt = np.linalg.svd(np.c_[r1, r2, np.cross(r1, r2)])
     r = u @ vt
     if np.linalg.det(r) < 0:
-        r = u @ np.diag([1., 1., -1.]) @ vt
+        r = u @ np.diag([1.0, 1.0, -1.0]) @ vt
     return transform(r, h3 * scale)
 
 
@@ -192,4 +205,4 @@ def chordal_mean(rotations):
     """The rotation nearest (in the Frobenius sense) to the mean of rotation matrices."""
     u, _, vt = np.linalg.svd(np.sum(rotations, axis=0))
     r = u @ vt
-    return r if np.linalg.det(r) > 0 else u @ np.diag([1., 1., -1.]) @ vt
+    return r if np.linalg.det(r) > 0 else u @ np.diag([1.0, 1.0, -1.0]) @ vt

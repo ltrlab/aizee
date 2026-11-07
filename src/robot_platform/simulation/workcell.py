@@ -19,6 +19,7 @@ corner, from the table's centre and size. A tag may instead be given in a measur
 (`fiducials.rectangle`, itself placed in the table frame), or on one of the bucket's front and back walls, where it
 follows the bucket.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -30,9 +31,17 @@ from .fiducials import CODES, grid, marker_axes
 
 KIND = 'sim_workcell'
 PLACEHOLDER = 'placeholder'
-COLORS = {'floor': (.17, .21, .24, 1.), 'table': (.46, .34, .23, 1.), 'trim': (.72, .73, .75, 1.),
-          'leg': (.3, .3, .32, 1.), 'bucket_bottom': (.10, .35, .64, 1.), 'bucket_wall': (.12, .42, .74, 1.),
-          'cube': (.95, .30, .06, 1.), 'fiducial_label': (.90, .90, .88, 1.), 'fiducial_print': (.05, .05, .05, 1.)}
+COLORS = {
+    'floor': (0.17, 0.21, 0.24, 1.0),
+    'table': (0.46, 0.34, 0.23, 1.0),
+    'trim': (0.72, 0.73, 0.75, 1.0),
+    'leg': (0.3, 0.3, 0.32, 1.0),
+    'bucket_bottom': (0.10, 0.35, 0.64, 1.0),
+    'bucket_wall': (0.12, 0.42, 0.74, 1.0),
+    'cube': (0.95, 0.30, 0.06, 1.0),
+    'fiducial_label': (0.90, 0.90, 0.88, 1.0),
+    'fiducial_print': (0.05, 0.05, 0.05, 1.0),
+}
 # The scene's look a workcell may give (simulation.room.LOOK has the user's): the robot's grey, factors on the room
 # backdrop's and the floor's colours, and the lights' colour temperature. Each key and its length.
 LOOK_KEYS = {'robot_grey': 1, 'room_tone': 3, 'floor_tone': 3, 'light_kelvin': 1}
@@ -40,15 +49,21 @@ LOOK_KEYS = {'robot_grey': 1, 'room_tone': 3, 'floor_tone': 3, 'light_kelvin': 1
 BUCKET_WALLS = {'front': 1, 'back': -1}
 WALL_FACES = ('inner', 'outer')
 # Named appearances a workcell file may give instead of RGBA values.
-APPEARANCE = {'black': (.035, .035, .04, 1.), 'silver': (.72, .73, .75, 1.), 'wood': (.80, .64, .43, 1.),
-              'cardboard': (.62, .47, .31, 1.), 'cardboard_inside': (.55, .41, .27, 1.)}
-LEG_HALF = .022
-LEG_INSET = (.06, .04)  # From the table's x and y edges to a leg's centre.
+APPEARANCE = {
+    'black': (0.035, 0.035, 0.04, 1.0),
+    'silver': (0.72, 0.73, 0.75, 1.0),
+    'wood': (0.80, 0.64, 0.43, 1.0),
+    'cardboard': (0.62, 0.47, 0.31, 1.0),
+    'cardboard_inside': (0.55, 0.41, 0.27, 1.0),
+}
+LEG_HALF = 0.022
+LEG_INSET = (0.06, 0.04)  # From the table's x and y edges to a leg's centre.
 
 
 @dataclass(frozen=True)
 class Workcell:
     """Resolved task geometry. Sizes are full sizes unless named half; angles are radians."""
+
     name: str
     table_top: float
     table_center: tuple
@@ -81,7 +96,7 @@ class Workcell:
     # turn from square to the robot.
     fiducials: dict = field(default_factory=dict)
     # The table's turn about its centre from square to the robot (radians); its legs are already placed with it.
-    table_yaw: float = 0.
+    table_yaw: float = 0.0
     # A block that is not a cube: its (x, y, z) edges, z up, x along its yaw (cube.size); () for a cube of cube_edge.
     cube_size: tuple = ()
     # The scene's look where the file gives it (LOOK_KEYS: robot_grey, room_tone, floor_tone, light_kelvin); the scene
@@ -127,54 +142,118 @@ class Workcell:
         values['table_legs'] = tuple(tuple(float(v) for v in leg) for leg in values['table_legs'])
         values['cube_region'] = tuple(tuple(float(v) for v in span) for span in values['cube_region'])
         values['colors'] = {key: tuple(float(v) for v in rgba) for key, rgba in values.get('colors', {}).items()}
-        values['look'] = {key: tuple(float(v) for v in value) if isinstance(value, (list, tuple)) else float(value)
-                          for key, value in values.get('look', {}).items()}
+        values['look'] = {
+            key: tuple(float(v) for v in value) if isinstance(value, (list, tuple)) else float(value)
+            for key, value in values.get('look', {}).items()
+        }
         head = values['head_camera']
-        values['head_camera'] = {'pos': tuple(float(v) for v in head['pos']),
-                                 'xyaxes': tuple(float(v) for v in head['xyaxes']), 'fovy': float(head['fovy'])}
+        values['head_camera'] = {
+            'pos': tuple(float(v) for v in head['pos']),
+            'xyaxes': tuple(float(v) for v in head['xyaxes']),
+            'fovy': float(head['fovy']),
+        }
         if head.get('intrinsics'):
-            values['head_camera']['intrinsics'] = {key: tuple(float(v) for v in value)
-                                                   for key, value in head['intrinsics'].items()}
+            values['head_camera']['intrinsics'] = {
+                key: tuple(float(v) for v in value) for key, value in head['intrinsics'].items()
+            }
         fiducials = values.get('fiducials') or {}
         rectangle = fiducials.get('rectangle') or {}
-        values['fiducials'] = {
-            'family': str(fiducials['family']), 'square': float(fiducials['square']),
-            'label': tuple(float(v) for v in fiducials['label']), 'tag_offset': float(fiducials['tag_offset']),
-            'tags': tuple((int(tag[0]), *(float(v) for v in tag[1:])) for tag in fiducials['tags']),
-            'rectangle': {'size': tuple(float(v) for v in rectangle['size']),
-                          'origin': tuple(float(v) for v in rectangle['origin']), 'yaw': float(rectangle['yaw'])}
-            if rectangle else {}} if fiducials else {}
+        values['fiducials'] = (
+            {
+                'family': str(fiducials['family']),
+                'square': float(fiducials['square']),
+                'label': tuple(float(v) for v in fiducials['label']),
+                'tag_offset': float(fiducials['tag_offset']),
+                'tags': tuple((int(tag[0]), *(float(v) for v in tag[1:])) for tag in fiducials['tags']),
+                'rectangle': {
+                    'size': tuple(float(v) for v in rectangle['size']),
+                    'origin': tuple(float(v) for v in rectangle['origin']),
+                    'yaw': float(rectangle['yaw']),
+                }
+                if rectangle
+                else {},
+            }
+            if fiducials
+            else {}
+        )
         workcell = cls(**values)
         validate(workcell)
         return workcell
 
 
 SYNTHETIC = Workcell(
-    name='synthetic_v1', table_top=.28, table_center=(0., -.38), table_size=(.96, .52), table_thickness=.05,
-    table_legs=((-.42, -.60), (-.42, -.16), (.42, -.60), (.42, -.16)), floor_z=0., trim_width=0.,
-    bucket_center=(-.20, -.40), bucket_yaw=0., bucket_inner=(.17, .17), bucket_height=.08, bucket_wall=.012,
-    bucket_bottom=.014, cube_edge=.036, cube_mass=.035, cube_friction=(1., .005, .0001),
-    cube_start=(.18, -.34, 0.), cube_region=((.10, .26), (-.42, -.26)),
-    head_camera={'pos': (0., -.18, 1.10), 'xyaxes': (1., 0., 0., 0., .975, -.222), 'fovy': 75.},
-    sources={'layout': 'synthetic task settings chosen for top-grasp reach; not a measured workcell'})
+    name='synthetic_v1',
+    table_top=0.28,
+    table_center=(0.0, -0.38),
+    table_size=(0.96, 0.52),
+    table_thickness=0.05,
+    table_legs=((-0.42, -0.60), (-0.42, -0.16), (0.42, -0.60), (0.42, -0.16)),
+    floor_z=0.0,
+    trim_width=0.0,
+    bucket_center=(-0.20, -0.40),
+    bucket_yaw=0.0,
+    bucket_inner=(0.17, 0.17),
+    bucket_height=0.08,
+    bucket_wall=0.012,
+    bucket_bottom=0.014,
+    cube_edge=0.036,
+    cube_mass=0.035,
+    cube_friction=(1.0, 0.005, 0.0001),
+    cube_start=(0.18, -0.34, 0.0),
+    cube_region=((0.10, 0.26), (-0.42, -0.26)),
+    head_camera={'pos': (0.0, -0.18, 1.10), 'xyaxes': (1.0, 0.0, 0.0, 0.0, 0.975, -0.222), 'fovy': 75.0},
+    sources={'layout': 'synthetic task settings chosen for top-grasp reach; not a measured workcell'},
+)
 
 
 def validate(workcell):
     """Refuse a workcell the scene cannot build or judge."""
     w = workcell
-    numbers = [w.table_top, w.table_thickness, w.table_yaw, w.floor_z, w.trim_width, w.bucket_yaw, w.bucket_height,
-               w.bucket_wall,
-               w.bucket_bottom, w.cube_edge, *w.block, w.cube_mass, *w.table_center, *w.table_size,
-               *w.bucket_center,
-               *w.bucket_inner, *w.cube_friction, *w.cube_start, *(v for span in w.cube_region for v in span),
-               *(v for leg in w.table_legs for v in leg), *w.head_camera['pos'], *w.head_camera['xyaxes'],
-               w.head_camera['fovy']]
+    numbers = [
+        w.table_top,
+        w.table_thickness,
+        w.table_yaw,
+        w.floor_z,
+        w.trim_width,
+        w.bucket_yaw,
+        w.bucket_height,
+        w.bucket_wall,
+        w.bucket_bottom,
+        w.cube_edge,
+        *w.block,
+        w.cube_mass,
+        *w.table_center,
+        *w.table_size,
+        *w.bucket_center,
+        *w.bucket_inner,
+        *w.cube_friction,
+        *w.cube_start,
+        *(v for span in w.cube_region for v in span),
+        *(v for leg in w.table_legs for v in leg),
+        *w.head_camera['pos'],
+        *w.head_camera['xyaxes'],
+        w.head_camera['fovy'],
+    ]
     if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in numbers):
         raise ValueError(f'workcell {w.name}: every value must be a finite number')
-    if len(w.block) != 3 or min(*w.table_size, w.table_thickness, *w.bucket_inner, w.bucket_height, w.bucket_wall,
-                                w.bucket_bottom, w.cube_edge, *w.block, w.cube_mass) <= 0:
-        raise ValueError(f'workcell {w.name}: sizes, thicknesses and the cube mass must be positive (a block has '
-                         'three edges)')
+    if (
+        len(w.block) != 3
+        or min(
+            *w.table_size,
+            w.table_thickness,
+            *w.bucket_inner,
+            w.bucket_height,
+            w.bucket_wall,
+            w.bucket_bottom,
+            w.cube_edge,
+            *w.block,
+            w.cube_mass,
+        )
+        <= 0
+    ):
+        raise ValueError(
+            f'workcell {w.name}: sizes, thicknesses and the cube mass must be positive (a block has three edges)'
+        )
     if w.floor_z >= w.table_top - w.table_thickness:
         raise ValueError(f'workcell {w.name}: the floor must lie below the table')
     if w.trim_width < 0 or 2 * w.trim_width >= min(w.table_size):
@@ -191,19 +270,35 @@ def validate(workcell):
     intrinsics = w.head_camera.get('intrinsics')
     if intrinsics:
         (width, height), (fx, fy) = intrinsics['resolution'], intrinsics['focalpixel']
-        if min(width, height, fx, fy) <= 0 or len(intrinsics['principalpixel']) != 2 or \
-                abs(math.degrees(2 * math.atan(height / 2 / fy)) - w.head_camera['fovy']) > .01:
-            raise ValueError(f'workcell {w.name}: the head camera intrinsics need a positive resolution and focal '
-                             'length, and fovy must be the one its vertical focal length gives')
+        if (
+            min(width, height, fx, fy) <= 0
+            or len(intrinsics['principalpixel']) != 2
+            or abs(math.degrees(2 * math.atan(height / 2 / fy)) - w.head_camera['fovy']) > 0.01
+        ):
+            raise ValueError(
+                f'workcell {w.name}: the head camera intrinsics need a positive resolution and focal '
+                'length, and fovy must be the one its vertical focal length gives'
+            )
     if not 0 < w.cube_friction[0]:
         raise ValueError(f'workcell {w.name}: the cube needs sliding friction')
     look = w.look
     unknown = set(look) - set(LOOK_KEYS)
     tones = [v for key in ('room_tone', 'floor_tone') if key in look for v in look[key]]
-    if unknown or any(len(look[key]) != 3 for key in ('room_tone', 'floor_tone') if key in look) or             not all(isinstance(v, float) and math.isfinite(v) for v in [*tones, *(look[key] for key in
-                                                                         ('robot_grey', 'light_kelvin') if key in look)])             or not 0 < look.get('robot_grey', .5) < 1 or not all(0 < v <= 2 for v in tones) or             not 1500 <= look.get('light_kelvin', 4000.) <= 12000:
-        raise ValueError(f'workcell {w.name}: the look takes robot_grey in (0, 1), room_tone and floor_tone as three '
-                         'factors in (0, 2] and light_kelvin in [1500, 12000]')
+    if (
+        unknown
+        or any(len(look[key]) != 3 for key in ('room_tone', 'floor_tone') if key in look)
+        or not all(
+            isinstance(v, float) and math.isfinite(v)
+            for v in [*tones, *(look[key] for key in ('robot_grey', 'light_kelvin') if key in look)]
+        )
+        or not 0 < look.get('robot_grey', 0.5) < 1
+        or not all(0 < v <= 2 for v in tones)
+        or not 1500 <= look.get('light_kelvin', 4000.0) <= 12000
+    ):
+        raise ValueError(
+            f'workcell {w.name}: the look takes robot_grey in (0, 1), room_tone and floor_tone as three '
+            'factors in (0, 2] and light_kelvin in [1500, 12000]'
+        )
     if w.fiducials:
         _validate_fiducials(w)
     return workcell
@@ -212,26 +307,33 @@ def validate(workcell):
 def _validate_fiducials(w):
     f = w.fiducials
     if f.get('family') not in CODES:
-        raise ValueError(f"workcell {w.name}: no codes for fiducial family {f.get('family')!r}; known: {sorted(CODES)}")
+        raise ValueError(f'workcell {w.name}: no codes for fiducial family {f.get("family")!r}; known: {sorted(CODES)}')
     tags = f['tags']
     if not tags or any(len(tag) != 6 for tag in tags):
         raise ValueError(f'workcell {w.name}: each fiducial tag is (id, x, y, z, yaw, tilt)')
     numbers = [f['square'], *f['label'], f['tag_offset'], *(v for tag in tags for v in tag[1:])]
-    if len(f['label']) != 2 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
-                                       for v in numbers):
+    if len(f['label']) != 2 or not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in numbers
+    ):
         raise ValueError(f'workcell {w.name}: every fiducial value must be a finite number')
     ids = [tag[0] for tag in tags]
     if len(set(ids)) != len(ids) or not set(ids) <= set(CODES[f['family']]):
-        raise ValueError(f"workcell {w.name}: fiducial IDs must be distinct, from {sorted(CODES[f['family']])}")
+        raise ValueError(f'workcell {w.name}: fiducial IDs must be distinct, from {sorted(CODES[f["family"]])}')
     cell = f['square'] / grid(f['family'])
-    if f['square'] <= 0 or f['label'][0] < f['square'] + 2 * cell or \
-            f['label'][1] / 2 < abs(f['tag_offset']) + f['square'] / 2 + cell:
+    if (
+        f['square'] <= 0
+        or f['label'][0] < f['square'] + 2 * cell
+        or f['label'][1] / 2 < abs(f['tag_offset']) + f['square'] / 2 + cell
+    ):
         raise ValueError(f'workcell {w.name}: a fiducial label must hold its black square and a one-cell white margin')
     for tag in tags:
         centre, (across, along), (x_axis, y_axis, _) = w.fiducial_label(tag)
         # The label's corners, each half its size along its own axes from its centre.
-        points = [[p + u * a + v * b for p, a, b in zip(centre, x_axis, y_axis)]
-                  for u in (-across, across) for v in (-along, along)]
+        points = [
+            [p + u * a + v * b for p, a, b in zip(centre, x_axis, y_axis)]
+            for u in (-across, across)
+            for v in (-along, along)
+        ]
         if tag[5] == 0:
             if abs(tag[3] - w.table_top) > 1e-9 or not all(on_table(w, x, y) for x, y, _ in points):
                 raise ValueError(f'workcell {w.name}: fiducial {tag[0]} reaches off the table top')
@@ -240,14 +342,24 @@ def _validate_fiducials(w):
         along_x, along_y = bucket_frame(w, tag[1], tag[2])
         half_x, half_y = w.bucket_inner[0] / 2, w.bucket_inner[1] / 2
         outer = abs(abs(along_y) - (half_y + w.bucket_wall)) < 1e-9
-        normal = bucket_frame(w, w.bucket_center[0] + marker_axes(tag[4], tag[5])[2][0],
-                              w.bucket_center[1] + marker_axes(tag[4], tag[5])[2][1])
+        normal = bucket_frame(
+            w,
+            w.bucket_center[0] + marker_axes(tag[4], tag[5])[2][0],
+            w.bucket_center[1] + marker_axes(tag[4], tag[5])[2][1],
+        )
         facing = (1 if outer else -1) * math.copysign(1, along_y)  # Out of the face, along the bucket's y.
         wall_points = [bucket_frame(w, x, y) + (z,) for x, y, z in points]
-        if not (outer or abs(abs(along_y) - half_y) < 1e-9) or abs(normal[0]) > 1e-9 or \
-                abs(normal[1] - facing) > 1e-9 or abs(marker_axes(tag[4], tag[5])[2][2]) > 1e-9 or \
-                any(abs(x) > half_x + (w.bucket_wall if outer else 0.) + 1e-9 or
-                    not w.table_top - 1e-9 <= z <= w.table_top + w.bucket_height + 1e-9 for x, _, z in wall_points):
+        if (
+            not (outer or abs(abs(along_y) - half_y) < 1e-9)
+            or abs(normal[0]) > 1e-9
+            or abs(normal[1] - facing) > 1e-9
+            or abs(marker_axes(tag[4], tag[5])[2][2]) > 1e-9
+            or any(
+                abs(x) > half_x + (w.bucket_wall if outer else 0.0) + 1e-9
+                or not w.table_top - 1e-9 <= z <= w.table_top + w.bucket_height + 1e-9
+                for x, _, z in wall_points
+            )
+        ):
             raise ValueError(f'workcell {w.name}: fiducial {tag[0]} is not wholly on a face of the bucket wall')
 
 
@@ -258,7 +370,7 @@ def table_frame(workcell, x, y):
     return c * dx + s * dy, -s * dx + c * dy
 
 
-def on_table(workcell, x, y, margin=0.):
+def on_table(workcell, x, y, margin=0.0):
     """Whether a world (x, y) lies on the table top, at least `margin` in from its outer edge."""
     u, v = table_frame(workcell, x, y)
     return abs(u) <= workcell.table_size[0] / 2 - margin + 1e-9 and abs(v) <= workcell.table_size[1] / 2 - margin + 1e-9
@@ -272,8 +384,12 @@ def workcell_path(servo_path, asset_id):
 def _value(group, key, sources, *, length=None):
     """The value at `key` (dotted; its last part names the entry in `group`), with its source recorded."""
     entry = group.get(key.rsplit('.', 1)[-1]) if isinstance(group, dict) else None
-    if not isinstance(entry, dict) or 'value' not in entry or not isinstance(entry.get('source'), str) or \
-            not entry['source'].strip():
+    if (
+        not isinstance(entry, dict)
+        or 'value' not in entry
+        or not isinstance(entry.get('source'), str)
+        or not entry['source'].strip()
+    ):
         raise ValueError(f'workcell {key}: each value is {{"value": ..., "source": "..."}} with a named source')
     value = entry['value']
     if length is not None and (not isinstance(value, list) or len(value) != length):
@@ -296,14 +412,18 @@ def _rgba(name, key):
 def _word(group, key, sources, choices):
     """A named choice at `key` (dotted, as _value), {"value": "<one of choices>", "source": "..."}."""
     entry = group.get(key.rsplit('.', 1)[-1]) if isinstance(group, dict) else None
-    if not isinstance(entry, dict) or entry.get('value') not in choices or not isinstance(entry.get('source'), str) or \
-            not entry['source'].strip():
+    if (
+        not isinstance(entry, dict)
+        or entry.get('value') not in choices
+        or not isinstance(entry.get('source'), str)
+        or not entry['source'].strip()
+    ):
         raise ValueError(f'workcell {key}: {{"value": one of {sorted(choices)}, "source": "..."}}')
     sources[key] = entry['source']
     return entry['value']
 
 
-def _frames(group, sources, table_center, table_size, table_yaw=0.):
+def _frames(group, sources, table_center, table_size, table_yaw=0.0):
     """The frames on the table top that tags and the head camera may be given in, as (x, y, yaw) of each origin and x
     axis in the base frame (z up, the origin on the table top): the table frame, and the measured rectangle when the
     fiducials have one (`fiducials.rectangle`). The rectangle's place relative to the robot is one entry,
@@ -311,14 +431,22 @@ def _frames(group, sources, table_center, table_size, table_yaw=0.):
     frames and the rectangle's description ({} without one)."""
     c, s = math.cos(table_yaw), math.sin(table_yaw)
     corner = (table_size[0] / 2, table_size[1] / 2)
-    frames = {'table': (table_center[0] + c * corner[0] - s * corner[1], table_center[1] + s * corner[0] + c * corner[1],
-                        math.pi + table_yaw)}
+    frames = {
+        'table': (
+            table_center[0] + c * corner[0] - s * corner[1],
+            table_center[1] + s * corner[0] + c * corner[1],
+            math.pi + table_yaw,
+        )
+    }
     if not isinstance(group, dict) or 'rectangle' not in group:
         return frames, {}
     r = group['rectangle']
     c, d = _value(r, 'fiducials.rectangle.robot_offsets', sources, length=2)
-    rectangle = {'size': _value(r, 'fiducials.rectangle.size', sources, length=2), 'origin': (c, -d),
-                 'yaw': math.radians(_value(r, 'fiducials.rectangle.yaw_deg', sources))}
+    rectangle = {
+        'size': _value(r, 'fiducials.rectangle.size', sources, length=2),
+        'origin': (c, -d),
+        'yaw': math.radians(_value(r, 'fiducials.rectangle.yaw_deg', sources)),
+    }
     frames['rectangle'] = (c, -d, math.pi + rectangle['yaw'])
     return frames, rectangle
 
@@ -341,8 +469,12 @@ def _fiducials(group, sources, top, frames, rectangle, bucket):
     if group is None:
         return {}
     family = group.get('family')
-    if not isinstance(family, dict) or not isinstance(family.get('value'), str) or \
-            not isinstance(family.get('source'), str) or not family['source'].strip():
+    if (
+        not isinstance(family, dict)
+        or not isinstance(family.get('value'), str)
+        or not isinstance(family.get('source'), str)
+        or not family['source'].strip()
+    ):
         raise ValueError('workcell fiducials.family: {"value": "<OpenCV dictionary name>", "source": "..."}')
     sources['fiducials.family'] = family['source']
     square = _value(group, 'fiducials.square', sources)
@@ -355,26 +487,40 @@ def _fiducials(group, sources, top, frames, rectangle, bucket):
             raise ValueError(f'workcell {prefix}: give either a center on the table or a bucket wall')
         if 'center' in entry:
             if entry.get('frame', 'table') not in frames:
-                raise ValueError(f"workcell {prefix}.frame: one of {sorted(frames)}")
+                raise ValueError(f'workcell {prefix}.frame: one of {sorted(frames)}')
             frame = frames[entry.get('frame', 'table')]
             x, y = _in_base(frame, _value(entry, f'{prefix}.center', sources, length=2))
-            tags.append((int(key), x, y, top, frame[2], 0.))
+            tags.append((int(key), x, y, top, frame[2], 0.0))
             continue
         side = BUCKET_WALLS[_word(entry, f'{prefix}.wall', sources, BUCKET_WALLS)]
         outer = _word(entry, f'{prefix}.face', sources, WALL_FACES) == 'outer'
         along = _value(entry, f'{prefix}.along', sources)
         below = _value(entry, f'{prefix}.below_rim', sources)
         # In the bucket's own axes: the face's y, and the way out of it.
-        face_y = side * (bucket['inner'][1] / 2 + (bucket['wall'] if outer else 0.))
+        face_y = side * (bucket['inner'][1] / 2 + (bucket['wall'] if outer else 0.0))
         out = side if outer else -side
         (bx, by), yaw = bucket['center'], bucket['yaw']
         c, s = math.cos(yaw), math.sin(yaw)
         normal = (-s * out, c * out)
         # Upright, the top of the code up: marker z is the face's normal (fiducials.marker_axes with a quarter tilt).
-        tags.append((int(key), bx + c * along - s * face_y, by + s * along + c * face_y,
-                     top + bucket['height'] - below, math.atan2(normal[0], -normal[1]), math.pi / 2))
-    return {'family': family['value'], 'square': square, 'label': label, 'tag_offset': offset, 'tags': tuple(tags),
-            'rectangle': rectangle}
+        tags.append(
+            (
+                int(key),
+                bx + c * along - s * face_y,
+                by + s * along + c * face_y,
+                top + bucket['height'] - below,
+                math.atan2(normal[0], -normal[1]),
+                math.pi / 2,
+            )
+        )
+    return {
+        'family': family['value'],
+        'square': square,
+        'label': label,
+        'tag_offset': offset,
+        'tags': tuple(tags),
+        'rectangle': rectangle,
+    }
 
 
 def _head_camera(head, sources, top, frames):
@@ -387,17 +533,22 @@ def _head_camera(head, sources, top, frames):
     frame = head.get('frame', 'base')
     if frame != 'base':
         if frame not in frames:
-            raise ValueError(f"workcell cameras.head.frame: base or one of {sorted(frames)}")
+            raise ValueError(f'workcell cameras.head.frame: base or one of {sorted(frames)}')
         turn = frames[frame][2]
         c, s = math.cos(turn), math.sin(turn)
         pos = (*_in_base(frames[frame], pos), top + pos[2])
-        xyaxes = tuple(v for axis in (xyaxes[:3], xyaxes[3:])
-                       for v in (c * axis[0] - s * axis[1], s * axis[0] + c * axis[1], axis[2]))
+        xyaxes = tuple(
+            v
+            for axis in (xyaxes[:3], xyaxes[3:])
+            for v in (c * axis[0] - s * axis[1], s * axis[0] + c * axis[1], axis[2])
+        )
     camera = {'pos': pos, 'xyaxes': xyaxes, 'fovy': _value(head, 'cameras.head.fovy', sources)}
     if 'intrinsics' in head:
         group = head['intrinsics']
-        camera['intrinsics'] = {key: _value(group, f'cameras.head.intrinsics.{key}', sources, length=2)
-                                for key in ('resolution', 'focalpixel', 'principalpixel')}
+        camera['intrinsics'] = {
+            key: _value(group, f'cameras.head.intrinsics.{key}', sources, length=2)
+            for key in ('resolution', 'focalpixel', 'principalpixel')
+        }
     return camera
 
 
@@ -430,11 +581,15 @@ def bucket_opening_pixels(workcell, width, height):
     def unit(vector):
         length = math.sqrt(sum(v * v for v in vector))
         return tuple(v / length for v in vector)
+
     x_axis = unit(head['xyaxes'][:3])
     along = sum(a * b for a, b in zip(head['xyaxes'][3:], x_axis))
     y_axis = unit([b - along * a for a, b in zip(x_axis, head['xyaxes'][3:])])
-    z_axis = (x_axis[1] * y_axis[2] - x_axis[2] * y_axis[1], x_axis[2] * y_axis[0] - x_axis[0] * y_axis[2],
-              x_axis[0] * y_axis[1] - x_axis[1] * y_axis[0])
+    z_axis = (
+        x_axis[1] * y_axis[2] - x_axis[2] * y_axis[1],
+        x_axis[2] * y_axis[0] - x_axis[0] * y_axis[2],
+        x_axis[0] * y_axis[1] - x_axis[1] * y_axis[0],
+    )
     fx, fy, cx, cy = head_pinhole(head, width, height)
     (bx, by), yaw = workcell.bucket_center, workcell.bucket_yaw
     c, s = math.cos(yaw), math.sin(yaw)
@@ -467,12 +622,15 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
     floor = _value(table, 'table.floor_z', sources)
     trim = _value(table, 'table.trim_width', sources)
     # Optional: the table's turn about its centre from square to the robot.
-    table_yaw = math.radians(_value(table, 'table.yaw_deg', sources)) if 'yaw_deg' in table else 0.
+    table_yaw = math.radians(_value(table, 'table.yaw_deg', sources)) if 'yaw_deg' in table else 0.0
     c, s = math.cos(table_yaw), math.sin(table_yaw)
     inset = LEG_INSET
-    legs = tuple((center[0] + c * lx - s * ly, center[1] + s * lx + c * ly)
-                 for lx, ly in ((sx * (size[0] / 2 - inset[0]), sy * (size[1] / 2 - inset[1]))
-                                for sx in (-1, 1) for sy in (-1, 1)))
+    legs = tuple(
+        (center[0] + c * lx - s * ly, center[1] + s * lx + c * ly)
+        for lx, ly in (
+            (sx * (size[0] / 2 - inset[0]), sy * (size[1] / 2 - inset[1])) for sx in (-1, 1) for sy in (-1, 1)
+        )
+    )
     frames, rectangle = _frames(document.get('fiducials'), sources, center, size, table_yaw)
     camera = _head_camera(document['cameras']['head'], sources, top, frames)
     region = _value(cube, 'cube.region', sources, length=4)
@@ -493,29 +651,48 @@ def from_document(document, *, name='workcell', origin='the workcell document'):
     # that frame's square, so that it moves with that frame.
     frame = bucket.get('frame', 'base')
     if frame != 'base' and frame not in frames:
-        raise ValueError(f"workcell bucket.frame: base or one of {sorted(frames)}")
+        raise ValueError(f'workcell bucket.frame: base or one of {sorted(frames)}')
     middle = _value(bucket, 'bucket.center', sources, length=2)
     turn = math.radians(_value(bucket, 'bucket.yaw_deg', sources))
     if frame != 'base':
         middle, turn = _in_base(frames[frame], middle), turn + frames[frame][2] - math.pi
-    box = dict(center=middle, yaw=turn,
-               inner=_value(bucket, 'bucket.inner_size', sources, length=2),
-               height=_value(bucket, 'bucket.height', sources), wall=_value(bucket, 'bucket.wall', sources),
-               bottom=_value(bucket, 'bucket.bottom', sources))
+    box = dict(
+        center=middle,
+        yaw=turn,
+        inner=_value(bucket, 'bucket.inner_size', sources, length=2),
+        height=_value(bucket, 'bucket.height', sources),
+        wall=_value(bucket, 'bucket.wall', sources),
+        bottom=_value(bucket, 'bucket.bottom', sources),
+    )
     workcell = Workcell(
-        name=str(document.get('name') or name), asset_id=document.get('asset_id'),
-        table_top=top, table_center=center, table_size=size, table_thickness=thickness, table_legs=legs,
+        name=str(document.get('name') or name),
+        asset_id=document.get('asset_id'),
+        table_top=top,
+        table_center=center,
+        table_size=size,
+        table_thickness=thickness,
+        table_legs=legs,
         table_yaw=table_yaw,
-        floor_z=floor, trim_width=trim,
-        bucket_center=box['center'], bucket_yaw=box['yaw'], bucket_inner=box['inner'], bucket_height=box['height'],
-        bucket_wall=box['wall'], bucket_bottom=box['bottom'],
-        cube_edge=max(block) if block else _value(cube, 'cube.edge', sources), cube_size=block,
+        floor_z=floor,
+        trim_width=trim,
+        bucket_center=box['center'],
+        bucket_yaw=box['yaw'],
+        bucket_inner=box['inner'],
+        bucket_height=box['height'],
+        bucket_wall=box['wall'],
+        bucket_bottom=box['bottom'],
+        cube_edge=max(block) if block else _value(cube, 'cube.edge', sources),
+        cube_size=block,
         cube_mass=_value(cube, 'cube.mass', sources),
         cube_friction=_value(cube, 'cube.friction', sources, length=3),
         cube_start=_value(cube, 'cube.start', sources, length=3),
         cube_region=(region[0:2], region[2:4]),
-        head_camera=camera, colors=colors, sources=sources, look=look,
-        fiducials=_fiducials(document.get('fiducials'), sources, top, frames, rectangle, box))
+        head_camera=camera,
+        colors=colors,
+        sources=sources,
+        look=look,
+        fiducials=_fiducials(document.get('fiducials'), sources, top, frames, rectangle, box),
+    )
     return validate(workcell)
 
 

@@ -23,6 +23,7 @@ and from the bridge:
     ['hello', {version, host, ...}] (answered by ['welcome', {version, machine_id, host}]) | ['beat'] | ['link_up', id] | ['link_report', id, report]
     | ['leaders_up', id] | ['leaders', id, {leader: sample}] | ['error', id, message]
 """
+
 import os
 from pathlib import Path
 import secrets
@@ -33,10 +34,10 @@ import time
 
 VERSION = 1
 PORT = 8761  # Loopback only: the relay on this computer.
-SILENCE_S = 5.  # A bridge that sends nothing (not even a beat) for this long is gone.
-BEAT_S = 1.
-LINK_TIMEOUT_S = 20.  # Opening the leader USB and the link process takes a few seconds on Windows.
-LEADER_STALE_S = .5
+SILENCE_S = 5.0  # A bridge that sends nothing (not even a beat) for this long is gone.
+BEAT_S = 1.0
+LINK_TIMEOUT_S = 20.0  # Opening the leader USB and the link process takes a few seconds on Windows.
+LEADER_STALE_S = 0.5
 TOKEN_FILE = Path.home() / 'minerva' / 'run' / 'helm-bridge-token'
 # The bridge key's forced command in the Jetson's authorized_keys (ops.helm_service authorize-bridge); the bridge
 # asks for the same, so it also works where the key is not restricted (tests).
@@ -49,6 +50,7 @@ class BridgeError(RuntimeError):
 
 def _send(sock, lock, message):
     from robot_platform.transport.wire import pack_msg
+
     body = pack_msg(list(message))
     with lock:
         sock.sendall(len(body).to_bytes(4, 'big') + body)
@@ -56,6 +58,7 @@ def _send(sock, lock, message):
 
 def _recv(stream):
     from .edge import read_frame
+
     return read_frame(stream)
 
 
@@ -65,7 +68,7 @@ class _Link:
     def __init__(self, hub, request):
         self.hub, self.request, self.report = hub, request, None
 
-    def close(self, timeout=5.):
+    def close(self, timeout=5.0):
         if self.report is None:
             try:
                 self.report = self.hub._call(['link_stop', self.request], 'link_report', timeout) or {}
@@ -82,6 +85,7 @@ class BridgeLeaders:
 
     def poll(self):
         from robot_platform.teleop.openrb import LeaderSampleSkipped
+
         samples, received = self.hub._leaders.get(self.request, (None, None))
         if not self.hub.connected:
             raise BridgeError('The GELLO bridge went away')
@@ -102,11 +106,13 @@ class BridgeLeaders:
 class BridgeHub:
     """Accepts the bridge's relay on a loopback port; one bridge at a time, the newest replacing the last."""
 
-    def __init__(self, *, port=PORT, token_file=TOKEN_FILE, machine_id=None, clock=time.monotonic, addresses=None,
-                 path_of=None):
+    def __init__(
+        self, *, port=PORT, token_file=TOKEN_FILE, machine_id=None, clock=time.monotonic, addresses=None, path_of=None
+    ):
         """`addresses`: Minerva's addresses for the bridge to try next time (helm.network); `path_of`: how this
         computer reaches the bridge's address ('wired', 'wifi'; helm.network.path_of)."""
         from . import network
+
         self.port, self.token_file, self.clock = port, Path(token_file), clock
         self.addresses = addresses or network.NetworkView().addresses
         self.path_of = path_of or network.path_of
@@ -158,18 +164,36 @@ class BridgeHub:
         try:
             sock.settimeout(SILENCE_S * 2)
             first = _recv(stream)
-            if (not isinstance(first, dict) or first.get('relay') != VERSION
-                    or not secrets.compare_digest(str(first.get('token', '')), self.token)):
+            if (
+                not isinstance(first, dict)
+                or first.get('relay') != VERSION
+                or not secrets.compare_digest(str(first.get('token', '')), self.token)
+            ):
                 return
             hello = _recv(stream)
-            if not (isinstance(hello, list) and hello[:1] == ['hello'] and isinstance(hello[1], dict)
-                    and hello[1].get('version') == VERSION):
+            if not (
+                isinstance(hello, list)
+                and hello[:1] == ['hello']
+                and isinstance(hello[1], dict)
+                and hello[1].get('version') == VERSION
+            ):
                 _send(sock, self._send_lock, ['error', None, f'This Helm speaks bridge version {VERSION}'])
                 return
             # The bridge pins this computer's host key; its key may only run the relay, so it checks the machine
             # id here instead of over SFTP (ops.ssh.pinned).
-            _send(sock, self._send_lock, ['welcome', {'version': VERSION, 'machine_id': self.machine_id,
-                                                      'host': socket.gethostname(), 'addresses': self.addresses()}])
+            _send(
+                sock,
+                self._send_lock,
+                [
+                    'welcome',
+                    {
+                        'version': VERSION,
+                        'machine_id': self.machine_id,
+                        'host': socket.gethostname(),
+                        'addresses': self.addresses(),
+                    },
+                ],
+            )
             path = self.path_of(first.get('peer'))
             with self._lock:
                 previous, self._sock = self._sock, sock
@@ -212,14 +236,20 @@ class BridgeHub:
     def _restamp(self, raw):
         """The bridge's samples on this computer's clock: the PC sends each one's age, never its clock."""
         from robot_platform.teleop.openrb import LeaderSample
+
         now, samples = self.clock(), {}
         for name, row in raw.items():
             age = float(row['age_s'])
-            samples[name] = LeaderSample(positions_rad=tuple(row['positions_rad']),
-                                         raw_positions=tuple(row['raw_positions']), sequence=int(row['sequence']),
-                                         sampled_at=now - max(age, 0.), received_at=now,
-                                         joystick=tuple(row['joystick']), board_sample_ms=int(row['board_sample_ms']),
-                                         board_reply_ms=int(row['board_reply_ms']))
+            samples[name] = LeaderSample(
+                positions_rad=tuple(row['positions_rad']),
+                raw_positions=tuple(row['raw_positions']),
+                sequence=int(row['sequence']),
+                sampled_at=now - max(age, 0.0),
+                received_at=now,
+                joystick=tuple(row['joystick']),
+                board_sample_ms=int(row['board_sample_ms']),
+                board_reply_ms=int(row['board_reply_ms']),
+            )
         return samples
 
     def _beat(self):
@@ -261,18 +291,31 @@ class BridgeHub:
         """The PC end of a session's leader link, served by the bridge toward `robot` (the loop's link address,
         on the address the bridge reached Minerva at). `local` is the bridge's own business."""
         request = next(self._ids)
-        self._call(['link', request, {'profile': profile, 'key': key.hex() if isinstance(key, bytes) else key,
-                                      'robot': list(robot), 'real': bool(real)}], 'link_up', LINK_TIMEOUT_S)
+        self._call(
+            [
+                'link',
+                request,
+                {
+                    'profile': profile,
+                    'key': key.hex() if isinstance(key, bytes) else key,
+                    'robot': list(robot),
+                    'real': bool(real),
+                },
+            ],
+            'link_up',
+            LINK_TIMEOUT_S,
+        )
         return _Link(self, request)
 
-    def open_leaders(self, profile, rate_hz=50.):
+    def open_leaders(self, profile, rate_hz=50.0):
         """The leaders for the Leaders workspace: the bridge opens their USB and streams samples."""
         request = next(self._ids)
         with self._lock:  # Before asking: the first samples may arrive before the bridge's answer is read.
             self._streaming.add(request)
         try:
-            self._call(['leaders_open', request, {'profile': profile, 'rate_hz': float(rate_hz)}], 'leaders_up',
-                       LINK_TIMEOUT_S)
+            self._call(
+                ['leaders_open', request, {'profile': profile, 'rate_hz': float(rate_hz)}], 'leaders_up', LINK_TIMEOUT_S
+            )
         except BridgeError:
             with self._lock:
                 self._streaming.discard(request)
@@ -283,9 +326,15 @@ class BridgeHub:
     def snapshot(self):
         with self._lock:
             heard = None if self._heard is None else round(self.clock() - self._heard, 2)
-            return {'connected': self._sock is not None and heard is not None and heard <= SILENCE_S,
-                    'host': (self.info or {}).get('host'), 'version': (self.info or {}).get('version'),
-                    'peer': self.peer, 'heard_s': heard, 'robot_address': self.robot_address, 'path': self.path}
+            return {
+                'connected': self._sock is not None and heard is not None and heard <= SILENCE_S,
+                'host': (self.info or {}).get('host'),
+                'version': (self.info or {}).get('version'),
+                'peer': self.peer,
+                'heard_s': heard,
+                'robot_address': self.robot_address,
+                'path': self.path,
+            }
 
     def close(self):
         self._closed = True
@@ -298,11 +347,13 @@ class BridgeHub:
 
 # -- the relay: the forced command of the bridge's SSH key ---------------------------------------------------------
 
+
 def relay(stdin=None, stdout=None, *, port=PORT, token_file=TOKEN_FILE):
     """Join the hub on loopback, prove it with the token, then pass bytes both ways until either side ends, off the
     arms' loop's CPUs."""
     from robot_platform.control.scheduling import prefer_background_thread
     from .edge import write_frame
+
     # An SSH session may run on every CPU (its login resets the CPUs it inherits), the loop's too: this thread and
     # the one it starts keep to the background CPUs where the robot has the split.
     prefer_background_thread()
@@ -310,7 +361,7 @@ def relay(stdin=None, stdout=None, *, port=PORT, token_file=TOKEN_FILE):
     stdout = stdout or sys.stdout.buffer
     try:
         token = Path(token_file).read_text().strip()
-        sock = socket.create_connection(('127.0.0.1', port), timeout=5.)
+        sock = socket.create_connection(('127.0.0.1', port), timeout=5.0)
     except OSError as exc:
         sys.stderr.write(f'Helm is not running on Minerva ({exc})\n')
         return 1
@@ -335,6 +386,7 @@ def relay(stdin=None, stdout=None, *, port=PORT, token_file=TOKEN_FILE):
                 sock.shutdown(socket.SHUT_WR)
             except OSError:
                 pass
+
     threading.Thread(target=upstream, daemon=True, name='relay-up').start()
     try:
         while True:

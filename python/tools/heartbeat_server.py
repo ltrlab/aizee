@@ -17,6 +17,7 @@ the telemetry section degrades gracefully and the rest of the page still works.
 
 Run:  python3 heartbeat_server.py [--host 0.0.0.0] [--port 8088]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,16 +33,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 # Units always shown even if not matched by the aizee-* glob.
-EXTRA_UNITS = ["NetworkManager.service", "docker.service"]
+EXTRA_UNITS = ['NetworkManager.service', 'docker.service']
 
 # systemd properties fetched per unit (machine-readable, no root needed).
 PROPS = [
-    "Id", "Description", "LoadState", "ActiveState", "SubState",
-    "UnitFileState", "ActiveEnterTimestampMonotonic", "MemoryCurrent",
-    "MainPID", "NRestarts",
+    'Id',
+    'Description',
+    'LoadState',
+    'ActiveState',
+    'SubState',
+    'UnitFileState',
+    'ActiveEnterTimestampMonotonic',
+    'MemoryCurrent',
+    'MainPID',
+    'NRestarts',
 ]
 
-UNIT_RE = re.compile(r"^[A-Za-z0-9@._\-]+\.service$")  # injection guard for log requests
+UNIT_RE = re.compile(r'^[A-Za-z0-9@._\-]+\.service$')  # injection guard for log requests
 
 
 def run(args, timeout=8):
@@ -50,26 +58,25 @@ def run(args, timeout=8):
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return r.stdout
     except Exception:
-        return ""
+        return ''
 
 
 # ----------------------------------------------------------------------------- services
 def discover_units():
-    out = run(["systemctl", "list-unit-files", "--type=service",
-               "--no-legend", "aizee-*.service"])
+    out = run(['systemctl', 'list-unit-files', '--type=service', '--no-legend', 'aizee-*.service'])
     units = [ln.split()[0] for ln in out.splitlines() if ln.strip()]
     for u in EXTRA_UNITS:
         if u not in units:
             units.append(u)
     # de-dupe, keep aizee-* sorted first then extras
-    aizee = sorted(u for u in units if u.startswith("aizee-"))
-    extra = [u for u in units if not u.startswith("aizee-")]
+    aizee = sorted(u for u in units if u.startswith('aizee-'))
+    extra = [u for u in units if not u.startswith('aizee-')]
     return aizee + extra
 
 
 def uptime_seconds():
     try:
-        with open("/proc/uptime") as f:
+        with open('/proc/uptime') as f:
             return float(f.read().split()[0])
     except Exception:
         return 0.0
@@ -78,51 +85,54 @@ def uptime_seconds():
 def service_statuses(units):
     if not units:
         return []
-    out = run(["systemctl", "show", "--property=" + ",".join(PROPS)] + units)
-    blocks = [b for b in out.split("\n\n") if b.strip()]
+    out = run(['systemctl', 'show', '--property=' + ','.join(PROPS)] + units)
+    blocks = [b for b in out.split('\n\n') if b.strip()]
     up = uptime_seconds()
     result = []
     for block in blocks:
         d = {}
         for line in block.splitlines():
-            if "=" in line:
-                k, _, v = line.partition("=")
+            if '=' in line:
+                k, _, v = line.partition('=')
                 d[k] = v
-        if not d.get("Id"):
+        if not d.get('Id'):
             continue
-        mono = d.get("ActiveEnterTimestampMonotonic", "0")
+        mono = d.get('ActiveEnterTimestampMonotonic', '0')
         try:
-            since = up - (int(mono) / 1_000_000) if mono and mono != "0" else None
+            since = up - (int(mono) / 1_000_000) if mono and mono != '0' else None
         except ValueError:
             since = None
-        mem = d.get("MemoryCurrent", "")
+        mem = d.get('MemoryCurrent', '')
         try:
             mem_bytes = int(mem)
         except ValueError:
             mem_bytes = None
-        result.append({
-            "name": d.get("Id"),
-            "description": d.get("Description", ""),
-            "load": d.get("LoadState", ""),
-            "active": d.get("ActiveState", ""),       # active / inactive / failed / activating
-            "sub": d.get("SubState", ""),             # running / dead / exited / failed
-            "enabled": d.get("UnitFileState", ""),    # enabled / disabled / static
-            "uptime_s": round(since) if since and since > 0 else None,
-            "mem_bytes": mem_bytes,
-            "pid": d.get("MainPID", "0"),
-            "restarts": d.get("NRestarts", "0"),
-        })
+        result.append(
+            {
+                'name': d.get('Id'),
+                'description': d.get('Description', ''),
+                'load': d.get('LoadState', ''),
+                'active': d.get('ActiveState', ''),  # active / inactive / failed / activating
+                'sub': d.get('SubState', ''),  # running / dead / exited / failed
+                'enabled': d.get('UnitFileState', ''),  # enabled / disabled / static
+                'uptime_s': round(since) if since and since > 0 else None,
+                'mem_bytes': mem_bytes,
+                'pid': d.get('MainPID', '0'),
+                'restarts': d.get('NRestarts', '0'),
+            }
+        )
     return result
 
 
 # ----------------------------------------------------------------------------- host metrics
 def cpu_percent(interval=0.2):
     def snap():
-        with open("/proc/stat") as f:
+        with open('/proc/stat') as f:
             parts = f.readline().split()[1:]
         vals = list(map(int, parts))
         idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
         return sum(vals), idle
+
     try:
         t1, i1 = snap()
         time.sleep(interval)
@@ -136,32 +146,35 @@ def cpu_percent(interval=0.2):
 def mem_info():
     info = {}
     try:
-        with open("/proc/meminfo") as f:
+        with open('/proc/meminfo') as f:
             for line in f:
-                k, _, v = line.partition(":")
+                k, _, v = line.partition(':')
                 info[k] = int(v.strip().split()[0]) * 1024  # kB -> bytes
-        total = info.get("MemTotal", 0)
-        avail = info.get("MemAvailable", 0)
-        return {"total": total, "used": total - avail,
-                "percent": round(100 * (total - avail) / total, 1) if total else 0}
+        total = info.get('MemTotal', 0)
+        avail = info.get('MemAvailable', 0)
+        return {
+            'total': total,
+            'used': total - avail,
+            'percent': round(100 * (total - avail) / total, 1) if total else 0,
+        }
     except Exception:
         return None
 
 
 def thermals():
     zones = []
-    base = "/sys/class/thermal"
+    base = '/sys/class/thermal'
     try:
         for name in sorted(os.listdir(base)):
-            if not name.startswith("thermal_zone"):
+            if not name.startswith('thermal_zone'):
                 continue
             try:
-                with open(f"{base}/{name}/type") as f:
+                with open(f'{base}/{name}/type') as f:
                     ztype = f.read().strip()
-                with open(f"{base}/{name}/temp") as f:
+                with open(f'{base}/{name}/temp') as f:
                     temp = int(f.read().strip()) / 1000.0
                 if temp > 0:
-                    zones.append({"name": ztype, "temp_c": round(temp, 1)})
+                    zones.append({'name': ztype, 'temp_c': round(temp, 1)})
             except Exception:
                 continue
     except Exception:
@@ -171,60 +184,57 @@ def thermals():
 
 def disk_info():
     try:
-        u = shutil.disk_usage("/")
-        return {"total": u.total, "used": u.used,
-                "percent": round(100 * u.used / u.total, 1)}
+        u = shutil.disk_usage('/')
+        return {'total': u.total, 'used': u.used, 'percent': round(100 * u.used / u.total, 1)}
     except Exception:
         return None
 
 
 def networks():
-    out = run(["ip", "-o", "-4", "addr", "show"])
+    out = run(['ip', '-o', '-4', 'addr', 'show'])
     ifaces = []
     for line in out.splitlines():
         parts = line.split()
-        if len(parts) >= 4 and parts[2] == "inet":
+        if len(parts) >= 4 and parts[2] == 'inet':
             name, addr = parts[1], parts[3]
-            if name != "lo":
-                ifaces.append({"iface": name, "addr": addr})
+            if name != 'lo':
+                ifaces.append({'iface': name, 'addr': addr})
     ap = None
-    nm = run(["nmcli", "-t", "-f", "GENERAL.CONNECTION,GENERAL.STATE",
-              "device", "show", "wlP1p1s0"])
+    nm = run(['nmcli', '-t', '-f', 'GENERAL.CONNECTION,GENERAL.STATE', 'device', 'show', 'wlP1p1s0'])
     if nm:
-        conn = ""
+        conn = ''
         for line in nm.splitlines():
-            if line.startswith("GENERAL.CONNECTION:"):
-                conn = line.split(":", 1)[1]
-        stations = run(["iw", "dev", "wlP1p1s0", "station", "dump"]).count("Station ")
-        ap = {"connection": conn, "clients": stations}
-    return {"interfaces": ifaces, "ap": ap}
+            if line.startswith('GENERAL.CONNECTION:'):
+                conn = line.split(':', 1)[1]
+        stations = run(['iw', 'dev', 'wlP1p1s0', 'station', 'dump']).count('Station ')
+        ap = {'connection': conn, 'clients': stations}
+    return {'interfaces': ifaces, 'ap': ap}
 
 
 def host_metrics():
-    with open("/proc/loadavg") as f:
+    with open('/proc/loadavg') as f:
         load = f.read().split()[:3]
     return {
-        "hostname": os.uname().nodename,
-        "uptime_s": round(uptime_seconds()),
-        "cpu_percent": cpu_percent(),
-        "cpu_count": os.cpu_count(),
-        "loadavg": load,
-        "mem": mem_info(),
-        "disk": disk_info(),
-        "thermals": thermals(),
-        "network": networks(),
-        "now": time.strftime("%Y-%m-%d %H:%M:%S"),
+        'hostname': os.uname().nodename,
+        'uptime_s': round(uptime_seconds()),
+        'cpu_percent': cpu_percent(),
+        'cpu_count': os.cpu_count(),
+        'loadavg': load,
+        'mem': mem_info(),
+        'disk': disk_info(),
+        'thermals': thermals(),
+        'network': networks(),
+        'now': time.strftime('%Y-%m-%d %H:%M:%S'),
     }
 
 
 # ----------------------------------------------------------------------------- logs
 def service_logs(unit, lines=80):
     if not UNIT_RE.match(unit):
-        return "invalid unit name"
+        return 'invalid unit name'
     lines = max(1, min(int(lines), 1000))
-    out = run(["journalctl", "-u", unit, "-n", str(lines),
-               "--no-pager", "-o", "short-iso"], timeout=12)
-    return out or "(no log entries)"
+    out = run(['journalctl', '-u', unit, '-n', str(lines), '--no-pager', '-o', 'short-iso'], timeout=12)
+    return out or '(no log entries)'
 
 
 # ----------------------------------------------------------------------------- robot telemetry (ZMQ, read-only)
@@ -234,6 +244,7 @@ def service_logs(unit, lines=80):
 try:
     import zmq
     import msgpack
+
     _ZMQ_OK = True
 except Exception:  # pragma: no cover - depends on host env
     _ZMQ_OK = False
@@ -245,10 +256,20 @@ MOTOR_MIN_V = 19.8
 # Preferred motor display order — Minerva bimanual (7-DoF per arm, ids 4..10).
 # Each arm is its own motor_control instance; names disambiguate left/right.
 MOTOR_ORDER = [
-    "left_arm_j1", "left_arm_j2", "left_arm_j3", "left_arm_j4",
-    "left_arm_j5", "left_arm_j6", "left_gripper",
-    "right_arm_j1", "right_arm_j2", "right_arm_j3", "right_arm_j4",
-    "right_arm_j5", "right_arm_j6", "right_gripper",
+    'left_arm_j1',
+    'left_arm_j2',
+    'left_arm_j3',
+    'left_arm_j4',
+    'left_arm_j5',
+    'left_arm_j6',
+    'left_gripper',
+    'right_arm_j1',
+    'right_arm_j2',
+    'right_arm_j3',
+    'right_arm_j4',
+    'right_arm_j5',
+    'right_arm_j6',
+    'right_gripper',
 ]
 
 # A stream older than this (seconds) is treated as stale / offline.
@@ -284,15 +305,12 @@ class TelemetryPoller:
         self._motor_t = {label: 0.0 for label, _ in motor_eps}
         self._ups = None
         self._ups_t = 0.0
-        self._cams = {
-            name: {"header": None, "t": 0.0, "arrivals": deque(maxlen=90)}
-            for name, _ in cam_eps
-        }
+        self._cams = {name: {'header': None, 't': 0.0, 'arrivals': deque(maxlen=90)} for name, _ in cam_eps}
 
     def start(self):
         if not _ZMQ_OK:
             return
-        threading.Thread(target=self._run, name="telem-poll", daemon=True).start()
+        threading.Thread(target=self._run, name='telem-poll', daemon=True).start()
 
     # -- socket loop --------------------------------------------------------
     def _run(self):
@@ -301,7 +319,7 @@ class TelemetryPoller:
         def _sub(ep, hwm):
             s = ctx.socket(zmq.SUB)
             s.setsockopt(zmq.RCVHWM, hwm)
-            s.setsockopt_string(zmq.SUBSCRIBE, "")
+            s.setsockopt_string(zmq.SUBSCRIBE, '')
             s.connect(ep)
             return s
 
@@ -338,8 +356,8 @@ class TelemetryPoller:
                     if hdr is not None:
                         with self._lock:
                             c = self._cams[name]
-                            c["header"], c["t"] = hdr, time.time()
-                            c["arrivals"].append(now)
+                            c['header'], c['t'] = hdr, time.time()
+                            c['arrivals'].append(now)
 
     @staticmethod
     def _drain_msg(sock):
@@ -376,7 +394,7 @@ class TelemetryPoller:
     # -- snapshot for the API ----------------------------------------------
     def snapshot(self):
         if not _ZMQ_OK:
-            return {"available": False, "reason": "pyzmq/msgpack not installed"}
+            return {'available': False, 'reason': 'pyzmq/msgpack not installed'}
 
         now_wall, now_mono = time.time(), time.monotonic()
         with self._lock:
@@ -384,9 +402,7 @@ class TelemetryPoller:
             motor_t = dict(self._motor_t)
             ups, ups_t = self._ups, self._ups_t
             cams_raw = {
-                n: {"header": c["header"], "t": c["t"],
-                    "arrivals": list(c["arrivals"])}
-                for n, c in self._cams.items()
+                n: {'header': c['header'], 't': c['t'], 'arrivals': list(c['arrivals'])} for n, c in self._cams.items()
             }
 
         # --- motors (one motor_control instance per arm; merge + per-arm status) ---
@@ -403,96 +419,104 @@ class TelemetryPoller:
             running = present = 0
             if msg and not stale:
                 all_stale = False
-                estops.append(bool(msg.get("emergency_stop", False)))
-                bv = _rnd(msg.get("battery_voltage"), 2)
+                estops.append(bool(msg.get('emergency_stop', False)))
+                bv = _rnd(msg.get('battery_voltage'), 2)
                 if bv is not None:
                     batt_vs.append(bv)
-                mdict = msg.get("motors", {}) or {}
+                mdict = msg.get('motors', {}) or {}
                 for name in sorted(mdict.keys(), key=_key):
                     md = mdict[name] or {}
                     present += 1
-                    if md.get("state") == "running":
+                    if md.get('state') == 'running':
                         running += 1
-                    motors_out.append({
-                        "arm": label,
-                        "name": name,
-                        "state": md.get("state", ""),
-                        "mode": md.get("mode", ""),
-                        "position": _rnd(md.get("position"), 3),
-                        "velocity": _rnd(md.get("velocity"), 3),
-                        "torque": _rnd(md.get("torque"), 3),
-                        "temperature": _rnd(md.get("temperature"), 1),
-                        "error": md.get("error"),
-                    })
-            arms_out.append({"arm": label, "stale": stale, "age_s": _rnd(age, 1),
-                             "present": present, "running": running})
+                    motors_out.append(
+                        {
+                            'arm': label,
+                            'name': name,
+                            'state': md.get('state', ''),
+                            'mode': md.get('mode', ''),
+                            'position': _rnd(md.get('position'), 3),
+                            'velocity': _rnd(md.get('velocity'), 3),
+                            'torque': _rnd(md.get('torque'), 3),
+                            'temperature': _rnd(md.get('temperature'), 1),
+                            'error': md.get('error'),
+                        }
+                    )
+            arms_out.append(
+                {'arm': label, 'stale': stale, 'age_s': _rnd(age, 1), 'present': present, 'running': running}
+            )
         estop = None if not estops else any(estops)
         batt_v = batt_vs[0] if batt_vs else None
         m_stale = all_stale
-        _ages = [a["age_s"] for a in arms_out if a["age_s"] is not None]
+        _ages = [a['age_s'] for a in arms_out if a['age_s'] is not None]
         m_age = min(_ages) if _ages else None
         batt_pct = None
         if batt_v is not None:
-            batt_pct = int(max(0, min(100,
-                (batt_v - MOTOR_MIN_V) / (MOTOR_FULL_V - MOTOR_MIN_V) * 100)))
+            batt_pct = int(max(0, min(100, (batt_v - MOTOR_MIN_V) / (MOTOR_FULL_V - MOTOR_MIN_V) * 100)))
 
         # --- UPS ---
         u_age = (now_wall - ups_t) if ups_t else None
         u_stale = u_age is None or u_age > UPS_STALE_S
-        ups_out = {"stale": u_stale,
-                   "age_s": _rnd(u_age, 1),
-                   "voltage": None, "current": None,
-                   "power": None, "percentage": None}
+        ups_out = {
+            'stale': u_stale,
+            'age_s': _rnd(u_age, 1),
+            'voltage': None,
+            'current': None,
+            'power': None,
+            'percentage': None,
+        }
         if ups and not u_stale:
-            ud = ups.get("ups", {}) or {}
-            ups_out["voltage"] = _rnd(ud.get("voltage"), 2)
-            ups_out["current"] = _rnd(ud.get("current"), 2)
-            ups_out["power"] = _rnd(ud.get("power"), 2)
-            ups_out["percentage"] = _rnd(ud.get("percentage"), 0)
+            ud = ups.get('ups', {}) or {}
+            ups_out['voltage'] = _rnd(ud.get('voltage'), 2)
+            ups_out['current'] = _rnd(ud.get('current'), 2)
+            ups_out['power'] = _rnd(ud.get('power'), 2)
+            ups_out['percentage'] = _rnd(ud.get('percentage'), 0)
 
         # --- cameras ---
         cams_out = []
         for name, _ep in self.cam_eps:
             c = cams_raw.get(name, {})
-            age = (now_wall - c["t"]) if c.get("t") else None
+            age = (now_wall - c['t']) if c.get('t') else None
             online = age is not None and age <= CAM_STALE_S
             fps = None
-            recent = [a for a in c.get("arrivals", []) if now_mono - a <= 3.0]
+            recent = [a for a in c.get('arrivals', []) if now_mono - a <= 3.0]
             if online and len(recent) >= 2:
                 span = recent[-1] - recent[0]
                 if span > 0:
                     fps = round((len(recent) - 1) / span, 1)
-            hdr = c.get("header") or {}
-            color = hdr.get("color") or {}
-            cams_out.append({
-                "name": name,
-                "online": online,
-                "age_s": _rnd(age, 1),
-                "fps": fps,
-                "width": color.get("width"),
-                "height": color.get("height"),
-                "frame_number": hdr.get("frame_number"),
-            })
+            hdr = c.get('header') or {}
+            color = hdr.get('color') or {}
+            cams_out.append(
+                {
+                    'name': name,
+                    'online': online,
+                    'age_s': _rnd(age, 1),
+                    'fps': fps,
+                    'width': color.get('width'),
+                    'height': color.get('height'),
+                    'frame_number': hdr.get('frame_number'),
+                }
+            )
 
         return {
-            "available": True,
-            "estop": estop,
-            "motors": {
-                "stale": m_stale,
-                "age_s": _rnd(m_age, 1),
-                "battery_voltage": batt_v,
-                "battery_percent": batt_pct,
-                "arms": arms_out,
-                "list": motors_out,
+            'available': True,
+            'estop': estop,
+            'motors': {
+                'stale': m_stale,
+                'age_s': _rnd(m_age, 1),
+                'battery_voltage': batt_v,
+                'battery_percent': batt_pct,
+                'arms': arms_out,
+                'list': motors_out,
             },
-            "ups": ups_out,
-            "cameras": cams_out,
+            'ups': ups_out,
+            'cameras': cams_out,
         }
 
 
 # ----------------------------------------------------------------------------- HTTP
 class Handler(BaseHTTPRequestHandler):
-    poller: "TelemetryPoller | None" = None  # set in main()
+    poller: 'TelemetryPoller | None' = None  # set in main()
 
     def log_message(self, *a):  # silence default stderr access log
         pass
@@ -500,46 +524,46 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
         u = urlparse(self.path)
         try:
-            if u.path == "/" or u.path == "/index.html":
-                self._send(200, PAGE, "text/html; charset=utf-8")
-            elif u.path == "/api/status":
-                telem = (self.poller.snapshot() if self.poller is not None
-                         else {"available": False, "reason": "telemetry disabled"})
-                payload = {"host": host_metrics(),
-                           "services": service_statuses(discover_units()),
-                           "telemetry": telem}
-                self._send(200, json.dumps(payload), "application/json")
-            elif u.path == "/api/logs":
+            if u.path == '/' or u.path == '/index.html':
+                self._send(200, PAGE, 'text/html; charset=utf-8')
+            elif u.path == '/api/status':
+                telem = (
+                    self.poller.snapshot()
+                    if self.poller is not None
+                    else {'available': False, 'reason': 'telemetry disabled'}
+                )
+                payload = {'host': host_metrics(), 'services': service_statuses(discover_units()), 'telemetry': telem}
+                self._send(200, json.dumps(payload), 'application/json')
+            elif u.path == '/api/logs':
                 q = parse_qs(u.query)
-                unit = q.get("unit", [""])[0]
-                lines = q.get("lines", ["80"])[0]
-                self._send(200, json.dumps({"unit": unit,
-                           "log": service_logs(unit, lines)}), "application/json")
-            elif u.path == "/setup":
-                self._send(200, SETUP_PAGE, "text/html; charset=utf-8")
-            elif u.path == "/api/checks":
+                unit = q.get('unit', [''])[0]
+                lines = q.get('lines', ['80'])[0]
+                self._send(200, json.dumps({'unit': unit, 'log': service_logs(unit, lines)}), 'application/json')
+            elif u.path == '/setup':
+                self._send(200, SETUP_PAGE, 'text/html; charset=utf-8')
+            elif u.path == '/api/checks':
                 # setup_checks.py sits next to this file; the script dir is on
                 # sys.path when run as `python3 .../heartbeat_server.py`.
                 import setup_checks
+
                 snap = self.poller.snapshot() if self.poller is not None else None
-                self._send(200, json.dumps(setup_checks.run_all(snap)),
-                           "application/json")
-            elif u.path == "/healthz":
-                self._send(200, "ok", "text/plain")
+                self._send(200, json.dumps(setup_checks.run_all(snap)), 'application/json')
+            elif u.path == '/healthz':
+                self._send(200, 'ok', 'text/plain')
             else:
-                self._send(404, "not found", "text/plain")
+                self._send(404, 'not found', 'text/plain')
         except BrokenPipeError:
             pass
         except Exception as e:
-            self._send(500, json.dumps({"error": str(e)}), "application/json")
+            self._send(500, json.dumps({'error': str(e)}), 'application/json')
 
 
 PAGE = r"""<!DOCTYPE html>
@@ -1051,45 +1075,43 @@ runChecks();
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8088)
-    ap.add_argument("--left-telem", default="tcp://localhost:5556",
-                    help="ZMQ motor telemetry — LEFT arm (aizee-minerva-left)")
-    ap.add_argument("--right-telem", default="tcp://localhost:5576",
-                    help="ZMQ motor telemetry — RIGHT arm (aizee-minerva-right)")
-    ap.add_argument("--ups", default="tcp://localhost:5562",
-                    help="ZMQ UPS telemetry endpoint")
-    ap.add_argument("--left-wrist-cam", default="tcp://localhost:5563",
-                    help="ZMQ left-wrist camera endpoint")
-    ap.add_argument("--right-wrist-cam", default="tcp://localhost:5565",
-                    help="ZMQ right-wrist camera endpoint")
-    ap.add_argument("--head-cam", default="tcp://localhost:5564",
-                    help="ZMQ head (RealSense) camera endpoint")
-    ap.add_argument("--no-telemetry", action="store_true",
-                    help="disable the ZMQ telemetry subscribers")
+    ap.add_argument('--host', default='0.0.0.0')
+    ap.add_argument('--port', type=int, default=8088)
+    ap.add_argument(
+        '--left-telem', default='tcp://localhost:5556', help='ZMQ motor telemetry — LEFT arm (aizee-minerva-left)'
+    )
+    ap.add_argument(
+        '--right-telem', default='tcp://localhost:5576', help='ZMQ motor telemetry — RIGHT arm (aizee-minerva-right)'
+    )
+    ap.add_argument('--ups', default='tcp://localhost:5562', help='ZMQ UPS telemetry endpoint')
+    ap.add_argument('--left-wrist-cam', default='tcp://localhost:5563', help='ZMQ left-wrist camera endpoint')
+    ap.add_argument('--right-wrist-cam', default='tcp://localhost:5565', help='ZMQ right-wrist camera endpoint')
+    ap.add_argument('--head-cam', default='tcp://localhost:5564', help='ZMQ head (RealSense) camera endpoint')
+    ap.add_argument('--no-telemetry', action='store_true', help='disable the ZMQ telemetry subscribers')
     args = ap.parse_args()
 
     if not args.no_telemetry:
         poller = TelemetryPoller(
-            motor_eps=[("left", args.left_telem), ("right", args.right_telem)],
+            motor_eps=[('left', args.left_telem), ('right', args.right_telem)],
             ups_ep=args.ups,
-            cam_eps=[("left_wrist", args.left_wrist_cam),
-                     ("right_wrist", args.right_wrist_cam),
-                     ("head", args.head_cam)],
+            cam_eps=[
+                ('left_wrist', args.left_wrist_cam),
+                ('right_wrist', args.right_wrist_cam),
+                ('head', args.head_cam),
+            ],
         )
         poller.start()
         Handler.poller = poller
         if not _ZMQ_OK:
-            print("AIZEE Heartbeat: pyzmq/msgpack unavailable — telemetry disabled",
-                  flush=True)
+            print('AIZEE Heartbeat: pyzmq/msgpack unavailable — telemetry disabled', flush=True)
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"AIZEE Heartbeat on http://{args.host}:{args.port}", flush=True)
+    print(f'AIZEE Heartbeat on http://{args.host}:{args.port}', flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

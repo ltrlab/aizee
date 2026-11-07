@@ -16,6 +16,7 @@ neutral at 1 under a grey or white target or a light panel's diffuser) with the 
 camera node's control REP as Helm's Settings -> Cameras does. Run only while no session or recording runs: a changed
 gain or white balance would be recorded. Writes /tmp/minerva-calib/noise/<stamp>-<label>/[<value>/]<role>/.
 """
+
 import argparse
 import json
 import math
@@ -73,8 +74,13 @@ def grab(role, frames, skip=5):
             parts = socket.recv_multipart()
             header = msgpack.unpackb(parts[0], raw=False)
             jpeg = parts[1 + header['parts'].index('color')]
-            packets.append((float(header['timestamp']), bytes(jpeg),
-                            {k: v for k, v in header.items() if k not in ('color', 'depth')}))
+            packets.append(
+                (
+                    float(header['timestamp']),
+                    bytes(jpeg),
+                    {k: v for k, v in header.items() if k not in ('color', 'depth')},
+                )
+            )
         return packets[skip:]
     finally:
         socket.close(0)
@@ -84,15 +90,18 @@ def grab(role, frames, skip=5):
 def centre_colour(mean):
     """R/G and B/G of the image's middle half, and each corner patch's luma against the centre's."""
     h, w = mean.shape[:2]
-    middle = mean[h // 4:3 * h // 4, w // 4:3 * w // 4, :3].reshape(-1, 3).mean(axis=0)
-    luma = .114 * mean[..., 0] + .587 * mean[..., 1] + .299 * mean[..., 2]
+    middle = mean[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4, :3].reshape(-1, 3).mean(axis=0)
+    luma = 0.114 * mean[..., 0] + 0.587 * mean[..., 1] + 0.299 * mean[..., 2]
     ph, pw = h // 8, w // 8
-    centre = luma[h // 2 - ph // 2:h // 2 + ph // 2, w // 2 - pw // 2:w // 2 + pw // 2].mean()
+    centre = luma[h // 2 - ph // 2 : h // 2 + ph // 2, w // 2 - pw // 2 : w // 2 + pw // 2].mean()
     corners = [luma[:ph, :pw].mean(), luma[:ph, -pw:].mean(), luma[-ph:, :pw].mean(), luma[-ph:, -pw:].mean()]
     b, g, r = (float(v) for v in middle)
-    return {'bgr': [round(b, 2), round(g, 2), round(r, 2)], 'r_over_g': round(r / g, 4) if g else None,
-            'b_over_g': round(b / g, 4) if g else None,
-            'corner_over_centre': [round(float(c / centre), 3) if centre else None for c in corners]}
+    return {
+        'bgr': [round(b, 2), round(g, 2), round(r, 2)],
+        'r_over_g': round(r / g, 4) if g else None,
+        'b_over_g': round(b / g, 4) if g else None,
+        'corner_over_centre': [round(float(c / centre), 3) if centre else None for c in corners],
+    }
 
 
 def analyse(packets, out):
@@ -109,7 +118,7 @@ def analyse(packets, out):
         np.minimum(lo, bgr, out=lo)
         np.maximum(hi, bgr, out=hi)
         x = bgr.astype(np.float64)
-        y = .114 * x[..., 0] + .587 * x[..., 1] + .299 * x[..., 2]
+        y = 0.114 * x[..., 0] + 0.587 * x[..., 1] + 0.299 * x[..., 2]
         v = np.concatenate([x, y[..., None]], axis=2)
         total += v
         square += v * v
@@ -134,8 +143,11 @@ def analyse(packets, out):
             if sel.sum() < 200:
                 continue
             s = std[..., c][sel]
-            row[name] = {'pixels': int(sel.sum()), 'sigma_median': round(float(np.median(s)), 3),
-                         'sigma_p90': round(float(np.percentile(s, 90)), 3)}
+            row[name] = {
+                'pixels': int(sel.sum()),
+                'sigma_median': round(float(np.median(s)), 3),
+                'sigma_p90': round(float(np.percentile(s, 90)), 3),
+            }
         bins.append(row)
     ok = ~clipped
     overall = {}
@@ -143,42 +155,58 @@ def analyse(packets, out):
         s = std[..., c][ok]
         if not s.size:
             continue
-        overall[name] = {'sigma_median': round(float(np.median(s)), 3), 'sigma_mean': round(float(s.mean()), 3),
-                         'mean_level': round(float(mean[..., c][ok].mean()), 2),
-                         # The median |d| of a normal variable is 0.6745 sigma.
-                         'stack_sigma_measured': round(float(np.median(residual[..., c][ok])) / .6745, 4),
-                         'stack_sigma_white': round(float(np.median(s)) / math.sqrt(n), 4)}
+        overall[name] = {
+            'sigma_median': round(float(np.median(s)), 3),
+            'sigma_mean': round(float(s.mean()), 3),
+            'mean_level': round(float(mean[..., c][ok].mean()), 2),
+            # The median |d| of a normal variable is 0.6745 sigma.
+            'stack_sigma_measured': round(float(np.median(residual[..., c][ok])) / 0.6745, 4),
+            'stack_sigma_white': round(float(np.median(s)) / math.sqrt(n), 4),
+        }
     rows = np.array(rows)
     band = rows - rows.mean(axis=0)
-    floor = float(np.median(std[..., 3][ok])) / math.sqrt(w) if ok.any() else 0.
+    floor = float(np.median(std[..., 3][ok])) / math.sqrt(w) if ok.any() else 0.0
     intervals = np.diff(stamps)
     fm = np.array(frame_mean)
     summary = {
-        'frames': n, 'size': [w, h], 'jpeg_kb_mean': round(float(np.mean([len(p[1]) for p in packets])) / 1024, 1),
+        'frames': n,
+        'size': [w, h],
+        'jpeg_kb_mean': round(float(np.mean([len(p[1]) for p in packets])) / 1024, 1),
         'fps': round(1 / float(np.median(intervals)), 2) if len(intervals) else None,
-        'interval_ms': {'median': round(float(np.median(intervals)) * 1e3, 2),
-                        'p99': round(float(np.percentile(intervals, 99)) * 1e3, 2),
-                        'max': round(float(intervals.max()) * 1e3, 2),
-                        'gaps_over_1p5x': int((intervals > 1.5 * np.median(intervals)).sum())},
-        'clipped_fraction': round(float(clipped.mean()), 4), 'overall': overall, 'bins': bins,
-        'flicker': {'frame_mean_luma': round(float(fm.mean()), 2), 'frame_mean_std': round(float(fm.std()), 4),
-                    'frame_mean_ptp': round(float(np.ptp(fm)), 3), 'row_band_std': round(float(band.std()), 4),
-                    'row_band_noise_floor': round(floor, 4)},
-        'centre': centre_colour(mean), 'header': packets[0][2],
+        'interval_ms': {
+            'median': round(float(np.median(intervals)) * 1e3, 2),
+            'p99': round(float(np.percentile(intervals, 99)) * 1e3, 2),
+            'max': round(float(intervals.max()) * 1e3, 2),
+            'gaps_over_1p5x': int((intervals > 1.5 * np.median(intervals)).sum()),
+        },
+        'clipped_fraction': round(float(clipped.mean()), 4),
+        'overall': overall,
+        'bins': bins,
+        'flicker': {
+            'frame_mean_luma': round(float(fm.mean()), 2),
+            'frame_mean_std': round(float(fm.std()), 4),
+            'frame_mean_ptp': round(float(np.ptp(fm)), 3),
+            'row_band_std': round(float(band.std()), 4),
+            'row_band_noise_floor': round(floor, 4),
+        },
+        'centre': centre_colour(mean),
+        'header': packets[0][2],
     }
     (out / 'summary.json').write_text(json.dumps(summary, indent=1))
-    cv2.imwrite(str(out / 'mean.png'), np.clip(mean[..., :3] + .5, 0, 255).astype(np.uint8))
+    cv2.imwrite(str(out / 'mean.png'), np.clip(mean[..., :3] + 0.5, 0, 255).astype(np.uint8))
     cv2.imwrite(str(out / 'std_x20.png'), np.clip(std[..., 3] * 20, 0, 255).astype(np.uint8))
     return summary
 
 
 def line(role, summary):
     o, f, c = summary['overall'].get('Y', {}), summary['flicker'], summary['centre']
-    return (f"{role:12s} {summary['fps']} fps  luma {o.get('mean_level', float('nan')):.1f}  sigma Y "
-            f"{o.get('sigma_median', float('nan')):.2f}  stack {o.get('stack_sigma_measured', float('nan')):.3f} "
-            f"(white {o.get('stack_sigma_white', float('nan')):.3f})  rows {f['row_band_std']:.3f}/"
-            f"{f['row_band_noise_floor']:.3f}  R/G {c['r_over_g']}  B/G {c['b_over_g']}  "
-            f"clipped {summary['clipped_fraction']:.3f}")
+    return (
+        f'{role:12s} {summary["fps"]} fps  luma {o.get("mean_level", float("nan")):.1f}  sigma Y '
+        f'{o.get("sigma_median", float("nan")):.2f}  stack {o.get("stack_sigma_measured", float("nan")):.3f} '
+        f'(white {o.get("stack_sigma_white", float("nan")):.3f})  rows {f["row_band_std"]:.3f}/'
+        f'{f["row_band_noise_floor"]:.3f}  R/G {c["r_over_g"]}  B/G {c["b_over_g"]}  '
+        f'clipped {summary["clipped_fraction"]:.3f}'
+    )
 
 
 def assignments(items):
@@ -200,8 +228,9 @@ def main():
     before = {role: controls(role) for role in args.roles}
     (root / 'controls.json').write_text(json.dumps(before, indent=1))
     fixed = assignments(args.set)
-    sweep_name, sweep_values = (args.sweep.split('=', 1)[0], args.sweep.split('=', 1)[1].split(',')) \
-        if args.sweep else (None, [None])
+    sweep_name, sweep_values = (
+        (args.sweep.split('=', 1)[0], args.sweep.split('=', 1)[1].split(',')) if args.sweep else (None, [None])
+    )
     # In the order applied; restored in reverse (a white balance temperature before automatic white balance).
     touched = [name for name, _ in fixed] + ([sweep_name] if sweep_name else [])
     for role in adjustable:
@@ -231,8 +260,7 @@ def main():
                 control(STREAMS[role][1], {'op': 'set_ctrl', 'name': name, 'value': int(value_of(before[role][name]))})
         if touched:
             after = {role: controls(role) for role in adjustable}
-            wrong = [(r, n) for r in adjustable for n in touched
-                     if value_of(after[r][n]) != value_of(before[r][n])]
+            wrong = [(r, n) for r in adjustable for n in touched if value_of(after[r][n]) != value_of(before[r][n])]
             print('restored' if not wrong else f'RESTORE MISMATCH {wrong}', flush=True)
     print(root)
 

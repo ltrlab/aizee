@@ -76,38 +76,28 @@ class HandSample:
 
     def __post_init__(self):
         if len(self.position) != 3 or len(self.orientation) != 4:
-            raise ValueError(
-                "A hand sample has a position (x, y, z) and an orientation (x, y, z, w)"
-            )
+            raise ValueError('A hand sample has a position (x, y, z) and an orientation (x, y, z, w)')
         values = (*self.position, *self.orientation, self.grip, self.trigger, self.at)
         if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values):
-            raise ValueError("A hand sample is finite numbers")
+            raise ValueError('A hand sample is finite numbers')
         if not 0.9 < math.sqrt(sum(v * v for v in self.orientation)) < 1.1:
-            raise ValueError("A hand orientation is a unit quaternion")
+            raise ValueError('A hand orientation is a unit quaternion')
 
 
 @dataclass
 class DragSettings:
     scale: float = 1.0  # Tool motion per hand motion.
     stale_s: float = 0.1  # A hand with no newer pose lets go.
-    smoothing_s: float = (
-        0.02  # The pose filter's time constant: about one 60 Hz frame of lag.
-    )
+    smoothing_s: float = 0.02  # The pose filter's time constant: about one 60 Hz frame of lag.
     jump_m: float = 0.3
     jump_rad: float = 0.5
     jump_grace: int = 3
     grip_on: float = 0.6  # The grip attaches above this and lets go below grip_off.
     grip_off: float = 0.4
-    max_tool_speed_m_s: float = (
-        0.6  # AIZEE's: tracking jumps cut, a reach's speed kept.
-    )
+    max_tool_speed_m_s: float = 0.6  # AIZEE's: tracking jumps cut, a reach's speed kept.
     max_joint_speed_rad_s: float = 3.0  # AIZEE's following speed for the Quest.
-    max_step_s: float = (
-        1 / 30
-    )  # A longer gap between updates grants no more motion than this.
-    singular_sigma: float = (
-        0.02  # Below this smallest singular value the arm is near a singular pose.
-    )
+    max_step_s: float = 1 / 30  # A longer gap between updates grants no more motion than this.
+    singular_sigma: float = 0.02  # Below this smallest singular value the arm is near a singular pose.
     # A solve that fails with the elbow straight (|J3| below this) is tried again from this bend, and the better kept.
     # The hanging arm is singular, and from straight the IK folds the elbow either way: unbent it chose the forearm
     # back, the elbow ahead of the hand (toward the table). Minerva's forearm folds forward with CAD J3 negative, both
@@ -117,46 +107,30 @@ class DragSettings:
     # takes 1-2, and an arm held at a joint limit no longer spends 12 iterations a frame (on the Jetson, 4 ms of an
     # arm's update).
     ik_iterations: int = 4
-    workspace: dict = field(
-        default_factory=dict
-    )  # {arm: ((x, y, z) low, (x, y, z) high)} in the robot frame.
+    workspace: dict = field(default_factory=dict)  # {arm: ((x, y, z) low, (x, y, z) high)} in the robot frame.
 
     def __post_init__(self):
         positive = (
-            "scale",
-            "stale_s",
-            "smoothing_s",
-            "jump_m",
-            "jump_rad",
-            "max_tool_speed_m_s",
-            "max_joint_speed_rad_s",
-            "max_step_s",
-            "singular_sigma",
+            'scale',
+            'stale_s',
+            'smoothing_s',
+            'jump_m',
+            'jump_rad',
+            'max_tool_speed_m_s',
+            'max_joint_speed_rad_s',
+            'max_step_s',
+            'singular_sigma',
         )
-        if any(
-            not math.isfinite(getattr(self, k)) or getattr(self, k) <= 0
-            for k in positive
-        ):
-            raise ValueError(f"{', '.join(positive)} are positive")
-        if (
-            not 0 < self.grip_off < self.grip_on < 1
-            or self.jump_grace < 1
-            or self.ik_iterations < 1
-        ):
-            raise ValueError("The grip lets go below where it attaches, inside 0 to 1")
+        if any(not math.isfinite(getattr(self, k)) or getattr(self, k) <= 0 for k in positive):
+            raise ValueError(f'{", ".join(positive)} are positive')
+        if not 0 < self.grip_off < self.grip_on < 1 or self.jump_grace < 1 or self.ik_iterations < 1:
+            raise ValueError('The grip lets go below where it attaches, inside 0 to 1')
         if not math.isfinite(self.elbow_bend) or abs(self.elbow_bend) > 0.3:
-            raise ValueError("elbow_bend is a small bend, at most 0.3 rad either way")
+            raise ValueError('elbow_bend is a small bend, at most 0.3 rad either way')
         for arm, box in self.workspace.items():
             low, high = (np.asarray(corner, dtype=float) for corner in box)
-            if (
-                arm not in ARMS
-                or low.shape != (3,)
-                or high.shape != (3,)
-                or not np.all(low < high)
-            ):
-                raise ValueError(
-                    "A workspace box is {arm: ((x, y, z) low, (x, y, z) high)}"
-                )
+            if arm not in ARMS or low.shape != (3,) or high.shape != (3,) or not np.all(low < high):
+                raise ValueError('A workspace box is {arm: ((x, y, z) low, (x, y, z) high)}')
 
 
 @dataclass(frozen=True)
@@ -191,7 +165,7 @@ class _Hand:
         """Filter in `sample`: 'new' for the first pose (or the jump check giving way), 'kept', 'dropped' (a jump),
         or 'same' (no newer pose than the last)."""
         if self.at is not None and sample.at <= self.at:
-            return "same"
+            return 'same'
         p, q = (
             np.asarray(sample.position, dtype=float),
             np.asarray(sample.orientation, dtype=float),
@@ -199,7 +173,7 @@ class _Hand:
         q = q / np.linalg.norm(q)
         if self.position is None:
             self.position, self.orientation, self.at, self.jumps = p, q, sample.at, 0
-            return "new"
+            return 'new'
         if q @ self.orientation < 0:
             q = -q
         moved = float(np.linalg.norm(p - self.position))
@@ -207,16 +181,16 @@ class _Hand:
         if moved > self.settings.jump_m or turned > self.settings.jump_rad:
             self.jumps += 1
             if self.jumps < self.settings.jump_grace:
-                return "dropped"
+                return 'dropped'
             self.position, self.orientation, self.at, self.jumps = p, q, sample.at, 0
-            return "new"
+            return 'new'
         self.jumps = 0
         a = 1 - math.exp(-(sample.at - self.at) / self.settings.smoothing_s)
         self.position = self.position + a * (p - self.position)
         blended = self.orientation + a * (q - self.orientation)
         self.orientation = blended / np.linalg.norm(blended)
         self.at = sample.at
-        return "kept"
+        return 'kept'
 
     def rotation(self):
         return quaternion_matrix(self.orientation)
@@ -248,14 +222,8 @@ class VRArms:
     """Both arms' grab and drag. `kinematics`: {arm: teleop.arm_ik.ArmKinematics}; `settings`: DragSettings."""
 
     def __init__(self, kinematics, settings=None, *, forward_yaw=0.0):
-        if (
-            not kinematics
-            or set(kinematics) - set(ARMS)
-            or any(k.arm != arm for arm, k in kinematics.items())
-        ):
-            raise ValueError(
-                "Kinematics are {arm: ArmKinematics} for the left and/or right arm"
-            )
+        if not kinematics or set(kinematics) - set(ARMS) or any(k.arm != arm for arm, k in kinematics.items()):
+            raise ValueError('Kinematics are {arm: ArmKinematics} for the left and/or right arm')
         self.settings = settings or DragSettings()
         self.arms = {arm: _Arm(k, self.settings) for arm, k in kinematics.items()}
         self.forward_yaw = float(forward_yaw)
@@ -292,7 +260,7 @@ class VRArms:
 
     def set_scale(self, scale):
         if not math.isfinite(scale) or scale <= 0:
-            raise ValueError("The scale is positive")
+            raise ValueError('The scale is positive')
         self.settings.scale = float(scale)
         self._reattach()
 
@@ -304,24 +272,15 @@ class VRArms:
     def update(self, now, samples):
         """Each arm's ArmCommand at `now` (the loop's clock), from `samples` ({arm: HandSample or None}, each hand's
         latest)."""
-        return {
-            arm: self._update(state, now, samples.get(arm))
-            for arm, state in self.arms.items()
-        }
+        return {arm: self._update(state, now, samples.get(arm)) for arm, state in self.arms.items()}
 
     def _update(self, state, now, sample):
         s = self.settings
         hold = bool(sample is not None and sample.hold and not state.held_button)
         state.held_button = bool(sample is not None and sample.hold)
         if state.q is None:
-            return ArmCommand(
-                None, None, False, False, False, True, (), math.nan, False, hold
-            )
-        step_s = (
-            s.max_step_s
-            if state.updated_at is None
-            else min(max(now - state.updated_at, 1e-3), s.max_step_s)
-        )
+            return ArmCommand(None, None, False, False, False, True, (), math.nan, False, hold)
+        step_s = s.max_step_s if state.updated_at is None else min(max(now - state.updated_at, 1e-3), s.max_step_s)
         state.updated_at = now
         if sample is None or now - sample.at > s.stale_s:
             # Lost: the arm holds; the hand's next fresh pose with the grip held attaches it again where it is.
@@ -341,7 +300,7 @@ class VRArms:
         if not state.pressed:
             state.armed = True
             state.let_go()
-        elif state.armed and (not state.gripped or added == "new"):
+        elif state.armed and (not state.gripped or added == 'new'):
             state.attach()  # A new grip, a hand back after a gap or a jump: attached where it is, nothing moves.
         clamped = self._drag(state, step_s) if state.gripped else False
         state.closure = min(1.0, max(0.0, float(sample.trigger)))
@@ -364,9 +323,7 @@ class VRArms:
         change = target[:3, 3] - state.target[:3, 3]
         reach = s.max_tool_speed_m_s * step_s
         if np.linalg.norm(change) > reach:
-            target[:3, 3] = state.target[:3, 3] + change * (
-                reach / np.linalg.norm(change)
-            )
+            target[:3, 3] = state.target[:3, 3] + change * (reach / np.linalg.norm(change))
             clamped = True
         state.target = target
         solution = state.kinematics.solve(target, state.q, max_iterations=s.ik_iterations)
@@ -386,9 +343,7 @@ class VRArms:
         return clamped
 
     def _command(self, state, tracking, closure, clamped, hold):
-        sigma = float(
-            np.linalg.svd(state.kinematics.jacobian(state.q), compute_uv=False)[-1]
-        )
+        sigma = float(np.linalg.svd(state.kinematics.jacobian(state.q), compute_uv=False)[-1])
         return ArmCommand(
             tuple(float(v) for v in state.q),
             closure,

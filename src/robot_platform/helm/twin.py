@@ -4,6 +4,7 @@ files, Remove to take it away (each one replaced or removed is kept under <histo
 model draw the measured arms and neck through it at once; the head camera's pose, which places the headset's depth,
 takes it from the next session (helm.head_teleop). Nothing here moves a motor or changes a zero.
 """
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import math
@@ -22,8 +23,8 @@ from robot_platform.vision.board import load_board
 from robot_platform.vision.chain import Chain
 from robot_platform.vision.head_alignment import DEFAULT_RIG, board_middle, load_rig
 
-PROPOSAL_S = 5.  # The proposal is worked out again at most this often for the page's state,
-CHECK_S = 2.  # and the saved correction checked against the references in use at most this often for the 3D views.
+PROPOSAL_S = 5.0  # The proposal is worked out again at most this often for the page's state,
+CHECK_S = 2.0  # and the saved correction checked against the references in use at most this often for the 3D views.
 
 
 class TwinCorrection:
@@ -64,11 +65,13 @@ class TwinCorrection:
         if fresh or self._proposal is None or self.clock() - self._proposed > PROPOSAL_S:
             try:
                 camera, reference = self._head()
-                self._proposal = twin.propose(self.wrists, self.arms_reference(), camera, reference, self.chain,
-                                              self.middle)
+                self._proposal = twin.propose(
+                    self.wrists, self.arms_reference(), camera, reference, self.chain, self.middle
+                )
             except (OSError, ValueError) as exc:
-                self._proposal = dict(wrists_run=None, arms=None, head=None,
-                                      notes=[f"The head's files cannot be read: {exc}"])
+                self._proposal = dict(
+                    wrists_run=None, arms=None, head=None, notes=[f"The head's files cannot be read: {exc}"]
+                )
             self._proposed = self.clock()
         return self._proposal
 
@@ -86,7 +89,7 @@ class TwinCorrection:
         target = self.path()
         if target.is_file():
             self.history.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, self.history / f"{what}-{now.strftime('%Y%m%dT%H%M%SZ')}-{target.name}")
+            shutil.copy2(target, self.history / f'{what}-{now.strftime("%Y%m%dT%H%M%SZ")}-{target.name}')
 
     def apply(self):
         """Save the proposal as the correction the 3D views draw through (and the head's next session)."""
@@ -165,16 +168,19 @@ class TwinCorrection:
         if not offsets:
             return pose
         badge = pose.get('badge')
-        return dict(pose, positions={**positions, **{name: positions[name] + v for name, v in offsets.items()}},
-                    stream_id=f"{pose.get('stream_id') or 'guide'}+twin{drawing['revision']}",
-                    badge=f'{badge} · twin corrected' if badge else 'Twin corrected')
+        return dict(
+            pose,
+            positions={**positions, **{name: positions[name] + v for name, v in offsets.items()}},
+            stream_id=f'{pose.get("stream_id") or "guide"}+twin{drawing["revision"]}',
+            badge=f'{badge} · twin corrected' if badge else 'Twin corrected',
+        )
 
     def camera_turn(self):
         """The turn (4x4, Minerva's frame) the head camera's poses take from the correction: the running live head's
         (it reports the offsets its camera uses), else the saved one's, which the next session takes. A map's world
         moves with it, so a capture's frames and the headset's depth stay in one frame (helm.maps)."""
         view = self.teleop() or {}
-        offsets = ((view.get('head') or {}).get('camera_offsets') if view.get('phase') == 'running' else None)
+        offsets = (view.get('head') or {}).get('camera_offsets') if view.get('phase') == 'running' else None
         if offsets is None:
             offsets = self.drawing()['head']
         return twin.correction(self.chain, offsets) if offsets else np.eye(4)
@@ -185,9 +191,21 @@ class TwinCorrection:
         document, problem = self._saved()
         drawing = self.drawing()
         proposal = self.proposal()
-        applied = None if document is None else dict(
-            saved_at=document.get('saved_at'), wrists_run=document.get('wrists_run'), arms=document.get('arms'),
-            head=document.get('head'),
-            current=all(document.get(key) == proposal.get(key) for key in ('arms', 'head')))
-        return dict(busy=self.busy, error=self.error or problem, proposal=proposal, applied=applied,
-                    drawing=dict(arms=len(drawing['arms']), head=len(drawing['head']), notes=drawing['notes']))
+        applied = (
+            None
+            if document is None
+            else dict(
+                saved_at=document.get('saved_at'),
+                wrists_run=document.get('wrists_run'),
+                arms=document.get('arms'),
+                head=document.get('head'),
+                current=all(document.get(key) == proposal.get(key) for key in ('arms', 'head')),
+            )
+        )
+        return dict(
+            busy=self.busy,
+            error=self.error or problem,
+            proposal=proposal,
+            applied=applied,
+            drawing=dict(arms=len(drawing['arms']), head=len(drawing['head']), notes=drawing['notes']),
+        )

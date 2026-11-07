@@ -33,28 +33,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common.wire import pack_camera
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Keeping the camera on USB 3 (Usb3Keeper).
-RETRAIN_BACKOFF_S = (0., 30., 120., 600.)  # Before a reset, by how many resets in a row did not hold.
+RETRAIN_BACKOFF_S = (0.0, 30.0, 120.0, 600.0)  # Before a reset, by how many resets in a row did not hold.
 RETRAIN_EXIT = 75  # EX_TEMPFAIL: the camera was reset and is re-attaching; systemd starts a fresh process.
-SETTLE_S = 10.  # A camera reset this recently may still be re-attaching: wait for it before resetting again.
-POLL_S = .5
-LOOK_S = 2.  # While a reset waits, the camera is read again this often: a replug ends the wait within it.
-LIVE_POLL_S = 5.
-NO_CAMERA_WAIT_S = 60.  # With no camera at all, the process waits this long, then exits (systemd starts it again).
+SETTLE_S = 10.0  # A camera reset this recently may still be re-attaching: wait for it before resetting again.
+POLL_S = 0.5
+LOOK_S = 2.0  # While a reset waits, the camera is read again this often: a replug ends the wait within it.
+LIVE_POLL_S = 5.0
+NO_CAMERA_WAIT_S = 60.0  # With no camera at all, the process waits this long, then exits (systemd starts it again).
 LIVE_RECEIVERS = ('guarded_controller', 'head_controller')  # Minerva's live receivers: no reset while one runs.
-STOP_TIMEOUT_S = 2.  # pipeline.stop() hangs inside librealsense once the camera is gone; the exit does not wait.
+STOP_TIMEOUT_S = 2.0  # pipeline.stop() hangs inside librealsense once the camera is gone; the exit does not wait.
 
 
 def _image_rotation(value: int) -> int:
     """Only whole half-turns preserve both native image dimensions."""
     if type(value) is not int or value not in (0, 180):
-        raise ValueError("image_rotation_deg must be the integer 0 or 180")
+        raise ValueError('image_rotation_deg must be the integer 0 or 180')
     return value
 
 
@@ -62,8 +59,7 @@ def _rotate_rgbd(color: np.ndarray, depth: np.ndarray, rotation: int) -> tuple:
     """Rotate each native grid equally; this does not register depth to RGB."""
     if _image_rotation(rotation) == 0:
         return color, depth
-    return (np.ascontiguousarray(color[::-1, ::-1]),
-            np.ascontiguousarray(depth[::-1, ::-1]))
+    return (np.ascontiguousarray(color[::-1, ::-1]), np.ascontiguousarray(depth[::-1, ::-1]))
 
 
 def _rotate_depth_intrinsics(intrinsics: dict, rotation: int) -> dict:
@@ -76,9 +72,12 @@ def _rotate_depth_intrinsics(intrinsics: dict, rotation: int) -> dict:
     """
     result = dict(intrinsics)
     if _image_rotation(rotation) == 180:
-        result.update(fx=-intrinsics['fx'], fy=-intrinsics['fy'],
-                      cx=intrinsics['width']-1-intrinsics['cx'],
-                      cy=intrinsics['height']-1-intrinsics['cy'])
+        result.update(
+            fx=-intrinsics['fx'],
+            fy=-intrinsics['fy'],
+            cx=intrinsics['width'] - 1 - intrinsics['cx'],
+            cy=intrinsics['height'] - 1 - intrinsics['cy'],
+        )
     return result
 
 
@@ -90,14 +89,22 @@ def _color_registration(profile, depth_stream, rotation: int) -> tuple:
     try:
         color_stream = profile.get_stream(rs.stream.color)
         ci = color_stream.as_video_stream_profile().get_intrinsics()
-        intrinsics = _rotate_depth_intrinsics({
-            "fx": ci.fx, "fy": ci.fy, "cx": ci.ppx, "cy": ci.ppy, "width": ci.width, "height": ci.height,
-        }, rotation)
+        intrinsics = _rotate_depth_intrinsics(
+            {
+                'fx': ci.fx,
+                'fy': ci.fy,
+                'cx': ci.ppx,
+                'cy': ci.ppy,
+                'width': ci.width,
+                'height': ci.height,
+            },
+            rotation,
+        )
         extrinsics = depth_stream.get_extrinsics_to(color_stream)
         rotation_matrix = [[float(extrinsics.rotation[col * 3 + row]) for col in range(3)] for row in range(3)]
-        return intrinsics, {"rotation": rotation_matrix, "translation": [float(v) for v in extrinsics.translation]}
+        return intrinsics, {'rotation': rotation_matrix, 'translation': [float(v) for v in extrinsics.translation]}
     except (AttributeError, RuntimeError, TypeError, IndexError) as exc:
-        logger.warning("No color registration from the SDK: %s", exc)
+        logger.warning('No color registration from the SDK: %s', exc)
         return None, None
 
 
@@ -105,9 +112,16 @@ def _scaled_intrinsics(intrinsics: Optional[dict], width: int, height: int) -> O
     """`intrinsics` for the raster scaled to width x height (pixel centres kept), or None."""
     if intrinsics is None:
         return None
-    sx, sy = width / intrinsics["width"], height / intrinsics["height"]
-    return dict(intrinsics, fx=intrinsics["fx"] * sx, fy=intrinsics["fy"] * sy,
-                cx=(intrinsics["cx"] + .5) * sx - .5, cy=(intrinsics["cy"] + .5) * sy - .5, width=width, height=height)
+    sx, sy = width / intrinsics['width'], height / intrinsics['height']
+    return dict(
+        intrinsics,
+        fx=intrinsics['fx'] * sx,
+        fy=intrinsics['fy'] * sy,
+        cx=(intrinsics['cx'] + 0.5) * sx - 0.5,
+        cy=(intrinsics['cy'] + 0.5) * sy - 0.5,
+        width=width,
+        height=height,
+    )
 
 
 def _usb_major(usb) -> Optional[int]:
@@ -150,7 +164,7 @@ def _first_camera():
         devices = rs.context().query_devices()
         return devices[0] if len(devices) else None
     except RuntimeError as e:  # A camera mid re-attach can fail its enumeration.
-        logger.debug(f"RealSense enumeration failed: {e}")
+        logger.debug(f'RealSense enumeration failed: {e}')
         return None
 
 
@@ -181,7 +195,7 @@ class Usb3Keeper:
             state = json.loads(self.state_path.read_text())
             return {'failures': int(state['failures']), 'last_reset': float(state['last_reset'])}
         except (OSError, ValueError, TypeError, KeyError):
-            return {'failures': 0, 'last_reset': 0.}
+            return {'failures': 0, 'last_reset': 0.0}
 
     def _save(self, state: dict):
         try:
@@ -193,12 +207,12 @@ class Usb3Keeper:
         """The camera is at USB 3: any reset before held."""
         state = self._load()
         if state['failures']:
-            logger.info(f"Camera back at USB {usb} after {state['failures']} reset(s)")
+            logger.info(f'Camera back at USB {usb} after {state["failures"]} reset(s)')
             self._save({'failures': 0, 'last_reset': state['last_reset']})
 
     def settling(self) -> float:
         """Seconds the last reset may still need to re-attach the camera."""
-        return max(0., self._load()['last_reset'] + SETTLE_S - self.clock())
+        return max(0.0, self._load()['last_reset'] + SETTLE_S - self.clock())
 
     def _wait(self, seconds, look):
         """Sleep `seconds`, reading the camera again every LOOK_S: True as soon as it needs no reset, back at USB 3
@@ -208,10 +222,10 @@ class Usb3Keeper:
             self.sleep(min(LOOK_S, end - self.clock()))
             found = look() if look is not None else ()
             if found is None:
-                logger.info("Camera gone while its reset waited: looking for it again")
+                logger.info('Camera gone while its reset waited: looking for it again')
                 return True
             if found and _usb_major(found[1]) != 2:
-                logger.info(f"Camera back at USB {found[1]} by itself while its reset waited")
+                logger.info(f'Camera back at USB {found[1]} by itself while its reset waited')
                 return True
         return False
 
@@ -221,16 +235,21 @@ class Usb3Keeper:
         new cable meanwhile needs no reset, so the waits end as soon as it is back at USB 3 or gone (False). A blind
         backoff kept the head camera dark for 9 minutes after it went onto a new cable (2026-10-29)."""
         state = self._load()
-        wait = (state['last_reset'] + RETRAIN_BACKOFF_S[min(state['failures'], len(RETRAIN_BACKOFF_S) - 1)]
-                - self.clock())
+        wait = (
+            state['last_reset'] + RETRAIN_BACKOFF_S[min(state['failures'], len(RETRAIN_BACKOFF_S) - 1)] - self.clock()
+        )
         if wait > 0:
-            logger.warning(f"Camera at USB {usb}: {state['failures']} reset(s) in a row did not hold it at USB 3; "
-                           f"the next in {wait:.0f} s, unless it comes back by itself")
+            logger.warning(
+                f'Camera at USB {usb}: {state["failures"]} reset(s) in a row did not hold it at USB 3; '
+                f'the next in {wait:.0f} s, unless it comes back by itself'
+            )
             if self._wait(wait, look):
                 return False
         if self.live():
-            logger.warning(f"Camera at USB {usb}: waiting for the live arm/head session to end before resetting it "
-                           "(the reset re-attaches it on the CAN adapters' hub)")
+            logger.warning(
+                f'Camera at USB {usb}: waiting for the live arm/head session to end before resetting it '
+                "(the reset re-attaches it on the CAN adapters' hub)"
+            )
             while self.live():
                 if self._wait(LIVE_POLL_S, look):
                     return False
@@ -239,13 +258,15 @@ class Usb3Keeper:
             if found is None or _usb_major(found[1]) != 2:
                 return False
             device, usb = found
-        logger.warning(f"Camera at USB {usb} (its USB 3 link dropped): resetting it to re-attach at USB 3; it never "
-                       "streams over USB 2")
+        logger.warning(
+            f'Camera at USB {usb} (its USB 3 link dropped): resetting it to re-attach at USB 3; it never '
+            'streams over USB 2'
+        )
         self._save({'failures': state['failures'] + 1, 'last_reset': self.clock()})
         try:
             device.hardware_reset()
         except RuntimeError as e:
-            logger.error(f"Camera reset failed: {e}")
+            logger.error(f'Camera reset failed: {e}')
         return True
 
 
@@ -254,8 +275,8 @@ class CameraNode:
 
     def __init__(
         self,
-        camera_id: str = "cam_front",
-        zmq_endpoint: str = "tcp://*:5557",
+        camera_id: str = 'cam_front',
+        zmq_endpoint: str = 'tcp://*:5557',
         color_resolution: tuple = (640, 480),
         depth_resolution: tuple = (640, 480),
         fps: int = 30,
@@ -289,8 +310,7 @@ class CameraNode:
         self.output_resolution = output_resolution
         self.image_rotation_deg = _image_rotation(image_rotation_deg)
         self.require_usb3 = require_usb3
-        self.usb3_keeper = usb3_keeper or Usb3Keeper(
-            Path(tempfile.gettempdir()) / f"aizee-{camera_id}-usb3.json")
+        self.usb3_keeper = usb3_keeper or Usb3Keeper(Path(tempfile.gettempdir()) / f'aizee-{camera_id}-usb3.json')
         self.device_serial: Optional[str] = None  # The camera ensure_usb3 found; the pipeline opens that one.
 
         self.pipeline: Optional[rs.pipeline] = None
@@ -312,10 +332,10 @@ class CameraNode:
         self.last_stats_time = time.time()
         self.last_frame_time = 0
         self._stat_drain_total = 0
-        self._stat_drain_max   = 0
+        self._stat_drain_max = 0
         self._stat_encode_ms: list = []
-        self._stat_send_ms:   list = []
-        self._stat_age_ms:    list = []
+        self._stat_send_ms: list = []
+        self._stat_age_ms: list = []
         self._rs_epoch_ms: Optional[float] = None
 
     def ensure_usb3(self) -> bool:
@@ -328,7 +348,7 @@ class CameraNode:
             usb = _info(device, rs.camera_info.usb_type_descriptor) if device is not None else None
             if device is not None and _usb_major(usb) != 2:  # Streams when the SDK cannot tell, too.
                 self.device_serial = _info(device, rs.camera_info.serial_number)
-                logger.info(f"Camera {self.device_serial} at USB {usb}")
+                logger.info(f'Camera {self.device_serial} at USB {usb}')
                 keeper.held(usb)
                 return True
             if device is not None and keeper.settling() <= 0:
@@ -338,13 +358,16 @@ class CameraNode:
                 deadline = keeper.clock() + NO_CAMERA_WAIT_S
                 continue
             if keeper.clock() >= deadline:
-                raise RuntimeError('No RealSense camera connected' if device is None
-                                   else f'The camera stayed at USB {usb} after its reset')
+                raise RuntimeError(
+                    'No RealSense camera connected'
+                    if device is None
+                    else f'The camera stayed at USB {usb} after its reset'
+                )
             keeper.sleep(POLL_S)
 
     def initialize_camera(self):
         """Initialize RealSense pipeline and configure streams"""
-        logger.info(f"Initializing RealSense camera: {self.camera_id}")
+        logger.info(f'Initializing RealSense camera: {self.camera_id}')
 
         # Create pipeline
         self.pipeline = rs.pipeline()
@@ -354,18 +377,10 @@ class CameraNode:
 
         # Configure streams
         self.config.enable_stream(
-            rs.stream.color,
-            self.color_resolution[0],
-            self.color_resolution[1],
-            rs.format.rgb8,
-            self.fps
+            rs.stream.color, self.color_resolution[0], self.color_resolution[1], rs.format.rgb8, self.fps
         )
         self.config.enable_stream(
-            rs.stream.depth,
-            self.depth_resolution[0],
-            self.depth_resolution[1],
-            rs.format.z16,
-            self.fps
+            rs.stream.depth, self.depth_resolution[0], self.depth_resolution[1], rs.format.z16, self.fps
         )
 
         # Enable IMU streams - TEMPORARILY DISABLED FOR TESTING
@@ -375,51 +390,60 @@ class CameraNode:
         #     logger.info("IMU streams enabled (200Hz)")
         # except RuntimeError as e:
         #     logger.warning(f"Could not enable IMU streams: {e}")
-        logger.info("IMU streams disabled for testing")
+        logger.info('IMU streams disabled for testing')
 
         # Start pipeline
         try:
             profile = self.pipeline.start(self.config)
-            logger.info("Camera pipeline started successfully")
+            logger.info('Camera pipeline started successfully')
 
             # Get depth intrinsics (used by rerun_bridge to compute pointclouds)
             depth_stream = profile.get_stream(rs.stream.depth)
             di = depth_stream.as_video_stream_profile().get_intrinsics()
-            self.depth_intrinsics = _rotate_depth_intrinsics({
-                "fx": di.fx, "fy": di.fy,
-                "cx": di.ppx, "cy": di.ppy,
-                "width": di.width, "height": di.height,
-            }, self.image_rotation_deg)
+            self.depth_intrinsics = _rotate_depth_intrinsics(
+                {
+                    'fx': di.fx,
+                    'fy': di.fy,
+                    'cx': di.ppx,
+                    'cy': di.ppy,
+                    'width': di.width,
+                    'height': di.height,
+                },
+                self.image_rotation_deg,
+            )
             logger.info(
-                f"Depth intrinsics: {di.width}x{di.height}, "
-                f"fx={di.fx:.2f}, fy={di.fy:.2f}, "
-                f"cx={di.ppx:.2f}, cy={di.ppy:.2f}"
+                f'Depth intrinsics: {di.width}x{di.height}, '
+                f'fx={di.fx:.2f}, fy={di.fy:.2f}, '
+                f'cx={di.ppx:.2f}, cy={di.ppy:.2f}'
             )
 
             self.color_intrinsics, self.depth_to_color = _color_registration(
-                profile, depth_stream, self.image_rotation_deg)
+                profile, depth_stream, self.image_rotation_deg
+            )
 
             # Get depth scale (metres per uint16 unit; typically 0.001 for D455)
             depth_sensor = profile.get_device().first_depth_sensor()
             self.depth_scale = depth_sensor.get_depth_scale()
-            logger.info(f"Depth scale: {self.depth_scale:.6f} m/unit")
-            logger.info("Published image rotation: %d degrees; depth XYZ remains in sensor optical frame",
-                        self.image_rotation_deg)
+            logger.info(f'Depth scale: {self.depth_scale:.6f} m/unit')
+            logger.info(
+                'Published image rotation: %d degrees; depth XYZ remains in sensor optical frame',
+                self.image_rotation_deg,
+            )
 
         except RuntimeError as e:
-            logger.error(f"Failed to start camera pipeline: {e}")
+            logger.error(f'Failed to start camera pipeline: {e}')
             raise
 
     def initialize_zmq(self):
         """Initialize ZeroMQ publisher socket"""
-        logger.info(f"Initializing ZeroMQ publisher on {self.zmq_endpoint}")
+        logger.info(f'Initializing ZeroMQ publisher on {self.zmq_endpoint}')
 
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.PUB)
         self.zmq_socket.setsockopt(zmq.SNDHWM, 10)  # High water mark
         self.zmq_socket.bind(self.zmq_endpoint)
 
-        logger.info("ZeroMQ publisher initialized")
+        logger.info('ZeroMQ publisher initialized')
 
     def compress_color_image(self, color_image: np.ndarray) -> tuple:
         """Compress RGB image to JPEG.
@@ -428,9 +452,9 @@ class CameraNode:
         size after the optional output_resolution downscale.
         """
         img = Image.fromarray(color_image)
-        if (self.output_resolution is not None
-                and (self.output_resolution[0] != img.width
-                     or self.output_resolution[1] != img.height)):
+        if self.output_resolution is not None and (
+            self.output_resolution[0] != img.width or self.output_resolution[1] != img.height
+        ):
             img = img.resize(self.output_resolution, Image.BILINEAR)
         buffer = io.BytesIO()
         img.save(buffer, format='JPEG', quality=self.jpeg_quality)
@@ -438,7 +462,7 @@ class CameraNode:
 
     def process_frames(self):
         """Main processing loop - capture and publish frames"""
-        logger.info("Starting frame processing loop")
+        logger.info('Starting frame processing loop')
         self.running = True
 
         while self.running:
@@ -466,28 +490,25 @@ class CameraNode:
                 if rs_ts_ms > 0 and self._rs_epoch_ms is None:
                     self._rs_epoch_ms = timestamp * 1000.0 - rs_ts_ms
                 if self._rs_epoch_ms is not None:
-                    self._stat_age_ms.append(
-                        (timestamp * 1000.0) - (rs_ts_ms + self._rs_epoch_ms)
-                    )
+                    self._stat_age_ms.append((timestamp * 1000.0) - (rs_ts_ms + self._rs_epoch_ms))
 
                 # Get color frame
                 color_frame = frames.get_color_frame()
                 if not color_frame:
-                    logger.warning("No color frame received")
+                    logger.warning('No color frame received')
                     continue
 
                 # Get depth frame
                 depth_frame = frames.get_depth_frame()
                 if not depth_frame:
-                    logger.warning("No depth frame received")
+                    logger.warning('No depth frame received')
                     continue
 
                 t_enc = time.perf_counter()
                 # Convert to numpy arrays
                 color_image = np.asanyarray(color_frame.get_data())
                 depth_image = np.asanyarray(depth_frame.get_data())
-                color_image, depth_image = _rotate_rgbd(
-                    color_image, depth_image, self.image_rotation_deg)
+                color_image, depth_image = _rotate_rgbd(color_image, depth_image, self.image_rotation_deg)
 
                 # Compress color image
                 color_jpeg, _cw, _ch = self.compress_color_image(color_image)
@@ -511,7 +532,7 @@ class CameraNode:
                         'intrinsics': self.depth_intrinsics,
                         'intrinsics_frame': 'sensor_optical',
                         'scale': self.depth_scale,
-                    }
+                    },
                 }
                 # Registration, where the SDK gave it: the color raster's intrinsics as encoded, and the depth
                 # sensor's pose in the color camera's optical frame.
@@ -527,9 +548,7 @@ class CameraNode:
 
                     if accel_frame:
                         accel_data = accel_frame.as_motion_frame().get_motion_data()
-                        message['imu'] = {
-                            'accel': [accel_data.x, accel_data.y, accel_data.z]
-                        }
+                        message['imu'] = {'accel': [accel_data.x, accel_data.y, accel_data.z]}
 
                     if gyro_frame:
                         gyro_data = gyro_frame.as_motion_frame().get_motion_data()
@@ -538,14 +557,12 @@ class CameraNode:
                         message['imu']['gyro'] = [gyro_data.x, gyro_data.y, gyro_data.z]
 
                 except Exception as e:
-                    logger.debug(f"IMU data not available: {e}")
+                    logger.debug(f'IMU data not available: {e}')
                 self._stat_encode_ms.append((time.perf_counter() - t_enc) * 1000.0)
 
                 # Publish via ZeroMQ multipart (header + raw JPEG + raw depth)
                 t_snd = time.perf_counter()
-                self.zmq_socket.send_multipart(
-                    pack_camera(message, color_jpeg, depth_bytes)
-                )
+                self.zmq_socket.send_multipart(pack_camera(message, color_jpeg, depth_bytes))
                 self._stat_send_ms.append((time.perf_counter() - t_snd) * 1000.0)
 
                 self.frame_count += 1
@@ -558,32 +575,31 @@ class CameraNode:
 
                     def _s(arr: list) -> str:
                         if not arr:
-                            return "n/a"
+                            return 'n/a'
                         a = sorted(arr)
                         n = len(a)
-                        return (f"mean={sum(a) / n:.1f} "
-                                f"p99={a[min(n - 1, int(n * 0.99))]:.1f} "
-                                f"max={a[-1]:.1f}")
+                        return f'mean={sum(a) / n:.1f} p99={a[min(n - 1, int(n * 0.99))]:.1f} max={a[-1]:.1f}'
 
                     try:
                         import resource as _resource
+
                         rss_kb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
                     except Exception:
                         rss_kb = -1
 
                     logger.info(
-                        f"Published {self.frame_count} frames in {elapsed:.1f}s "
-                        f"({current_fps:.1f} fps)  "
-                        f"drained={self._stat_drain_total} (max {self._stat_drain_max})  "
-                        f"encode_ms[{_s(self._stat_encode_ms)}]  "
-                        f"send_ms[{_s(self._stat_send_ms)}]  "
-                        f"age_ms[{_s(self._stat_age_ms)}]  "
-                        f"rss={rss_kb}kB"
+                        f'Published {self.frame_count} frames in {elapsed:.1f}s '
+                        f'({current_fps:.1f} fps)  '
+                        f'drained={self._stat_drain_total} (max {self._stat_drain_max})  '
+                        f'encode_ms[{_s(self._stat_encode_ms)}]  '
+                        f'send_ms[{_s(self._stat_send_ms)}]  '
+                        f'age_ms[{_s(self._stat_age_ms)}]  '
+                        f'rss={rss_kb}kB'
                     )
                     self.frame_count = 0
                     self.last_stats_time = timestamp
                     self._stat_drain_total = 0
-                    self._stat_drain_max   = 0
+                    self._stat_drain_max = 0
                     self._stat_encode_ms.clear()
                     self._stat_send_ms.clear()
                     self._stat_age_ms.clear()
@@ -601,21 +617,20 @@ class CameraNode:
                 #
                 # Instead: exit non-zero so systemd's Restart=on-failure
                 # gets us a fresh process with zero zombie state.
-                logger.error(f"Frame capture error: {e}")
-                logger.error("Exiting so systemd restarts cleanly "
-                             "(avoids librealsense zombie-thread leak).")
+                logger.error(f'Frame capture error: {e}')
+                logger.error('Exiting so systemd restarts cleanly (avoids librealsense zombie-thread leak).')
                 self.running = False
                 raise SystemExit(1)
 
             except Exception as e:
-                logger.error(f"Unexpected error in processing loop: {e}")
+                logger.error(f'Unexpected error in processing loop: {e}')
                 self.running = False
                 raise SystemExit(1)
 
     def cleanup(self):
         """Clean up resources. pipeline.stop() hangs inside librealsense once the camera is gone (unplugged, or its
         USB 3 link dropped), so it gets STOP_TIMEOUT_S; main then leaves with os._exit, which no SDK thread holds up."""
-        logger.info("Cleaning up camera node...")
+        logger.info('Cleaning up camera node...')
 
         if self.pipeline:
             outcome = []
@@ -631,12 +646,14 @@ class CameraNode:
             stopper.start()
             stopper.join(STOP_TIMEOUT_S)
             if not outcome:
-                logger.warning(f"Camera pipeline did not stop within {STOP_TIMEOUT_S:.0f} s (the camera is gone?); "
-                               "exiting without it")
+                logger.warning(
+                    f'Camera pipeline did not stop within {STOP_TIMEOUT_S:.0f} s (the camera is gone?); '
+                    'exiting without it'
+                )
             elif outcome[0] is None:
-                logger.info("Camera pipeline stopped")
+                logger.info('Camera pipeline stopped')
             else:
-                logger.error(f"Error stopping pipeline: {outcome[0]}")
+                logger.error(f'Error stopping pipeline: {outcome[0]}')
 
         if self.zmq_socket:
             self.zmq_socket.close(linger=0)
@@ -644,7 +661,7 @@ class CameraNode:
         if self.zmq_context:
             self.zmq_context.term()
 
-        logger.info("Cleanup complete")
+        logger.info('Cleanup complete')
 
     def run(self) -> int:
         """Initialize and stream until stopped. Returns the process's exit code: 0 stopped, 1 failed, RETRAIN_EXIT
@@ -659,15 +676,15 @@ class CameraNode:
             # Give ZeroMQ time to establish connections
             time.sleep(1)
 
-            logger.info("Camera node running. Press Ctrl+C to stop.")
+            logger.info('Camera node running. Press Ctrl+C to stop.')
             self.process_frames()
 
         except KeyboardInterrupt:
-            logger.info("Received interrupt signal")
+            logger.info('Received interrupt signal')
         except SystemExit as e:  # SIGTERM (0), or a capture error (1): process_frames never reinitializes in-process.
             code = e.code if isinstance(e.code, int) else 1
         except Exception as e:
-            logger.error(f"Fatal error: {e}", exc_info=True)
+            logger.error(f'Fatal error: {e}', exc_info=True)
             code = 1
         finally:
             self.cleanup()
@@ -676,7 +693,7 @@ class CameraNode:
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
-    logger.info(f"Received signal {signum}, shutting down...")
+    logger.info(f'Received signal {signum}, shutting down...')
     sys.exit(0)
 
 
@@ -688,29 +705,27 @@ def _kwargs_from_config(config: dict) -> dict:
     consumes are pulled out — IMU / spatial / runtime-control hints are
     parsed by the wrapping service or future consumers, not here.
     """
-    cam_cfg   = config.get("camera", {}) or {}
-    streams   = cam_cfg.get("streams", {}) or {}
-    color     = streams.get("color", {}) or {}
-    depth     = streams.get("depth", {}) or {}
-    zmq_cfg   = (config.get("network", {}).get("device", {}).get("zmq", {})) or {}
+    cam_cfg = config.get('camera', {}) or {}
+    streams = cam_cfg.get('streams', {}) or {}
+    color = streams.get('color', {}) or {}
+    depth = streams.get('depth', {}) or {}
+    zmq_cfg = (config.get('network', {}).get('device', {}).get('zmq', {})) or {}
 
     kwargs = {
-        "camera_id":        cam_cfg.get("id", "scene_cam"),
-        "zmq_endpoint":     zmq_cfg.get("camera_pub", "tcp://*:5564"),
-        "color_resolution": (int(color.get("width",  640)),
-                              int(color.get("height", 480))),
-        "depth_resolution": (int(depth.get("width",  640)),
-                              int(depth.get("height", 480))),
-        "fps":              int(color.get("fps", 30)),
-        "jpeg_quality":     int(color.get("quality", 85)),
-        "image_rotation_deg": cam_cfg.get("image_rotation_deg", 0),
-        "require_usb3":     cam_cfg.get("require_usb3", True) is not False,
+        'camera_id': cam_cfg.get('id', 'scene_cam'),
+        'zmq_endpoint': zmq_cfg.get('camera_pub', 'tcp://*:5564'),
+        'color_resolution': (int(color.get('width', 640)), int(color.get('height', 480))),
+        'depth_resolution': (int(depth.get('width', 640)), int(depth.get('height', 480))),
+        'fps': int(color.get('fps', 30)),
+        'jpeg_quality': int(color.get('quality', 85)),
+        'image_rotation_deg': cam_cfg.get('image_rotation_deg', 0),
+        'require_usb3': cam_cfg.get('require_usb3', True) is not False,
     }
 
-    out_w = color.get("output_width")
-    out_h = color.get("output_height")
+    out_w = color.get('output_width')
+    out_h = color.get('output_height')
     if out_w is not None and out_h is not None:
-        kwargs["output_resolution"] = (int(out_w), int(out_h))
+        kwargs['output_resolution'] = (int(out_w), int(out_h))
 
     return kwargs
 
@@ -723,56 +738,40 @@ def main() -> int:
         type=str,
         default=None,
         help='Path to a hardware_jetson_*_cam.yaml (camera.id / streams / '
-             'network.device.zmq.camera_pub). Overrides individual flags '
-             'below.'
+        'network.device.zmq.camera_pub). Overrides individual flags '
+        'below.',
     )
+    parser.add_argument('--camera-id', type=str, default='cam_front', help='Unique camera identifier')
+    parser.add_argument('--zmq-endpoint', type=str, default='tcp://*:5557', help='ZeroMQ endpoint to publish data')
+    parser.add_argument('--fps', type=int, default=30, help='Frame rate for camera streams')
+    parser.add_argument('--jpeg-quality', type=int, default=85, help='JPEG compression quality (1-100)')
     parser.add_argument(
-        '--camera-id',
-        type=str,
-        default='cam_front',
-        help='Unique camera identifier'
-    )
-    parser.add_argument(
-        '--zmq-endpoint',
-        type=str,
-        default='tcp://*:5557',
-        help='ZeroMQ endpoint to publish data'
-    )
-    parser.add_argument(
-        '--fps',
+        '--image-rotation-deg',
         type=int,
-        default=30,
-        help='Frame rate for camera streams'
+        choices=(0, 180),
+        default=0,
+        help='Rotate both RGB and native depth by 0 or 180 degrees',
     )
     parser.add_argument(
-        '--jpeg-quality',
-        type=int,
-        default=85,
-        help='JPEG compression quality (1-100)'
-    )
-    parser.add_argument(
-        '--image-rotation-deg', type=int, choices=(0, 180), default=0,
-        help='Rotate both RGB and native depth by 0 or 180 degrees'
-    )
-    parser.add_argument(
-        '--allow-usb2', action='store_true',
-        help='Stream over USB 2 too (by default a camera found at USB 2 is reset back to USB 3)'
+        '--allow-usb2',
+        action='store_true',
+        help='Stream over USB 2 too (by default a camera found at USB 2 is reset back to USB 3)',
     )
     parser.add_argument(
         '--output-size',
         type=str,
         default=None,
-        help='Optional WxH to downscale color before JPEG encode (e.g. 320x240)'
+        help='Optional WxH to downscale color before JPEG encode (e.g. 320x240)',
     )
 
     args = parser.parse_args()
     output_resolution = None
     if args.output_size:
         try:
-            _w, _h = args.output_size.lower().split("x")
+            _w, _h = args.output_size.lower().split('x')
             output_resolution = (int(_w), int(_h))
         except ValueError:
-            parser.error("--output-size must be WxH (e.g. 320x240)")
+            parser.error('--output-size must be WxH (e.g. 320x240)')
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -783,18 +782,18 @@ def main() -> int:
     if args.config:
         with open(args.config) as f:
             cfg = yaml.safe_load(f) or {}
-        log_level = (cfg.get("logging", {}) or {}).get("level", "INFO")
+        log_level = (cfg.get('logging', {}) or {}).get('level', 'INFO')
         logger.setLevel(getattr(logging, log_level, logging.INFO))
         kwargs = _kwargs_from_config(cfg)
     else:
         kwargs = {
-            "camera_id":    args.camera_id,
-            "zmq_endpoint": args.zmq_endpoint,
-            "fps":          args.fps,
-            "jpeg_quality": args.jpeg_quality,
-            "output_resolution": output_resolution,
-            "image_rotation_deg": args.image_rotation_deg,
-            "require_usb3": not args.allow_usb2,
+            'camera_id': args.camera_id,
+            'zmq_endpoint': args.zmq_endpoint,
+            'fps': args.fps,
+            'jpeg_quality': args.jpeg_quality,
+            'output_resolution': output_resolution,
+            'image_rotation_deg': args.image_rotation_deg,
+            'require_usb3': not args.allow_usb2,
         }
 
     node = CameraNode(**kwargs)

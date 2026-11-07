@@ -11,6 +11,7 @@ grippers, the contact scene) with nothing rendered. Worker w takes attempts w, w
 Writes attempts.jsonl (one line per attempt: its layout, its rejected draws with their reasons, the trial's outcome
 and events) and summary.json.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,11 +32,15 @@ def _worker(job):
     from robot_platform.evaluation.plants import derive_stack
     from robot_platform.evaluation.runner import RunConfig, TrialRunner
     from robot_platform.simulation.layouts import LayoutSampler
+
     worker, attempts, args = job
     out = Path(args['out'])
     sampler = LayoutSampler(args['workcell'], args['randomize'])
-    runner = TrialRunner(RunConfig(grippers='driven', timeout_s=args['timeout'], workcell=args['workcell'],
-                                   plant_seed=worker + 1), stack=derive_stack(), directory=out / f'receiver-w{worker}')
+    runner = TrialRunner(
+        RunConfig(grippers='driven', timeout_s=args['timeout'], workcell=args['workcell'], plant_seed=worker + 1),
+        stack=derive_stack(),
+        directory=out / f'receiver-w{worker}',
+    )
     demo = HandoffDemonstrator()
     camera = layout_checks(runner.stack, sampler.randomization)
     lines = []
@@ -43,20 +48,32 @@ def _worker(job):
         for attempt in attempts:
             started = time.perf_counter()
             layout, rejections = draw_layout(runner, demo, sampler, [args['seed'], attempt], camera=camera)
-            entry = {'attempt': attempt, 'worker': worker, 'layout_seed': [args['seed'], attempt],
-                     'rejected_draws': len(rejections), 'rejections': rejections}
+            entry = {
+                'attempt': attempt,
+                'worker': worker,
+                'layout_seed': [args['seed'], attempt],
+                'rejected_draws': len(rejections),
+                'rejections': rejections,
+            }
             if layout is None:
                 entry.update(outcome='layout_rejected', planning_s=time.perf_counter() - started)
             else:
                 planned = time.perf_counter()
                 runner.use_workcell(layout.workcell)
                 record = runner.run_trial(demo, dict(layout.cube_start, cell='layout', index=attempt), attempt)
-                entry.update(layout=layout.describe(), drop=demo.drop['name'] if demo.drop else None,
-                             outcome=record['outcome'], eligible=record['eligible'], detail=record.get('detail'),
-                             stages=record['stages'], duration_s=record['duration_s'],
-                             clipped=record['commands_clipped_cycles'], planning_s=planned - started,
-                             wall_s=time.perf_counter() - planned,
-                             max_abs_pose_minus_command_rad=record['max_abs_pose_minus_command_rad'])
+                entry.update(
+                    layout=layout.describe(),
+                    drop=demo.drop['name'] if demo.drop else None,
+                    outcome=record['outcome'],
+                    eligible=record['eligible'],
+                    detail=record.get('detail'),
+                    stages=record['stages'],
+                    duration_s=record['duration_s'],
+                    clipped=record['commands_clipped_cycles'],
+                    planning_s=planned - started,
+                    wall_s=time.perf_counter() - planned,
+                    max_abs_pose_minus_command_rad=record['max_abs_pose_minus_command_rad'],
+                )
             lines.append(json.dumps(entry))
             with (out / f'attempts-w{worker}.jsonl').open('a', encoding='utf-8') as handle:
                 handle.write(lines[-1] + '\n')
@@ -69,11 +86,11 @@ def _worker(job):
 
 def _wilson(successes, n, z=1.959963984540054):
     if not n:
-        return [0., 1.]
+        return [0.0, 1.0]
     p = successes / n
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return [max(0., centre - half), min(1., centre + half)]
+    return [max(0.0, centre - half), min(1.0, centre + half)]
 
 
 def summarize(entries):
@@ -84,22 +101,38 @@ def summarize(entries):
     for entry in entries:
         for rejection in entry['rejections']:
             reason = rejection['reason']
-            kind = ('layout: no bucket place' if reason.startswith('layout:') else
-                    'head camera against the robot' if reason.startswith('head camera') else
-                    'no plan reaches the cube' if 'no plan reaches' in reason else
-                    'no plan clears' if 'no plan clears' in reason else reason[:60])
+            kind = (
+                'layout: no bucket place'
+                if reason.startswith('layout:')
+                else 'head camera against the robot'
+                if reason.startswith('head camera')
+                else 'no plan reaches the cube'
+                if 'no plan reaches' in reason
+                else 'no plan clears'
+                if 'no plan clears' in reason
+                else reason[:60]
+            )
             reasons[kind] = reasons.get(kind, 0) + 1
     outcomes = {}
     for entry in planned:
         outcomes[entry['outcome']] = outcomes.get(entry['outcome'], 0) + 1
-    return {'attempts': len(entries), 'layouts_planned': len(planned), 'draws': draws,
-            'rejected_draws': draws - len(planned), 'rejection_rate': (draws - len(planned)) / draws if draws else None,
-            'rejections_by_reason': reasons, 'attempts_without_a_layout': len(entries) - len(planned),
-            'trial_outcomes': outcomes, 'successes': successes,
-            'success_rate_of_planned': successes / len(planned) if planned else None,
-            'success_wilson95': _wilson(successes, len(planned)),
-            'drops_used': {name: sum(1 for e in planned if e.get('drop') == name)
-                           for name in sorted({e.get('drop') for e in planned if e.get('drop')})}}
+    return {
+        'attempts': len(entries),
+        'layouts_planned': len(planned),
+        'draws': draws,
+        'rejected_draws': draws - len(planned),
+        'rejection_rate': (draws - len(planned)) / draws if draws else None,
+        'rejections_by_reason': reasons,
+        'attempts_without_a_layout': len(entries) - len(planned),
+        'trial_outcomes': outcomes,
+        'successes': successes,
+        'success_rate_of_planned': successes / len(planned) if planned else None,
+        'success_wilson95': _wilson(successes, len(planned)),
+        'drops_used': {
+            name: sum(1 for e in planned if e.get('drop') == name)
+            for name in sorted({e.get('drop') for e in planned if e.get('drop')})
+        },
+    }
 
 
 def main(argv=None):
@@ -110,7 +143,7 @@ def main(argv=None):
     parser.add_argument('--seed', type=int, default=2000)
     parser.add_argument('--workcell', default=str(WORKCELL))
     parser.add_argument('--randomize', default=str(RANDOMIZATION))
-    parser.add_argument('--timeout', type=float, default=90.)
+    parser.add_argument('--timeout', type=float, default=90.0)
     args = parser.parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

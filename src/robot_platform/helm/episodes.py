@@ -6,6 +6,7 @@ connection, answers the API from caches (episode summaries and series, and recen
 at once) and asks the worker nothing while `busy()` names a reason, such as a running recording: an episode already
 loaded keeps playing from the cache.
 """
+
 from collections import OrderedDict
 import queue
 import shlex
@@ -19,7 +20,7 @@ WORKER = Path(__file__).with_name('episode_worker.py')
 MAX_REPLY = 64 * 1024 * 1024
 FRAME_CACHE = 1500  # Every camera of a frame is one entry: ~70 KB at 320x240, about 100 MB at most.
 EPISODE_CACHE = 8
-IDLE_CLOSE_S = 120.
+IDLE_CLOSE_S = 120.0
 
 
 class EpisodeError(RuntimeError):
@@ -42,6 +43,7 @@ class _Connection:
 
     def _read(self):
         import msgpack
+
         try:
             while True:
                 header = self._exactly(4)
@@ -50,8 +52,9 @@ class _Connection:
                     raise EpisodeError(f'A {size}-byte reply exceeds the limit')
                 self.replies.put(msgpack.unpackb(self._exactly(size), raw=False))
         except Exception as exc:  # noqa: BLE001 - the end of the stream is delivered as the next reply.
-            self.replies.put(EpisodeError(f'The episode reader stopped: {exc}' if str(exc) else
-                                          'The episode reader stopped'))
+            self.replies.put(
+                EpisodeError(f'The episode reader stopped: {exc}' if str(exc) else 'The episode reader stopped')
+            )
 
     def _exactly(self, size):
         data = b''
@@ -74,6 +77,7 @@ class _Connection:
 
     def call(self, op, timeout, **fields):
         import msgpack
+
         self.ids += 1
         body = msgpack.packb(dict(fields, id=self.ids, op=op), use_bin_type=True)
         try:
@@ -97,23 +101,32 @@ class _Connection:
 
 def local_transport(root, *, python=sys.executable):
     """A worker on this computer, reading `root`; it keeps this computer's CPU affinity and priority."""
+
     def open_connection():
-        process = subprocess.Popen([python, '-u', str(WORKER), '--root', str(root), '--no-background'],
-                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        process = subprocess.Popen(
+            [python, '-u', str(WORKER), '--root', str(root), '--no-background'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
 
         def close():
             for stream in (process.stdin, process.stdout):
                 stream.close()
             process.kill()
             process.wait(5)
+
         return _Connection(process.stdin, process.stdout, close)
+
     return open_connection
 
 
-def robot_transport(profile, address, *, open_ssh=None, timeout=5.):
+def robot_transport(profile, address, *, open_ssh=None, timeout=5.0):
     """A worker on Minerva's Jetson, over the pinned SSH connection to `address()`; it reads ~/minerva/evidence."""
+
     def open_connection():
         from robot_platform.ops.ssh import connect, open_command
+
         client = (open_ssh or connect)(profile, address=address(), timeout=timeout)
         try:
             source = WORKER.read_text(encoding='utf-8')
@@ -127,12 +140,14 @@ def robot_transport(profile, address, *, open_ssh=None, timeout=5.):
         def close():
             out.channel.close()
             client.close()
+
         return _Connection(stdin, out, close)
+
     return open_connection
 
 
 class EpisodeLibrary:
-    def __init__(self, transport, *, busy=None, clock=time.monotonic, timeout=15., frame_timeout=6.):
+    def __init__(self, transport, *, busy=None, clock=time.monotonic, timeout=15.0, frame_timeout=6.0):
         self.transport, self.busy, self.clock = transport, busy or (lambda: None), clock
         self.timeout, self.frame_timeout = timeout, frame_timeout
         self._lock = threading.Lock()
@@ -236,7 +251,7 @@ class EpisodeLibrary:
 
     def _close_when_idle(self):
         while not self._closed:
-            time.sleep(5.)
+            time.sleep(5.0)
             with self._lock:
                 if self._connection is not None and self.clock() - self._used > IDLE_CLOSE_S:
                     self._drop()
@@ -250,6 +265,7 @@ class EpisodeLibrary:
 def _series(raw):
     """The worker's float32 bytes as rounded lists, the shape the page plots and scrubs over."""
     import numpy as np
+
     series = {'t': np.frombuffer(raw['t'], dtype='<f8').round(4).tolist(), 'frames': raw['frames']}
     for key in ('qpos', 'qcmd', 'actions', 'torques', 'qvel'):
         if key in raw:

@@ -4,6 +4,7 @@ The deployed legacy camera REP is the only mutation path. Its get_ctrls reply
 omits menu entries and inactive flags, so a read-only V4L2 query supplements it.
 The helper is sent as source to the verified robot; no deployment is required.
 """
+
 import base64
 import json
 from pathlib import Path
@@ -108,7 +109,11 @@ def _devices(usb_id):
         parent = (node / 'device').resolve()
         for candidate in (parent, *parent.parents):
             try:
-                actual = (candidate / 'idVendor').read_text().strip().lower() + ':' + (candidate / 'idProduct').read_text().strip().lower()
+                actual = (
+                    (candidate / 'idVendor').read_text().strip().lower()
+                    + ':'
+                    + (candidate / 'idProduct').read_text().strip().lower()
+                )
             except OSError:
                 continue
             if actual == usb_id:
@@ -122,13 +127,15 @@ def _devices(usb_id):
 def _device_controls(config, reported):
     import shutil
     import subprocess
+
     if shutil.which('v4l2-ctl') is None:
         raise RuntimeError('v4l2-ctl is not installed on the robot; install v4l-utils')
     matches, errors = [], []
     for device in _devices(config['usb_id']):
         try:
-            reply = subprocess.run(['v4l2-ctl', '--device', device, '--list-ctrls-menus'],
-                                   capture_output=True, text=True, timeout=1.)
+            reply = subprocess.run(
+                ['v4l2-ctl', '--device', device, '--list-ctrls-menus'], capture_output=True, text=True, timeout=1.0
+            )
             if reply.returncode:
                 errors.append(reply.stderr.strip()[:200])
                 continue
@@ -137,13 +144,16 @@ def _device_controls(config, reported):
         except (ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
             errors.append(str(exc))
     if len(matches) != 1:
-        raise RuntimeError('Camera USB identity/control match is missing or ambiguous' + (': ' + '; '.join(errors) if errors else ''))
+        raise RuntimeError(
+            'Camera USB identity/control match is missing or ambiguous' + (': ' + '; '.join(errors) if errors else '')
+        )
     return matches[0]
 
 
 def _request(config, payload):
     import msgpack
     import zmq
+
     context = zmq.Context()
     socket = context.socket(zmq.REQ)
     try:
@@ -155,7 +165,11 @@ def _request(config, payload):
             raise TimeoutError('Camera control service did not reply within 2.2 seconds')
         reply = msgpack.unpackb(socket.recv(), raw=False)
         if not isinstance(reply, dict) or reply.get('ok') is not True:
-            raise RuntimeError(str(reply.get('error') or reply.get('msg') or 'Camera rejected request') if isinstance(reply, dict) else 'Malformed camera reply')
+            raise RuntimeError(
+                str(reply.get('error') or reply.get('msg') or 'Camera rejected request')
+                if isinstance(reply, dict)
+                else 'Malformed camera reply'
+            )
         return reply
     finally:
         socket.close(0)
@@ -164,14 +178,16 @@ def _request(config, payload):
 
 def _snapshot_role(role):
     config = role_config(role)
-    state = dict(available=False, controls={}, controls_supported='control_port' in config,
-                 preview_supported=True, error=None)
+    state = dict(
+        available=False, controls={}, controls_supported='control_port' in config, preview_supported=True, error=None
+    )
     if 'control_port' not in config:
         state['error'] = 'Head camera exposure controls are not supported by this camera service'
         return state
     try:
         # Check the binary explicitly: legacy get_ctrls returns {} on a missing binary.
         import shutil
+
         if shutil.which('v4l2-ctl') is None:
             raise RuntimeError('v4l2-ctl is not installed on the robot; install v4l-utils')
         reported = _request(config, {'op': 'get_ctrls'})['ctrls']
@@ -186,6 +202,7 @@ def _preview(role):
     import math
     import msgpack
     import zmq
+
     config = role_config(role)
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
@@ -202,10 +219,14 @@ def _preview(role):
         if header.get('camera_id') != config['camera_id']:
             raise ValueError('Camera preview identity mismatch')
         stamp = header.get('timestamp')
-        if type(stamp) not in (int, float) or not math.isfinite(stamp) or not -.1 <= time.time() - stamp <= 2.:
+        if type(stamp) not in (int, float) or not math.isfinite(stamp) or not -0.1 <= time.time() - stamp <= 2.0:
             raise ValueError('Camera preview timestamp is missing or stale')
         parts = header.get('parts', [])
-        if len(parts) != len(frames) - 1 or parts.count('color') != 1 or header.get('color', {}).get('format', '').lower() != 'jpeg':
+        if (
+            len(parts) != len(frames) - 1
+            or parts.count('color') != 1
+            or header.get('color', {}).get('format', '').lower() != 'jpeg'
+        ):
             raise ValueError('Camera preview is not a valid color JPEG packet')
         jpeg = frames[1 + parts.index('color')]
         if not 4 <= len(jpeg) <= 2 * 1024 * 1024 or not jpeg.startswith(b'\xff\xd8') or not jpeg.endswith(b'\xff\xd9'):
@@ -237,7 +258,9 @@ def remote_operation(request):
         updated = _snapshot_role(role)
         readback = updated['controls'].get(name, {}).get('value')
         if not updated['available'] or type(readback) is not int or readback != value:
-            raise RuntimeError('Camera write was sent but readback did not confirm it: ' + str(updated['error'] or readback))
+            raise RuntimeError(
+                'Camera write was sent but readback did not confirm it: ' + str(updated['error'] or readback)
+            )
         return {'camera': updated, 'name': name, 'value': value, 'readback': readback}
     except Exception as exc:
         raise CameraWriteUncertain(str(exc)) from exc
@@ -245,21 +268,26 @@ def remote_operation(request):
 
 def remote_main(request):
     import signal
+
     def expired(*_):
         raise TimeoutError('Camera operation exceeded its 10 second robot budget')
+
     signal.signal(signal.SIGALRM, expired)
     signal.alarm(10)
     try:
         print(json.dumps({'ok': True, 'result': remote_operation(request)}), flush=True)
     except Exception as exc:
-        print(json.dumps({'ok': False, 'error': str(exc),
-                          'write_uncertain': isinstance(exc, CameraWriteUncertain)}), flush=True)
+        print(
+            json.dumps({'ok': False, 'error': str(exc), 'write_uncertain': isinstance(exc, CameraWriteUncertain)}),
+            flush=True,
+        )
     finally:
         signal.alarm(0)
 
 
 class CameraSettings:
     """Call from a worker thread. One finite SSH process, no persistent camera owner."""
+
     def __init__(self, profile, *, address, open_ssh=None):
         self.profile, self.address, self.open_ssh = Path(profile), address, open_ssh
         self._lock = threading.Lock()
@@ -267,6 +295,7 @@ class CameraSettings:
 
     def _call(self, request):
         from robot_platform.ops.ssh import connect, open_command
+
         if not self._lock.acquire(blocking=False):
             raise ValueError('Another camera request is running; wait for it to finish')
         client = channel = None
@@ -274,17 +303,17 @@ class CameraSettings:
         try:
             if request.get('operation') == 'set' and self.write_fault:
                 raise ValueError(self.write_fault)
-            client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.)
+            client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.0)
             script = Path(__file__).read_text(encoding='utf-8') + '\nremote_main(' + repr(request) + ')\n'
-            stdin, out, err = open_command(client, 'python3 -', timeout=3.)
+            stdin, out, err = open_command(client, 'python3 -', timeout=3.0)
             channel = out.channel
-            channel.settimeout(3.)
+            channel.settimeout(3.0)
             # A failed send/EOF can still leave a complete script at the peer.
             submitted_write = request.get('operation') == 'set'
             stdin.write(script)
             stdin.flush()
             channel.shutdown_write()
-            deadline, stdout, stderr = time.monotonic() + 12., bytearray(), bytearray()
+            deadline, stdout, stderr = time.monotonic() + 12.0, bytearray(), bytearray()
             while True:
                 if channel.recv_ready():
                     stdout.extend(channel.recv(65536))
@@ -296,7 +325,7 @@ class CameraSettings:
                     break
                 if time.monotonic() >= deadline:
                     raise TimeoutError('Camera SSH operation timed out')
-                time.sleep(.01)
+                time.sleep(0.01)
             if channel.recv_exit_status():
                 raise RuntimeError('Camera helper failed: ' + stderr.decode(errors='replace')[:1000])
             reply = json.loads(stdout)
@@ -311,8 +340,10 @@ class CameraSettings:
             return reply['result']
         except Exception as exc:
             if submitted_write or isinstance(exc, CameraWriteUncertain):
-                self.write_fault = ('Camera write outcome is uncertain; session start and further changes are blocked. '
-                    'Restart the camera service, verify its settings, then restart Helm. Details: ' + str(exc))
+                self.write_fault = (
+                    'Camera write outcome is uncertain; session start and further changes are blocked. '
+                    'Restart the camera service, verify its settings, then restart Helm. Details: ' + str(exc)
+                )
                 raise CameraWriteUncertain(self.write_fault) from exc
             if isinstance(exc, (ValueError, RuntimeError)):
                 raise
@@ -328,9 +359,18 @@ class CameraSettings:
         try:
             return self._call({'operation': 'snapshot'})
         except Exception as exc:
-            return {'cameras': {role: {'available': False, 'controls': {}, 'error': str(exc),
-                'controls_supported': 'control_port' in config, 'preview_supported': True}
-                for role, config in ROLES.items()}}
+            return {
+                'cameras': {
+                    role: {
+                        'available': False,
+                        'controls': {},
+                        'error': str(exc),
+                        'controls_supported': 'control_port' in config,
+                        'preview_supported': True,
+                    }
+                    for role, config in ROLES.items()
+                }
+            }
 
     def set(self, role, name, value):
         role_config(role)

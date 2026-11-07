@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comms::messages::LidarScan;
-use rplidar_driver::{Health, RplidarDevice, RplidarDriver, ScanOptions};
 use rplidar_driver::rpos_drv::RposError;
+use rplidar_driver::{Health, RplidarDevice, RplidarDriver, ScanOptions};
 use serialport::{SerialPort, TTYPort};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -32,8 +32,7 @@ impl LidarScanner {
         info!("Opening LiDAR device {} at {}", config.id, config.device);
 
         // Open serial port as TTYPort (Linux-specific)
-        let builder = serialport::new(&config.device, 115200)
-            .timeout(Duration::from_millis(1000));
+        let builder = serialport::new(&config.device, 115200).timeout(Duration::from_millis(1000));
         let mut port = TTYPort::open(&builder)
             .with_context(|| format!("Failed to open serial port {}", config.device))?;
 
@@ -42,7 +41,10 @@ impl LidarScanner {
         // The RPLiDAR A1M8 motor will not spin if DTR is high
         port.write_data_terminal_ready(false)
             .context("Failed to clear DTR signal")?;
-        info!("DTR cleared for {} - motor should start spinning", config.id);
+        info!(
+            "DTR cleared for {} - motor should start spinning",
+            config.id
+        );
 
         // Give motor time to start
         std::thread::sleep(Duration::from_millis(500));
@@ -91,16 +93,20 @@ impl LidarScanner {
         match driver.check_motor_ctrl_support() {
             Ok(true) => {
                 info!("Starting motor for {} with PWM 600", config.id);
-                driver
-                    .set_motor_pwm(600)
-                    .context("Failed to start motor")?;
+                driver.set_motor_pwm(600).context("Failed to start motor")?;
                 std::thread::sleep(Duration::from_millis(500));
             }
             Ok(false) => {
-                info!("Motor control not supported for {} - motor should be externally powered", config.id);
+                info!(
+                    "Motor control not supported for {} - motor should be externally powered",
+                    config.id
+                );
             }
             Err(e) => {
-                warn!("Failed to check motor control support for {}: {}", config.id, e);
+                warn!(
+                    "Failed to check motor control support for {}: {}",
+                    config.id, e
+                );
             }
         }
 
@@ -121,7 +127,10 @@ impl LidarScanner {
             .start_scan_with_options(&scan_options)
             .context("Failed to start scan")?;
 
-        info!("LiDAR {} started scanning in mode: {}", config.id, actual_mode.name);
+        info!(
+            "LiDAR {} started scanning in mode: {}",
+            config.id, actual_mode.name
+        );
 
         Ok(driver)
     }
@@ -149,7 +158,10 @@ impl LidarScanner {
                         continue;
                     }
 
-                    warn!("Scan error for {} ({}): {}", self.config.id, consecutive_errors, e);
+                    warn!(
+                        "Scan error for {} ({}): {}",
+                        self.config.id, consecutive_errors, e
+                    );
 
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         error!(
@@ -174,10 +186,7 @@ impl LidarScanner {
     }
 
     fn read_scan(&mut self) -> Result<LidarScan> {
-        let driver = self
-            .driver
-            .as_mut()
-            .context("Device not initialized")?;
+        let driver = self.driver.as_mut().context("Device not initialized")?;
 
         // Grab a full 360° scan
         let scan_points = match driver.grab_scan() {

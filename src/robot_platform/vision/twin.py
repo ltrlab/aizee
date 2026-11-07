@@ -12,6 +12,7 @@ what it was made through: the arms' for their mechanical reference (each wrist s
 head reference and the camera alignment it was compared with. Motor zeros, control and collision keep the measured
 angles.
 """
+
 import json
 import math
 from pathlib import Path
@@ -23,10 +24,10 @@ from .geometry import invert
 
 KIND = 'minerva_twin_correction'
 # A zero further off than this is not a zero error: the stills, or a reference, are wrong.
-MAX_OFFSET_DEG = 10.
+MAX_OFFSET_DEG = 10.0
 # Beside the pan, the neck's place on the frame against CAD puts the head's board and the arms' this far apart at most;
 # farther, and the board moved between the wrist stills and the head's.
-MAX_OTHER_MM, MAX_OTHER_DEG = 30., 3.
+MAX_OTHER_MM, MAX_OTHER_DEG = 30.0, 3.0
 
 
 def path(directory, asset_id):
@@ -53,7 +54,7 @@ def _small(offsets_deg, what):
         raise ValueError(f'{what} has an offset that is not a finite angle')
     beyond = [name for name, v in offsets_deg.items() if abs(v) > MAX_OFFSET_DEG]
     if beyond:
-        raise ValueError(f"{what} would turn {', '.join(beyond)} more than {MAX_OFFSET_DEG:.0f}°, beyond a zero error")
+        raise ValueError(f'{what} would turn {", ".join(beyond)} more than {MAX_OFFSET_DEG:.0f}°, beyond a zero error')
 
 
 def arms_part(run, result, reference):
@@ -63,12 +64,17 @@ def arms_part(run, result, reference):
     the run gives none."""
     if result.get('recommended') != 'joint_offsets':
         return None
-    stills = [json.loads(line) for line in (Path(run) / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
-              if line.strip()]
+    stills = [
+        json.loads(line)
+        for line in (Path(run) / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
+        if line.strip()
+    ]
     references = {still.get('reference_sha256') for still in stills}
     if None in references:
-        raise ValueError(f"run {Path(run).name}'s stills do not say which arms' reference they were taken through "
-                         "(before Helm recorded it): capture a new wrist run")
+        raise ValueError(
+            f"run {Path(run).name}'s stills do not say which arms' reference they were taken through "
+            '(before Helm recorded it): capture a new wrist run'
+        )
     if references != {reference}:
         raise ValueError(f'the arms were zeroed again since run {Path(run).name}: capture a new wrist run')
     offsets, sigmas = {}, {}
@@ -87,17 +93,26 @@ def head_part(camera, reference, placement, chain, middle, wrists_run):
     are beside it. `chain`: the head model's to the camera's link (vision.chain); `middle`: where on the board they are
     compared. ValueError says why there is none."""
     from .head_alignment import PAN, against_arms  # The solve's module brings scipy: the head's process never needs it.
+
     aligned_mount(camera, chain.tip, reference)
     found = against_arms(np.asarray(camera['board_in_robot']['matrix'], float), placement, chain, middle)
     if found['other_mm'] > MAX_OTHER_MM or found['other_deg'] > MAX_OTHER_DEG:
-        raise ValueError(f"beside the pan its board and the arms' are {found['other_mm']:.0f} mm and "
-                         f"{found['other_deg']:.1f}° apart (at most {MAX_OTHER_MM:.0f} mm, {MAX_OTHER_DEG:.0f}°): "
-                         "was the board moved between the wrist and head stills? Take both with it in one place")
+        raise ValueError(
+            f"beside the pan its board and the arms' are {found['other_mm']:.0f} mm and "
+            f'{found["other_deg"]:.1f}° apart (at most {MAX_OTHER_MM:.0f} mm, {MAX_OTHER_DEG:.0f}°): '
+            'was the board moved between the wrist and head stills? Take both with it in one place'
+        )
     _small({PAN: found['pan_deg']}, 'the head camera alignment')
-    return dict(alignment_run=camera.get('run'), camera_sha256=reference_digest(camera),
-                reference_sha256=reference_digest(reference), wrists_run=wrists_run,
-                offsets_deg={PAN: found['pan_deg']}, board_mm=found['board_mm'], other_mm=found['other_mm'],
-                other_deg=found['other_deg'])
+    return dict(
+        alignment_run=camera.get('run'),
+        camera_sha256=reference_digest(camera),
+        reference_sha256=reference_digest(reference),
+        wrists_run=wrists_run,
+        offsets_deg={PAN: found['pan_deg']},
+        board_mm=found['board_mm'],
+        other_mm=found['other_mm'],
+        other_deg=found['other_deg'],
+    )
 
 
 def propose(wrists, arms_reference, camera, head_reference, chain, middle):
@@ -105,10 +120,15 @@ def propose(wrists, arms_reference, camera, head_reference, chain, middle):
     from the newest solved wrist run under `wrists`, the arms' reference digest, and the head's saved camera alignment
     and reference (None when not saved)."""
     from .head_alignment import latest_wrist_run
+
     latest = latest_wrist_run(wrists)
     if latest is None:
-        return dict(wrists_run=None, arms=None, head=None,
-                    notes=['No solved wrist calibration: capture wrist stills in a live session, then Solve'])
+        return dict(
+            wrists_run=None,
+            arms=None,
+            head=None,
+            notes=['No solved wrist calibration: capture wrist stills in a live session, then Solve'],
+        )
     run, result, placement = latest
     parts, notes = {'arms': None, 'head': None}, []
     try:
@@ -135,8 +155,14 @@ def document(proposal, *, saved_at):
     """The correction's file from a proposal with a part to apply."""
     if proposal.get('arms') is None and proposal.get('head') is None:
         raise ValueError('Nothing to correct: ' + '; '.join(proposal.get('notes') or ['no proposal']))
-    return dict(schema=1, kind=KIND, wrists_run=proposal['wrists_run'], arms=proposal['arms'], head=proposal['head'],
-                saved_at=saved_at)
+    return dict(
+        schema=1,
+        kind=KIND,
+        wrists_run=proposal['wrists_run'],
+        arms=proposal['arms'],
+        head=proposal['head'],
+        saved_at=saved_at,
+    )
 
 
 def _radians(part, what):
@@ -179,5 +205,5 @@ def correction(chain, offsets):
     ones. Only the first joint (the head's pan) may have an offset: a later one's turn depends on the joints before."""
     if set(offsets) - set(chain.joints[:1]):
         raise ValueError(f"Only {chain.joints[0]}'s offset is a fixed turn of what hangs from it")
-    zero = {name: 0. for name in chain.joints}
+    zero = {name: 0.0 for name in chain.joints}
     return chain.pose(zero, offsets) @ invert(chain.pose(zero))

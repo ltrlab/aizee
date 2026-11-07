@@ -15,18 +15,21 @@ joints at 0; torque_map's gravity_fit), so a_k = A_k - A_{k+1}. The chain's join
 fits, from the first, get feed-forward; the last fitted one carries the links beyond it
 (exact while they are at the reference, close otherwise).
 """
+
 import math
 
-HORIZONTAL = .02  # |axis . vertical| below this: a joint gravity turns (sin of 1.1 degrees).
-PARALLEL = .999  # |axis . axis| above this: parallel axes.
+HORIZONTAL = 0.02  # |axis . vertical| below this: a joint gravity turns (sin of 1.1 degrees).
+PARALLEL = 0.999  # |axis . axis| above this: parallel axes.
 
 
 def _rotation(rpy):
     r, p, y = rpy
     cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
-    return [[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-            [-sp, cp * sr, cp * cr]]
+    return [
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ]
 
 
 def _multiply(a, b):
@@ -42,7 +45,7 @@ def world_axes(model):
         while current['parent'] in by_child:
             current = by_child[current['parent']]
             chain.append(current)
-        rotation = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
+        rotation = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         for step in reversed(chain):
             rotation = _multiply(rotation, _rotation(step['origin']['rpy']))
         axes[joint['name']] = [sum(rotation[i][k] * joint['axis'][k] for k in range(3)) for i in range(3)]
@@ -92,19 +95,22 @@ def gravity_terms(chain, fits):
         if not fit or not isinstance(fit.get('A'), (int, float)) or not math.isfinite(fit['A']):
             break
         fitted.append((motor, sign, float(fit['A'])))
-    moments = [a - (fitted[k + 1][2] if k + 1 < len(fitted) else 0.) for k, (_, _, a) in enumerate(fitted)]
+    moments = [a - (fitted[k + 1][2] if k + 1 < len(fitted) else 0.0) for k, (_, _, a) in enumerate(fitted)]
     angles, angle = [], {}
     for motor, sign, _ in fitted:
         angle = dict(angle, **{motor: sign})
         angles.append(angle)
-    return {motor: [(sign * moments[k], angles[k]) for k in range(i, len(fitted))]
-            for i, (motor, sign, _) in enumerate(fitted)}
+    return {
+        motor: [(sign * moments[k], angles[k]) for k in range(i, len(fitted))]
+        for i, (motor, sign, _) in enumerate(fitted)
+    }
 
 
 def gravity_effort(terms, positions):
     """The holding torque for one joint's `terms` at `positions` ({motor: rad})."""
-    return sum(coefficient * math.sin(sum(m * positions[motor] for motor, m in angle.items()))
-               for coefficient, angle in terms)
+    return sum(
+        coefficient * math.sin(sum(m * positions[motor] for motor, m in angle.items())) for coefficient, angle in terms
+    )
 
 
 def gravity_model(model, directions, motors, fits):

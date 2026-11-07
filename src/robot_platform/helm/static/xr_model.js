@@ -8,16 +8,16 @@
 // robot.
 import * as THREE from 'three';
 
-export const MODEL_OPACITY = .55;  // Of the picture's own opacity: the depth shows through it.
-export const GUIDE_MS = 100;  // As Helm's 3D view asks.
-export const RETRY_MS = 5000;  // A model that failed to load is asked for again this long after.
+export const MODEL_OPACITY = 0.55; // Of the picture's own opacity: the depth shows through it.
+export const GUIDE_MS = 100; // As Helm's 3D view asks.
+export const RETRY_MS = 5000; // A model that failed to load is asked for again this long after.
 const LOADERS = 4;
 
 // The links the model leaves out: the head's, from its pan joint on.
 export function headLinks(model, joint = 'neck_z') {
   const children = new Map();
   for (const item of model.joints) children.set(item.parent, [...(children.get(item.parent) || []), item.child]);
-  const pan = model.joints.find(item => item.name === joint);
+  const pan = model.joints.find((item) => item.name === joint);
   const links = new Set();
   for (const pending = pan ? [pan.child] : []; pending.length;) {
     const link = pending.pop();
@@ -29,7 +29,9 @@ export function headLinks(model, joint = 'neck_z') {
 
 // A mesh as Helm sends it (viewer/server.mesh_payload): vertex and face counts, float32 vertices, uint32 faces.
 export function meshGeometry(buffer) {
-  const header = new DataView(buffer), nv = header.getUint32(0, true), nf = header.getUint32(4, true);
+  const header = new DataView(buffer),
+    nv = header.getUint32(0, true),
+    nf = header.getUint32(4, true);
   if (buffer.byteLength !== 8 + nv * 12 + nf * 12) throw new Error('Incomplete mesh');
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(buffer, 8, nv * 3), 3));
@@ -42,16 +44,21 @@ export class RobotModel {
   // `fetch`, the timers and the clock (ms): the browser's (tests pass their own). Each is wrapped: called as this
   // object's method, the browser's own setTimeout throws "Illegal invocation" (it wants the window), and the model
   // never followed Helm's guide in the headset (2026-10-31). `guideMs`: how often to ask where the robot is.
-  constructor({fetch: get = (...args) => fetch(...args), setTimer = (fn, ms) => setTimeout(fn, ms),
-    clearTimer = id => clearTimeout(id), now = () => performance.now(), guideMs = GUIDE_MS} = {}) {
-    Object.assign(this, {get, setTimer, clearTimer, now, guideMs});
+  constructor({
+    fetch: get = (...args) => fetch(...args),
+    setTimer = (fn, ms) => setTimeout(fn, ms),
+    clearTimer = (id) => clearTimeout(id),
+    now = () => performance.now(),
+    guideMs = GUIDE_MS,
+  } = {}) {
+    Object.assign(this, { get, setTimer, clearTimer, now, guideMs });
     this.group = new THREE.Group();
     this.group.visible = false;
     this.group.matrixAutoUpdate = false;
     this.motions = new Map();
     this.materials = [];
     this.model = null;
-    this.links = new Map();  // Each link's group, by name.
+    this.links = new Map(); // Each link's group, by name.
     this.placed = false;
     this.loading = null;
     this.error = null;
@@ -59,11 +66,11 @@ export class RobotModel {
     this.opacity = 1;
     this.tracking = false;
     this.timer = null;
-    this.posed = null;  // The guide's last pose applied (its stream and sequence).
+    this.posed = null; // The guide's last pose applied (its stream and sequence).
   }
 
   async json(url) {
-    const response = await this.get(url, {cache: 'no-store'});
+    const response = await this.get(url, { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
@@ -78,11 +85,12 @@ export class RobotModel {
     this.loading ||= (async () => {
       const catalog = await this.json('/api/models');
       const model = await this.json(`/api/models/${encodeURIComponent(catalog.selected)}`);
-      const links = new Map(model.links.map(name => [name, new THREE.Group()]));
+      const links = new Map(model.links.map((name) => [name, new THREE.Group()]));
       const root = new THREE.Group();
       root.add(links.get(model.root));
       for (const joint of model.joints) {
-        const frame = new THREE.Group(), motion = new THREE.Group();
+        const frame = new THREE.Group(),
+          motion = new THREE.Group();
         frame.position.fromArray(joint.origin.xyz);
         frame.rotation.set(...joint.origin.rpy, 'ZYX');
         links.get(joint.parent).add(frame);
@@ -91,18 +99,27 @@ export class RobotModel {
         this.motions.set(joint.name, motion);
       }
       const hidden = headLinks(model);
-      const visuals = model.geometry.filter(item => item.role === 'visual' && item.shape === 'mesh'
-        && !hidden.has(item.link));
+      const visuals = model.geometry.filter(
+        (item) => item.role === 'visual' && item.shape === 'mesh' && !hidden.has(item.link),
+      );
       let next = 0;
       const loader = async () => {
         while (next < visuals.length) {
           const item = visuals[next++];
-          const response = await this.get(`/api/models/${encodeURIComponent(model.id)}/meshes/${item.asset}?detail=coarse`);
+          const response = await this.get(
+            `/api/models/${encodeURIComponent(model.id)}/meshes/${item.asset}?detail=coarse`,
+          );
           if (!response.ok) throw new Error(`Mesh ${item.asset}: HTTP ${response.status}`);
           const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color().setRGB(...item.color.slice(0, 3), THREE.SRGBColorSpace), transparent: true,
-            opacity: MODEL_OPACITY * this.opacity, depthWrite: false, side: THREE.DoubleSide,
-            polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2});
+            color: new THREE.Color().setRGB(...item.color.slice(0, 3), THREE.SRGBColorSpace),
+            transparent: true,
+            opacity: MODEL_OPACITY * this.opacity,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          });
           const mesh = new THREE.Mesh(meshGeometry(await response.arrayBuffer()), material);
           mesh.position.fromArray(item.origin.xyz);
           mesh.rotation.set(...item.origin.rpy, 'ZYX');
@@ -111,16 +128,16 @@ export class RobotModel {
           this.materials.push(material);
         }
       };
-      await Promise.all(Array.from({length: LOADERS}, loader));
+      await Promise.all(Array.from({ length: LOADERS }, loader));
       this.group.add(root);
       this.links = links;
       this.model = model;
       this.error = null;
       return model;
-    })().catch(error => {
+    })().catch((error) => {
       this.error = error.message;
       this.failedAt = this.now();
-      this.loading = null;  // Asked again later, it tries again.
+      this.loading = null; // Asked again later, it tries again.
       throw error;
     });
     return this.loading;
@@ -129,13 +146,14 @@ export class RobotModel {
   // The joints' positions ({joint: value}: Helm's guide, its independent joints), the coupled ones from them.
   pose(positions) {
     if (!this.model) return;
-    const values = {...positions};
+    const values = { ...positions };
     for (const name of this.model.mimic_order) {
-      const mimic = this.model.joints.find(joint => joint.name === name).mimic;
+      const mimic = this.model.joints.find((joint) => joint.name === name).mimic;
       values[name] = values[mimic.joint] * mimic.multiplier + mimic.offset;
     }
     for (const joint of this.model.joints) {
-      const motion = this.motions.get(joint.name), value = values[joint.name];
+      const motion = this.motions.get(joint.name),
+        value = values[joint.name];
       if (joint.type === 'fixed' || !Number.isFinite(value)) continue;
       if (joint.type === 'prismatic') motion.position.fromArray(joint.axis).multiplyScalar(value);
       else motion.quaternion.setFromAxisAngle(new THREE.Vector3(...joint.axis), value);
@@ -154,8 +172,13 @@ export class RobotModel {
     try {
       const guide = await this.json('/api/calibration-guide');
       const identity = `${guide.stream_id || ''}:${guide.sequence}`;
-      if (this.model && guide.model === this.model.id && guide.urdf_sha256 === this.model.urdf_sha256
-          && !guide.stale && identity !== this.posed) {
+      if (
+        this.model &&
+        guide.model === this.model.id &&
+        guide.urdf_sha256 === this.model.urdf_sha256 &&
+        !guide.stale &&
+        identity !== this.posed
+      ) {
         this.pose(guide.positions);
         this.posed = identity;
       }

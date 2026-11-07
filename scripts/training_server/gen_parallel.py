@@ -9,6 +9,7 @@ the summary can give the wall time per attempt.
     $AIZEE_SIM/.venv/bin/python $AIZEE_SIM/bin/gen_parallel.py --out DIR --episodes N [--workers 6] \
         [--tree $AIZEE_SIM/tree-01e2198] [--seed 1000] -- [more generate options]
 """
+
 import argparse
 import datetime
 import hashlib
@@ -35,15 +36,23 @@ def sha256(path):
 
 def environment(tree, egl_device):
     env = dict(os.environ)
-    env.update({
-        'PYTHONPATH': str(tree / 'src'),
-        'ROBOT_CONTROL_HARNESS': str(HOME / 'bin/control_harness'),
-        'ROBOT_COLLISION_LIBRARY': str(HOME / 'bin/librobot_collision.so'),
-        # EGL device 0 is nvidia-smi GPU 0 on this box (checked 2026-10-18).
-        'MUJOCO_GL': 'egl', 'MUJOCO_EGL_DEVICE_ID': str(egl_device), 'PYOPENGL_PLATFORM': 'egl',
-        'OMP_NUM_THREADS': '1', 'OPENBLAS_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1', 'NUMEXPR_NUM_THREADS': '1',
-        'TMPDIR': str(HOME / 'tmp'), 'PYTHONUNBUFFERED': '1',
-    })
+    env.update(
+        {
+            'PYTHONPATH': str(tree / 'src'),
+            'ROBOT_CONTROL_HARNESS': str(HOME / 'bin/control_harness'),
+            'ROBOT_COLLISION_LIBRARY': str(HOME / 'bin/librobot_collision.so'),
+            # EGL device 0 is nvidia-smi GPU 0 on this box (checked 2026-10-18).
+            'MUJOCO_GL': 'egl',
+            'MUJOCO_EGL_DEVICE_ID': str(egl_device),
+            'PYOPENGL_PLATFORM': 'egl',
+            'OMP_NUM_THREADS': '1',
+            'OPENBLAS_NUM_THREADS': '1',
+            'MKL_NUM_THREADS': '1',
+            'NUMEXPR_NUM_THREADS': '1',
+            'TMPDIR': str(HOME / 'tmp'),
+            'PYTHONUNBUFFERED': '1',
+        }
+    )
     return env
 
 
@@ -52,7 +61,7 @@ def pump(process, log, started, stamps):
     for raw in process.stdout:
         line = raw.decode('utf-8', 'replace').rstrip('\n')
         now = time.time()
-        log.write(f"[{datetime.datetime.fromtimestamp(now):%H:%M:%S} +{now - started:7.1f}s] {line}\n")
+        log.write(f'[{datetime.datetime.fromtimestamp(now):%H:%M:%S} +{now - started:7.1f}s] {line}\n')
         log.flush()
         match = ATTEMPT.match(line)
         if match:
@@ -84,17 +93,46 @@ def main():
         if not count:
             continue
         log = open(out / f'w{k}.log', 'w', encoding='utf-8')
-        command = [a.python, '-m', 'robot_platform.evaluation', 'generate', '--episodes', str(count),
-                   '--out', str(out / f'w{k}'), '--workcell', a.workcell, '--seed', str(a.seed + 100 * k),
-                   '--plant-seed', str(k + 1), *extra]
+        command = [
+            a.python,
+            '-m',
+            'robot_platform.evaluation',
+            'generate',
+            '--episodes',
+            str(count),
+            '--out',
+            str(out / f'w{k}'),
+            '--workcell',
+            a.workcell,
+            '--seed',
+            str(a.seed + 100 * k),
+            '--plant-seed',
+            str(k + 1),
+            *extra,
+        ]
         # Its own session, so a stop reaches the worker's receiver and scene subprocesses too.
-        process = subprocess.Popen(['nice', '-n', str(a.nice), *command], cwd=tree, env=env, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(
+            ['nice', '-n', str(a.nice), *command],
+            cwd=tree,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
         stamps = []
         thread = threading.Thread(target=pump, args=(process, log, started, stamps), daemon=True)
         thread.start()
-        workers.append({'k': k, 'process': process, 'log': log, 'command': command, 'thread': thread,
-                        'stamps': stamps, 'count': count})
+        workers.append(
+            {
+                'k': k,
+                'process': process,
+                'log': log,
+                'command': command,
+                'thread': thread,
+                'stamps': stamps,
+                'count': count,
+            }
+        )
 
     def stop(signum, frame):
         for w in workers:
@@ -119,7 +157,7 @@ def main():
     episodes.mkdir(exist_ok=True)
     manifest = []
     for w in workers:
-        path = out / f"w{w['k']}" / 'manifest.jsonl'
+        path = out / f'w{w["k"]}' / 'manifest.jsonl'
         if not path.exists():
             continue
         # Wall time of each attempt: from the previous attempt's line (or the worker's start) to its own.
@@ -144,26 +182,57 @@ def main():
     wall = time.time() - started
     source = tree / 'SOURCE.json'
     summary = {
-        'exit_codes': codes, 'episodes': len(made), 'attempts': len(manifest), 'outcomes': {},
-        'wall_s': round(wall, 1), 'workers': len(workers),
+        'exit_codes': codes,
+        'episodes': len(made),
+        'attempts': len(manifest),
+        'outcomes': {},
+        'wall_s': round(wall, 1),
+        'workers': len(workers),
         'episodes_per_hour': round(len(made) / wall * 3600, 2) if wall > 0 else None,
-        'attempt_wall_s': ({'median': statistics.median(walls), 'min': min(walls), 'max': max(walls)}
-                           if walls else None),
-        'episode_mb': ({'median': round(statistics.median(e['bytes'] for e in made) / 1e6, 1),
-                        'total': round(sum(e['bytes'] for e in made) / 1e6, 1)} if made else None),
+        'attempt_wall_s': (
+            {'median': statistics.median(walls), 'min': min(walls), 'max': max(walls)} if walls else None
+        ),
+        'episode_mb': (
+            {
+                'median': round(statistics.median(e['bytes'] for e in made) / 1e6, 1),
+                'total': round(sum(e['bytes'] for e in made) / 1e6, 1),
+            }
+            if made
+            else None
+        ),
         'worker_wall_s': {w['k']: round(ended[w['k']] - started, 1) for w in workers},
-        'host': socket.gethostname(), 'tree': str(tree),
+        'host': socket.gethostname(),
+        'tree': str(tree),
         'source': json.loads(source.read_text(encoding='utf-8')) if source.exists() else None,
-        'binaries': {name: sha256(HOME / 'bin' / name) for name in ('control_harness', 'librobot_collision.so')
-                     if (HOME / 'bin' / name).exists()},
-        'egl_device': a.egl_device, 'nice': a.nice,
+        'binaries': {
+            name: sha256(HOME / 'bin' / name)
+            for name in ('control_harness', 'librobot_collision.so')
+            if (HOME / 'bin' / name).exists()
+        },
+        'egl_device': a.egl_device,
+        'nice': a.nice,
         'commands': [w['command'] for w in workers],
     }
     for entry in manifest:
         summary['outcomes'][entry['outcome']] = summary['outcomes'].get(entry['outcome'], 0) + 1
     (out / 'summary.json').write_text(json.dumps(summary, indent=1) + '\n', encoding='utf-8')
-    print(json.dumps({key: summary[key] for key in ('exit_codes', 'episodes', 'attempts', 'outcomes', 'wall_s',
-                                                    'episodes_per_hour', 'attempt_wall_s', 'episode_mb')}))
+    print(
+        json.dumps(
+            {
+                key: summary[key]
+                for key in (
+                    'exit_codes',
+                    'episodes',
+                    'attempts',
+                    'outcomes',
+                    'wall_s',
+                    'episodes_per_hour',
+                    'attempt_wall_s',
+                    'episode_mb',
+                )
+            }
+        )
+    )
     return 0 if all(code == 0 for code in codes.values()) else 1
 
 

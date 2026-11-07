@@ -17,6 +17,7 @@ leader zero: every channel's reading, captured at once, in the pose that should
 map onto the robot's reference pose. The operator can set it again at any time.
 Ranges belong to the leader profile and its pinned USB serials.
 """
+
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -27,7 +28,7 @@ SCHEMA = 1
 KIND = 'leader_range_calibration'
 UNITS = 'leader_rad_center_and_span'
 # Stay clear of a full turn so a reading at either end still unwraps to the right side.
-MAX_SPAN_RAD = 2 * math.pi - .35
+MAX_SPAN_RAD = 2 * math.pi - 0.35
 
 
 def utc_now():
@@ -44,14 +45,21 @@ def _finite(value):
 
 def channels(profile):
     """(key, leader, channel name, index, label) for every leader channel, in profile order."""
-    return [(f"{leader}.{joint['name']}", leader, joint['name'], index, joint.get('label', joint['name']))
-            for leader, item in profile['leaders'].items() for index, joint in enumerate(item['joints'])]
+    return [
+        (f'{leader}.{joint["name"]}', leader, joint['name'], index, joint.get('label', joint['name']))
+        for leader, item in profile['leaders'].items()
+        for index, joint in enumerate(item['joints'])
+    ]
 
 
 class LeaderRangeRecorder:
-    def __init__(self, profile, *, saved=None, agree=3, jump_rad=1., gap_s=.25, persist=3, min_span_rad=.1):
-        if (not all(_finite(v) and v > 0 for v in (jump_rad, gap_s, min_span_rad))
-                or type(agree) is not int or agree < 2 or persist < 1):
+    def __init__(self, profile, *, saved=None, agree=3, jump_rad=1.0, gap_s=0.25, persist=3, min_span_rad=0.1):
+        if (
+            not all(_finite(v) and v > 0 for v in (jump_rad, gap_s, min_span_rad))
+            or type(agree) is not int
+            or agree < 2
+            or persist < 1
+        ):
             raise ValueError('Positive finite sweep thresholds are required')
         self.channels = channels(profile)
         self.keys = tuple(key for key, *_ in self.channels)
@@ -65,8 +73,20 @@ class LeaderRangeRecorder:
 
     @staticmethod
     def _fresh(discarded=0):
-        return dict(samples=0, raw=None, value=None, at=None, seen_low=None, seen_high=None, low=None, high=None,
-                    window=[], jumps=0, pending=0, discarded=discarded)
+        return dict(
+            samples=0,
+            raw=None,
+            value=None,
+            at=None,
+            seen_low=None,
+            seen_high=None,
+            low=None,
+            high=None,
+            window=[],
+            jumps=0,
+            pending=0,
+            discarded=discarded,
+        )
 
     def restart(self):
         """A new reading stream: each channel must continue from its last reading."""
@@ -111,7 +131,7 @@ class LeaderRangeRecorder:
             stats['seen_high'] = value if stats['seen_high'] is None else max(stats['seen_high'], value)
             window = stats['window']
             window.append(value)
-            del window[:-self.agree]
+            del window[: -self.agree]
             if len(window) == self.agree:
                 reached_high, reached_low = min(window), max(window)
                 stats['high'] = reached_high if stats['high'] is None else max(stats['high'], reached_high)
@@ -143,8 +163,13 @@ class LeaderRangeRecorder:
             raise ValueError(f'{key}: {problem}')
         stats = self._stats[key]
         low, high = stats['low'], stats['high']
-        self.confirmed[key] = dict(center_rad=((low + high) / 2) % (2 * math.pi), span_rad=high - low,
-                                   samples=stats['samples'], jumps=stats['jumps'], confirmed_at=at or utc_now())
+        self.confirmed[key] = dict(
+            center_rad=((low + high) / 2) % (2 * math.pi),
+            span_rad=high - low,
+            samples=stats['samples'],
+            jumps=stats['jumps'],
+            confirmed_at=at or utc_now(),
+        )
         return deepcopy(self.confirmed[key])
 
     def unconfirm(self, key):
@@ -168,18 +193,38 @@ class LeaderRangeRecorder:
                 if value is not None:
                     center = value + wrap(center - value)  # The saved range's branch nearest this reading.
                 saved = dict(low=center - span / 2, high=center + span / 2, span_rad=span)
-            reference = (low, high) if low is not None and high - low > 0 else (
-                (saved['low'], saved['high']) if saved else None)
+            reference = (
+                (low, high)
+                if low is not None and high - low > 0
+                else ((saved['low'], saved['high']) if saved else None)
+            )
             fraction = None
             if value is not None and reference:
                 fraction = (value - reference[0]) / (reference[1] - reference[0])
-            changed = bool(confirmed and low is not None and high - low > confirmed['span_rad'] + .01)
-            result.append(dict(key=key, leader=leader, name=name, channel=index + 1, label=label,
-                               current=value, seen_low=stats['seen_low'], seen_high=stats['seen_high'],
-                               low=low, high=high, span_rad=None if low is None else high - low,
-                               fraction=fraction, samples=stats['samples'], jumps=stats['jumps'],
-                               discarded=stats['discarded'], problem=self.problem(key),
-                               confirmed=deepcopy(confirmed), changed_since_confirmed=changed, saved=saved))
+            changed = bool(confirmed and low is not None and high - low > confirmed['span_rad'] + 0.01)
+            result.append(
+                dict(
+                    key=key,
+                    leader=leader,
+                    name=name,
+                    channel=index + 1,
+                    label=label,
+                    current=value,
+                    seen_low=stats['seen_low'],
+                    seen_high=stats['seen_high'],
+                    low=low,
+                    high=high,
+                    span_rad=None if low is None else high - low,
+                    fraction=fraction,
+                    samples=stats['samples'],
+                    jumps=stats['jumps'],
+                    discarded=stats['discarded'],
+                    problem=self.problem(key),
+                    confirmed=deepcopy(confirmed),
+                    changed_since_confirmed=changed,
+                    saved=saved,
+                )
+            )
         return result
 
     def document(self, profile, *, existing=None, session=None, at=None):
@@ -189,14 +234,27 @@ class LeaderRangeRecorder:
         leaders = deepcopy(existing['leaders']) if existing else {}
         for key, leader, name, index, label in self.channels:
             if key in self.confirmed:
-                leaders.setdefault(leader, {})[name] = {'channel': index + 1, 'label': label,
-                                                        **deepcopy(self.confirmed[key]), 'session': session}
-        document = {'schema': SCHEMA, 'kind': KIND, 'profile': profile['id'], 'pins': pins(profile), 'units': UNITS,
-                    'method': (f'Operator hand sweep of each leader channel through its full travel. Readings are '
-                               f'unwrapped continuously; an end counts once {self.agree} consecutive readings reach '
-                               f'it. At runtime a reading r is center + wrap(r - center).'),
-                    'runtime_approved': False, 'updated_at': at or utc_now(),
-                    'leaders': {leader: dict(sorted(rows.items())) for leader, rows in sorted(leaders.items())}}
+                leaders.setdefault(leader, {})[name] = {
+                    'channel': index + 1,
+                    'label': label,
+                    **deepcopy(self.confirmed[key]),
+                    'session': session,
+                }
+        document = {
+            'schema': SCHEMA,
+            'kind': KIND,
+            'profile': profile['id'],
+            'pins': pins(profile),
+            'units': UNITS,
+            'method': (
+                f'Operator hand sweep of each leader channel through its full travel. Readings are '
+                f'unwrapped continuously; an end counts once {self.agree} consecutive readings reach '
+                f'it. At runtime a reading r is center + wrap(r - center).'
+            ),
+            'runtime_approved': False,
+            'updated_at': at or utc_now(),
+            'leaders': {leader: dict(sorted(rows.items())) for leader, rows in sorted(leaders.items())},
+        }
         if existing and 'reference' in existing:
             document['reference'] = deepcopy(existing['reference'])
         return document
@@ -221,10 +279,15 @@ def validate_ranges(document, profile):
         raise ValueError('Saved leader ranges need a leaders object')
     if 'reference' in document:
         captured = (document['reference'] or {}).get('leaders')
-        if (not isinstance(captured, dict) or set(captured) != set(profile['leaders'])
-                or any(set(captured[name]) != {joint['name'] for joint in item['joints']}
-                       or not all(_finite(v) for v in captured[name].values())
-                       for name, item in profile['leaders'].items())):
+        if (
+            not isinstance(captured, dict)
+            or set(captured) != set(profile['leaders'])
+            or any(
+                set(captured[name]) != {joint['name'] for joint in item['joints']}
+                or not all(_finite(v) for v in captured[name].values())
+                for name, item in profile['leaders'].items()
+            )
+        ):
             raise ValueError('The saved leader zero must cover every leader channel')
     for leader, rows in leaders.items():
         names = {joint['name'] for joint in profile['leaders'].get(leader, {}).get('joints', [])}
@@ -254,11 +317,30 @@ def with_reference(document, profile, captured, *, session=None, at=None):
     captured: {leader: {channel name: reading_rad}} for every channel.
     """
     at = at or utc_now()
-    result = deepcopy(document) if document else {
-        'schema': SCHEMA, 'kind': KIND, 'profile': profile['id'], 'pins': pins(profile), 'units': UNITS,
-        'runtime_approved': False, 'leaders': {}}
-    result.update(updated_at=at, reference={'captured_at': at, 'session': session, 'leaders': {
-        leader: {name: value % (2 * math.pi) for name, value in rows.items()} for leader, rows in captured.items()}})
+    result = (
+        deepcopy(document)
+        if document
+        else {
+            'schema': SCHEMA,
+            'kind': KIND,
+            'profile': profile['id'],
+            'pins': pins(profile),
+            'units': UNITS,
+            'runtime_approved': False,
+            'leaders': {},
+        }
+    )
+    result.update(
+        updated_at=at,
+        reference={
+            'captured_at': at,
+            'session': session,
+            'leaders': {
+                leader: {name: value % (2 * math.pi) for name, value in rows.items()}
+                for leader, rows in captured.items()
+            },
+        },
+    )
     return validate_ranges(result, profile)
 
 
@@ -267,13 +349,21 @@ def reference_table(document, profile):
     captured = ((document or {}).get('reference') or {}).get('leaders')
     if not captured:
         return None
-    return {leader: [captured[leader][joint['name']] for joint in item['joints']]
-            for leader, item in profile['leaders'].items()}
+    return {
+        leader: [captured[leader][joint['name']] for joint in item['joints']]
+        for leader, item in profile['leaders'].items()
+    }
 
 
 def range_table(document, profile):
     """{leader: [(center_rad, span_rad) or None per channel]} in profile channel order."""
     saved = (document or {}).get('leaders', {})
-    return {leader: [(saved[leader][joint['name']]['center_rad'], saved[leader][joint['name']]['span_rad'])
-                     if joint['name'] in saved.get(leader, {}) else None for joint in item['joints']]
-            for leader, item in profile['leaders'].items()}
+    return {
+        leader: [
+            (saved[leader][joint['name']]['center_rad'], saved[leader][joint['name']]['span_rad'])
+            if joint['name'] in saved.get(leader, {})
+            else None
+            for joint in item['joints']
+        ]
+        for leader, item in profile['leaders'].items()
+    }

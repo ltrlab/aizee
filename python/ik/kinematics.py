@@ -37,6 +37,7 @@ import numpy as np
 # beyond numpy.
 # -----------------------------------------------------------------------------
 
+
 def _rpy_to_R(rpy: np.ndarray) -> np.ndarray:
     """Convert URDF roll-pitch-yaw (ZYX intrinsic in URDF spec) to a 3x3 R."""
     r, p, y = float(rpy[0]), float(rpy[1]), float(rpy[2])
@@ -94,11 +95,13 @@ def quat_to_R(q: np.ndarray) -> np.ndarray:
     if n < 1e-12:
         return np.eye(3)
     s = 2.0 / n
-    return np.array([
-        [1 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
-        [s * (x * y + z * w), 1 - s * (x * x + z * z), s * (y * z - x * w)],
-        [s * (x * z - y * w), s * (y * z + x * w), 1 - s * (x * x + y * y)],
-    ])
+    return np.array(
+        [
+            [1 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
+            [s * (x * y + z * w), 1 - s * (x * x + z * z), s * (y * z - x * w)],
+            [s * (x * z - y * w), s * (y * z + x * w), 1 - s * (x * x + y * y)],
+        ]
+    )
 
 
 def quat_log(q: np.ndarray) -> np.ndarray:
@@ -118,15 +121,16 @@ def quat_log(q: np.ndarray) -> np.ndarray:
 # URDF parsing
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class _Joint:
     name: str
-    jtype: str            # "revolute" | "fixed" | ...
-    parent: str           # parent link name
-    child: str            # child link name
-    xyz: np.ndarray       # 3,
-    rpy: np.ndarray       # 3,
-    axis: np.ndarray      # 3, (joint axis in joint frame)
+    jtype: str  # "revolute" | "fixed" | ...
+    parent: str  # parent link name
+    child: str  # child link name
+    xyz: np.ndarray  # 3,
+    rpy: np.ndarray  # 3,
+    axis: np.ndarray  # 3, (joint axis in joint frame)
     lower: float
     upper: float
     R_static: np.ndarray  # 3x3 rpy as R, cached
@@ -138,27 +142,35 @@ def _parse_urdf(urdf_path: Path) -> dict[str, _Joint]:
     tree = ET.parse(urdf_path)
     root = tree.getroot()
     joints: dict[str, _Joint] = {}
-    for j in root.findall("joint"):
-        name = j.get("name", "")
-        jtype = j.get("type", "fixed")
-        parent = j.find("parent").get("link") if j.find("parent") is not None else ""
-        child = j.find("child").get("link") if j.find("child") is not None else ""
-        origin = j.find("origin")
+    for j in root.findall('joint'):
+        name = j.get('name', '')
+        jtype = j.get('type', 'fixed')
+        parent = j.find('parent').get('link') if j.find('parent') is not None else ''
+        child = j.find('child').get('link') if j.find('child') is not None else ''
+        origin = j.find('origin')
         if origin is not None:
-            xyz = np.fromstring(origin.get("xyz", "0 0 0"), sep=" ")
-            rpy = np.fromstring(origin.get("rpy", "0 0 0"), sep=" ")
+            xyz = np.fromstring(origin.get('xyz', '0 0 0'), sep=' ')
+            rpy = np.fromstring(origin.get('rpy', '0 0 0'), sep=' ')
         else:
             xyz = np.zeros(3)
             rpy = np.zeros(3)
-        axis_el = j.find("axis")
-        axis = np.fromstring(axis_el.get("xyz", "0 0 1"), sep=" ") if axis_el is not None else np.array([0, 0, 1.0])
-        limit = j.find("limit")
-        lower = float(limit.get("lower", "-3.14159265358979")) if limit is not None else -np.pi
-        upper = float(limit.get("upper", "3.14159265358979")) if limit is not None else np.pi
+        axis_el = j.find('axis')
+        axis = np.fromstring(axis_el.get('xyz', '0 0 1'), sep=' ') if axis_el is not None else np.array([0, 0, 1.0])
+        limit = j.find('limit')
+        lower = float(limit.get('lower', '-3.14159265358979')) if limit is not None else -np.pi
+        upper = float(limit.get('upper', '3.14159265358979')) if limit is not None else np.pi
         joints[name] = _Joint(
-            name=name, jtype=jtype, parent=parent, child=child,
-            xyz=xyz, rpy=rpy, axis=axis, lower=lower, upper=upper,
-            R_static=_rpy_to_R(rpy), t_static=xyz.copy(),
+            name=name,
+            jtype=jtype,
+            parent=parent,
+            child=child,
+            xyz=xyz,
+            rpy=rpy,
+            axis=axis,
+            lower=lower,
+            upper=upper,
+            R_static=_rpy_to_R(rpy),
+            t_static=xyz.copy(),
         )
     return joints
 
@@ -179,6 +191,7 @@ def _chain_root_to_link(joints: dict[str, _Joint], ee_link: str) -> list[_Joint]
 # -----------------------------------------------------------------------------
 # Kinematics
 # -----------------------------------------------------------------------------
+
 
 class Kinematics:
     """Forward kinematics + 6xN spatial Jacobian for a serial revolute chain.
@@ -205,7 +218,7 @@ class Kinematics:
         chain_names = [j.name for j in chain]
         for n in controlled_names:
             if n not in chain_names:
-                raise ValueError(f"Controlled joint {n!r} not in URDF chain to EE")
+                raise ValueError(f'Controlled joint {n!r} not in URDF chain to EE')
         # Sort controlled_names by chain order so q[] indexing is monotonic.
         controlled_names_sorted = [n for n in chain_names if n in controlled_names]
         if controlled_names_sorted != controlled_names:
@@ -217,17 +230,10 @@ class Kinematics:
         self._controlled = controlled_names_sorted
         self._ctrl_idx_in_chain = [chain_names.index(n) for n in controlled_names_sorted]
         # Joint limits in q order.
-        self.lower = np.array(
-            [chain[i].lower for i in self._ctrl_idx_in_chain], dtype=np.float64
-        )
-        self.upper = np.array(
-            [chain[i].upper for i in self._ctrl_idx_in_chain], dtype=np.float64
-        )
+        self.lower = np.array([chain[i].lower for i in self._ctrl_idx_in_chain], dtype=np.float64)
+        self.upper = np.array([chain[i].upper for i in self._ctrl_idx_in_chain], dtype=np.float64)
         # Joint axes in q order (still expressed in each joint's local frame).
-        self._axes_local = [
-            chain[i].axis / (np.linalg.norm(chain[i].axis) + 1e-12)
-            for i in self._ctrl_idx_in_chain
-        ]
+        self._axes_local = [chain[i].axis / (np.linalg.norm(chain[i].axis) + 1e-12) for i in self._ctrl_idx_in_chain]
 
     # ---- construction --------------------------------------------------
 
@@ -237,11 +243,11 @@ class Kinematics:
         urdf_path: Path | str,
         ee_link: str,
         joint_order: list[str],
-    ) -> "Kinematics":
+    ) -> 'Kinematics':
         joints = _parse_urdf(Path(urdf_path))
         chain = _chain_root_to_link(joints, ee_link)
         if not chain:
-            raise ValueError(f"No chain from URDF root to link {ee_link!r}")
+            raise ValueError(f'No chain from URDF root to link {ee_link!r}')
         return cls(chain, joint_order)
 
     def apply_limits_overlay(self, yaml_path: Path | str, *, verbose: bool = True) -> None:
@@ -253,15 +259,16 @@ class Kinematics:
         YAML are left at URDF limits.  Re-run safely; idempotent.
         """
         import yaml as _yaml
+
         data = _yaml.safe_load(Path(yaml_path).read_text()) or {}
-        joints_block = data.get("joints", {})
+        joints_block = data.get('joints', {})
         changed: list[str] = []
         for i, name in enumerate(self._controlled):
             entry = joints_block.get(name)
             if not entry:
                 continue
-            eff_lo = float(entry.get("effective_lower", self.lower[i]))
-            eff_hi = float(entry.get("effective_upper", self.upper[i]))
+            eff_lo = float(entry.get('effective_lower', self.lower[i]))
+            eff_hi = float(entry.get('effective_upper', self.upper[i]))
             new_lo = max(self.lower[i], eff_lo)
             new_hi = min(self.upper[i], eff_hi)
             if new_lo != self.lower[i] or new_hi != self.upper[i]:
@@ -269,7 +276,7 @@ class Kinematics:
                 self.lower[i] = new_lo
                 self.upper[i] = new_hi
         if verbose and changed:
-            print(f"[ik] applied configured limits to {len(changed)} joints: {changed}")
+            print(f'[ik] applied configured limits to {len(changed)} joints: {changed}')
 
     # ---- accessors -----------------------------------------------------
 
@@ -330,7 +337,7 @@ class Kinematics:
         R_acc = np.eye(3)
         t_acc = np.zeros(3)
         joint_origins_world: list[np.ndarray] = []  # in q order
-        joint_axes_world:    list[np.ndarray] = []  # in q order
+        joint_axes_world: list[np.ndarray] = []  # in q order
         ctrl_set = set(self._ctrl_idx_in_chain)
         for chain_idx, (j, theta) in enumerate(zip(self._chain, per)):
             # The joint's own frame origin = parent's R_acc rotation of j.t_static
@@ -366,18 +373,18 @@ class Kinematics:
 # and the two are mapped positionally by IK index, not by name.  Re-exports
 # from OnShape can rename joints; update this list if the URDF changes.
 AIZEE_ARM_IK_JOINTS = [
-    "swivel",
-    "gantry_base",
-    "gantry_mid",
-    "gantry_end",
-    "wrist_pitch",
-    "wrist_swivel",   # was "wrist_roll" in the pre-2026-05-20 URDF
+    'swivel',
+    'gantry_base',
+    'gantry_mid',
+    'gantry_end',
+    'wrist_pitch',
+    'wrist_swivel',  # was "wrist_roll" in the pre-2026-05-20 URDF
 ]
 
 # End-effector link in the URDF — child of the last arm joint (wrist_swivel).
-AIZEE_EE_LINK = "1_1_02_eb571_960_stp_2"
+AIZEE_EE_LINK = '1_1_02_eb571_960_stp_2'
 
-_DEFAULT_URDF = Path(__file__).resolve().parents[2] / "urdf" / "aizee" / "aizee.urdf"
+_DEFAULT_URDF = Path(__file__).resolve().parents[2] / 'urdf' / 'aizee' / 'aizee.urdf'
 
 
 def load_aizee_arm(urdf_path: Optional[Path | str] = None) -> Kinematics:

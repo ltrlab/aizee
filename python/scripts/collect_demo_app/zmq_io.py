@@ -1,4 +1,5 @@
 """ZMQ send helpers, cmd-sender thread, and tracking-bundle math (from collect_demo.py)."""
+
 from __future__ import annotations
 
 import threading
@@ -19,6 +20,7 @@ from .telem import _qpos
 # ---------------------------------------------------------------------------
 # ZMQ helpers
 # ---------------------------------------------------------------------------
+
 
 def _drain(sock) -> Optional[dict]:
     latest = None
@@ -41,7 +43,7 @@ def _send_motor_message(sock, message: dict) -> None:
     Collector callers use the session path: its worker is the sole ZMQ owner.
     Calibration is applied before this boundary, exactly once.
     """
-    submit = getattr(sock, "send_message", None)
+    submit = getattr(sock, 'send_message', None)
     if submit is not None:
         submit(message)
         return
@@ -59,11 +61,11 @@ def _send(sock, msg: dict) -> None:
     need to remember to do it themselves.  `bundle` messages with an
     embedded arm_joints field get the same treatment."""
     if isinstance(msg, dict):
-        if msg.get("type") == "arm_joints":
+        if msg.get('type') == 'arm_joints':
             msg = _urdf_to_motor_arm_payload(msg)
-        elif msg.get("type") == "bundle" and isinstance(msg.get("arm_joints"), dict):
+        elif msg.get('type') == 'bundle' and isinstance(msg.get('arm_joints'), dict):
             msg = dict(msg)
-            msg["arm_joints"] = _urdf_to_motor_arm_payload(msg["arm_joints"])
+            msg['arm_joints'] = _urdf_to_motor_arm_payload(msg['arm_joints'])
     try:
         _send_motor_message(sock, msg)
     except zmq.Again:
@@ -80,11 +82,11 @@ def _build_bundle(
     """
     if arm is None and drive is None:
         return None
-    msg: dict = {"type": "bundle"}
+    msg: dict = {'type': 'bundle'}
     if arm is not None:
-        msg["arm_joints"] = arm
+        msg['arm_joints'] = arm
     if drive is not None:
-        msg["drive"] = drive
+        msg['drive'] = drive
     return msg
 
 
@@ -119,7 +121,7 @@ def _send_bundle(
 # when the main loop is mid-tick.  Also pays the msgpack pack + ZMQ send
 # cost off the main loop (used to be the dominant `motor` p99 spike).
 
-_CMD_SEND_HZ = 100   # send cadence; 10 ms tick
+_CMD_SEND_HZ = 100  # send cadence; 10 ms tick
 
 # Lead-clamp is skipped when telem age exceeds this — see #3 in the
 # main-loop lag analysis.  Otherwise a stale q_actual would pin the
@@ -159,12 +161,11 @@ def _start_cmd_sender(
                        vel_ff, drive, arm_limits} | None,
         }
     """
-    lock   = threading.Lock()
+    lock = threading.Lock()
     # `last_q_cmd` is the current commanded arm pose — main loop reads it
     # for recording / display / shutdown-target seeding regardless of mode.
-    holder: dict = {"mode": None, "bundle": None, "tracking": None,
-                    "last_q_cmd": None}
-    stop   = threading.Event()
+    holder: dict = {'mode': None, 'bundle': None, 'tracking': None, 'last_q_cmd': None}
+    stop = threading.Event()
     period = 1.0 / hz
 
     def _run() -> None:
@@ -179,9 +180,9 @@ def _start_cmd_sender(
             last_t = now_pc
 
             with lock:
-                mode     = holder.get("mode")
-                bundle   = holder.get("bundle")
-                tracking = holder.get("tracking")
+                mode = holder.get('mode')
+                bundle = holder.get('bundle')
+                tracking = holder.get('tracking')
 
             # Reset the rate-limit integrator on any mode transition so the
             # first tick after entering "tracking" doesn't apply a step
@@ -192,32 +193,37 @@ def _start_cmd_sender(
 
             msg: Optional[dict] = None
 
-            if mode == "tracking" and tracking is not None:
+            if mode == 'tracking' and tracking is not None:
                 msg = _compute_tracking_bundle(
-                    tracking, dt, last_q_cmd,
-                    lr_lock, lr_latest, lr_mapping,
-                    telem_lock, telem_cache,
+                    tracking,
+                    dt,
+                    last_q_cmd,
+                    lr_lock,
+                    lr_latest,
+                    lr_mapping,
+                    telem_lock,
+                    telem_cache,
                 )
                 if msg is not None:
                     # Pull the q_cmd back out of the bundle for the next
                     # tick's rate-limit integrator and for the main loop
                     # (recording / display).
-                    arm = msg.get("arm_joints", {})
-                    pos = arm.get("positions")
+                    arm = msg.get('arm_joints', {})
+                    pos = arm.get('positions')
                     if pos is not None:
                         last_q_cmd = np.asarray(pos, dtype=np.float32)
                         with lock:
-                            holder["last_q_cmd"] = last_q_cmd
-            elif mode == "static" and bundle is not None:
+                            holder['last_q_cmd'] = last_q_cmd
+            elif mode == 'static' and bundle is not None:
                 msg = bundle
                 # Mirror the static bundle's arm positions into last_q_cmd
                 # so callers that read `holder["last_q_cmd"]` see the same
                 # value regardless of mode.
-                arm = bundle.get("arm_joints") or {}
-                pos = arm.get("positions")
+                arm = bundle.get('arm_joints') or {}
+                pos = arm.get('positions')
                 if pos is not None:
                     with lock:
-                        holder["last_q_cmd"] = np.asarray(pos, dtype=np.float32)
+                        holder['last_q_cmd'] = np.asarray(pos, dtype=np.float32)
 
             if msg is not None:
                 # Boundary: arm_joints flows in URDF frame internally but the
@@ -225,20 +231,20 @@ def _start_cmd_sender(
                 # alignment transform on a SHALLOW COPY so holder['bundle']
                 # and last_q_cmd stay in URDF frame for callers that read
                 # them.  drive/other top-level fields pass through unchanged.
-                arm = msg.get("arm_joints")
+                arm = msg.get('arm_joints')
                 if arm is not None:
                     msg = dict(msg)
-                    msg["arm_joints"] = _urdf_to_motor_arm_payload(arm)
+                    msg['arm_joints'] = _urdf_to_motor_arm_payload(arm)
                 try:
                     # A mode may have been cleared while tracking math ran.
                     # Serialize the final submit with holder changes so an
                     # old tick cannot repopulate a cleared session queue.
                     with lock:
-                        current = holder.get("mode") == mode
-                        if mode == "tracking":
-                            current = current and holder.get("tracking") is tracking
-                        elif mode == "static":
-                            current = current and holder.get("bundle") is bundle
+                        current = holder.get('mode') == mode
+                        if mode == 'tracking':
+                            current = current and holder.get('tracking') is tracking
+                        elif mode == 'static':
+                            current = current and holder.get('bundle') is bundle
                         if current:
                             _send_motor_message(sock, msg)
                 except zmq.Again:
@@ -253,7 +259,7 @@ def _start_cmd_sender(
             if next_t < time.perf_counter():
                 next_t = time.perf_counter() + period
 
-    thread = threading.Thread(target=_run, daemon=True, name="CmdTx")
+    thread = threading.Thread(target=_run, daemon=True, name='CmdTx')
     thread.start()
     return stop, thread, lock, holder
 
@@ -275,16 +281,15 @@ def _compute_tracking_bundle(
     """
     # Snapshot leader + mapping under one lock acquisition.
     with lr_lock:
-        leader_rad     = lr_latest.get("rad")
-        leader_vel     = lr_latest.get("vel")
-        leader_t       = lr_latest.get("time", 0.0)
-        zero_offsets   = lr_mapping.get("zero_offsets")
-        directions     = lr_mapping.get("directions")
-        for_aizee      = lr_mapping.get("for_aizee")
-        emits_urdf     = lr_mapping.get("emits_urdf", False)
+        leader_rad = lr_latest.get('rad')
+        leader_vel = lr_latest.get('vel')
+        leader_t = lr_latest.get('time', 0.0)
+        zero_offsets = lr_mapping.get('zero_offsets')
+        directions = lr_mapping.get('directions')
+        for_aizee = lr_mapping.get('for_aizee')
+        emits_urdf = lr_mapping.get('emits_urdf', False)
 
-    if (leader_rad is None or zero_offsets is None
-            or directions is None or for_aizee is None):
+    if leader_rad is None or zero_offsets is None or directions is None or for_aizee is None:
         return None
 
     # Map leader → AIZEE target.  Physical leaders' `directions` array
@@ -308,8 +313,8 @@ def _compute_tracking_bundle(
 
     # Telemetry q_actual + age — used for the lead-clamp.
     with telem_lock:
-        telem_msg = telem_cache.get("msg")
-        telem_t   = telem_cache.get("time", 0.0)
+        telem_msg = telem_cache.get('msg')
+        telem_t = telem_cache.get('time', 0.0)
     q_actual = _qpos(telem_msg) if telem_msg is not None else None
     telem_age = time.time() - telem_t if telem_t > 0 else 999.0
 
@@ -320,7 +325,7 @@ def _compute_tracking_bundle(
         # clamp would pin the command behind a known-stale q_actual; trust
         # the velocity rate-limit alone in that case.
         if q_actual is not None and telem_age < _LEAD_CLAMP_TELEM_FRESH_S:
-            max_lead = float(cfg.get("max_lead", 0.6))
+            max_lead = float(cfg.get('max_lead', 0.6))
             ref = q_actual + np.clip(ref - q_actual, -max_lead, max_lead)
     elif q_actual is not None:
         ref = q_actual
@@ -328,23 +333,23 @@ def _compute_tracking_bundle(
         ref = target
 
     # Velocity rate-limit, per-time (was per-30Hz-tick in the old path).
-    max_vel  = float(cfg.get("max_vel", 9.0))   # rad/s
+    max_vel = float(cfg.get('max_vel', 9.0))  # rad/s
     max_step = max_vel * max(dt, 1e-3)
-    delta    = np.clip(target - ref, -max_step, max_step)
-    q_cmd    = ref + delta
+    delta = np.clip(target - ref, -max_step, max_step)
+    q_cmd = ref + delta
 
-    arm_limits = cfg.get("arm_limits")
+    arm_limits = cfg.get('arm_limits')
     clamped_mask: Optional[np.ndarray] = None
     if arm_limits:
         q_cmd_clamped = np.array(clamp_arm_positions(q_cmd.tolist(), arm_limits))
-        clamped_mask  = q_cmd_clamped != q_cmd
-        q_cmd         = q_cmd_clamped
+        clamped_mask = q_cmd_clamped != q_cmd
+        q_cmd = q_cmd_clamped
 
     # Zero vel_ff on any joint pinned at its limit. Without this, the leader's
     # trigger velocity keeps driving firmware kd·(v_cmd − v_actual) torque
     # against the mechanical stop, and trigger chatter knocks the motor back
     # and forth around the limit.
-    if cfg.get("vel_ff", True) and vel_ff_arr is not None:
+    if cfg.get('vel_ff', True) and vel_ff_arr is not None:
         vel_arr = vel_ff_arr.copy()
         if clamped_mask is not None and clamped_mask.any():
             vel_arr[clamped_mask] = 0.0
@@ -353,16 +358,16 @@ def _compute_tracking_bundle(
         vel = [0.0] * NUM_JOINTS
 
     bundle = {
-        "type": "bundle",
-        "arm_joints": {
-            "positions":  q_cmd.tolist(),
-            "velocities": vel,
-            "kp":         cfg.get("kp"),
-            "kd":         cfg.get("kd"),
-            "torques":    [0.0] * NUM_JOINTS,
+        'type': 'bundle',
+        'arm_joints': {
+            'positions': q_cmd.tolist(),
+            'velocities': vel,
+            'kp': cfg.get('kp'),
+            'kd': cfg.get('kd'),
+            'torques': [0.0] * NUM_JOINTS,
         },
     }
-    drive = cfg.get("drive")
+    drive = cfg.get('drive')
     if drive is not None:
-        bundle["drive"] = drive
+        bundle['drive'] = drive
     return bundle

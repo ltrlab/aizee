@@ -11,6 +11,7 @@ record.
 
 The loop (helm.teleop.run_loop) drives this core as it drives TeleopCore, one head cycle each 40 ms period.
 """
+
 from collections import deque
 from copy import deepcopy
 import time
@@ -21,17 +22,25 @@ from .pedals import Pedals
 
 ENGAGED = ('ENGAGING', 'TELEOP')
 # Operator transitions the lifecycle refuses from other states: said, never sent (a refused one faults the head).
-ALLOWED = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED,
-           'shutdown': ('IDLE', 'HOLD', *ENGAGED)}
+ALLOWED = {
+    'enable': ('IDLE',),
+    'engage': ('IDLE', 'HOLD'),
+    'disengage': ENGAGED,
+    'shutdown': ('IDLE', 'HOLD', *ENGAGED),
+}
 CYCLE_HISTORY = 100
-STATES = {'IDLE': 'torque off. Enable (E) holds the head where it is.',
-          'HOLD': 'holding. Engage (T) raises it slowly toward the headset, then follows it.',
-          'ENGAGING': 'aligning to the headset.',
-          'TELEOP': 'following the headset. T holds it; Return (X) takes it back to its reference, then down to '
-                    'where it rested.',
-          'SHUTDOWN': 'returning to its zero, then disabling.'}
-RETURNING = {'centre': 'returning: back to its reference first.',
-             'rest': 'returning: down to where it rested, then its torque goes.'}
+STATES = {
+    'IDLE': 'torque off. Enable (E) holds the head where it is.',
+    'HOLD': 'holding. Engage (T) raises it slowly toward the headset, then follows it.',
+    'ENGAGING': 'aligning to the headset.',
+    'TELEOP': 'following the headset. T holds it; Return (X) takes it back to its reference, then down to '
+    'where it rested.',
+    'SHUTDOWN': 'returning to its zero, then disabling.',
+}
+RETURNING = {
+    'centre': 'returning: back to its reference first.',
+    'rest': 'returning: down to where it rested, then its torque goes.',
+}
 
 
 def head_only(receiver):
@@ -51,22 +60,26 @@ class HeadOnlyCore:
         if not head_only(receiver) or receiver.get('mode') not in ('live', 'virtual'):
             raise ValueError('A head-only session drives the head alone, live or on the virtual receiver')
         if bundle.get('head') is None:
-            raise ValueError('The head is not set up: save its reference, limits and shoulder clearance in Limits → '
-                             'Head first')
+            raise ValueError(
+                'The head is not set up: save its reference, limits and shoulder clearance in Limits → Head first'
+            )
         self.live = receiver['mode'] == 'live'
         self.period_s = PERIOD_S
         self.head = (open_head or (lambda head: HeadTeleop(head, live=self.live, clock=clock)))(bundle['head'])
         self.pedals = Pedals()
         self.phase, self.fault = 'starting', None
-        self.message = (f'Starting {self._name}: its receiver, the servos limp until Idle (I)…' if self.live
-                        else f'Starting {self._name}: no motors move…')
+        self.message = (
+            f'Starting {self._name}: its receiver, the servos limp until Idle (I)…'
+            if self.live
+            else f'Starting {self._name}: no motors move…'
+        )
         self.scheduling = {}
         self._tuning_result = None  # No motor tuning here; the loop reads it.
         self._powered = False  # A live head disabled after it was powered needs a new session.
         self._land = self._closing = False
         self.sequence = 0
         self.cycles = deque(maxlen=CYCLE_HISTORY)
-        self._last_start, self.largest_gap_ms = None, 0.
+        self._last_start, self.largest_gap_ms = None, 0.0
 
     @property
     def _name(self):
@@ -75,9 +88,11 @@ class HeadOnlyCore:
     def build(self):
         self.head.build()
         self.phase = 'running'
-        self.message = (f'{self._name} · the servos are powered from Idle (I); then Enable (E) holds the head where it '
-                        'rests and Engage (T) raises it toward the headset. Return (X) takes it back, then down to '
-                        'where it rested; Disable (H) removes its torque.')
+        self.message = (
+            f'{self._name} · the servos are powered from Idle (I); then Enable (E) holds the head where it '
+            'rests and Engage (T) raises it toward the headset. Return (X) takes it back, then down to '
+            'where it rested; Disable (H) removes its torque.'
+        )
 
     # -- the cycle ---------------------------------------------------------------------------
 
@@ -107,8 +122,10 @@ class HeadOnlyCore:
             record = head.cycle(action, started)
         except Exception:
             self.fault = head.fault
-            self.message = (f'{self._name} FAULT · {self.fault} · Disable (H) removes its torque; stop the session and '
-                            'start it again.')
+            self.message = (
+                f'{self._name} FAULT · {self.fault} · Disable (H) removes its torque; stop the session and '
+                'start it again.'
+            )
             return
         if record is not None:
             self.sequence += 1
@@ -123,19 +140,28 @@ class HeadOnlyCore:
         elif head.returning is not None and head.returning != was_returning:
             self.message = f'{self._name} · {RETURNING[head.returning]}'
         elif current != previous:
-            self.message = f'{self._name} · {current} · ' + STATES.get(current, (
-                'torque off. Stop the session; a new one powers it again.' if self.live and self._powered
-                else 'torque off.'))
+            self.message = f'{self._name} · {current} · ' + STATES.get(
+                current,
+                (
+                    'torque off. Stop the session; a new one powers it again.'
+                    if self.live and self._powered
+                    else 'torque off.'
+                ),
+            )
 
     def _disable_now(self):
         try:
             self.head.session.disable_now()
         except Exception as exc:
-            self.message = (f'{self._name} FAULT · {self.fault} · Disable could not be confirmed: '
-                            f'{str(exc) or type(exc).__name__}. Use the foot switch; the session remains faulted.')
+            self.message = (
+                f'{self._name} FAULT · {self.fault} · Disable could not be confirmed: '
+                f'{str(exc) or type(exc).__name__}. Use the foot switch; the session remains faulted.'
+            )
         else:
-            self.message = (f'{self._name} FAULT · {self.fault} · Disabled at your request: the head is limp where it '
-                            'is. Stop the session and start it again.')
+            self.message = (
+                f'{self._name} FAULT · {self.fault} · Disabled at your request: the head is limp where it '
+                'is. Stop the session and start it again.'
+            )
 
     def head_pose(self, yaw, pitch):
         """The headset's latest yaw and pitch (helm.xr), as the loop received it."""
@@ -176,8 +202,11 @@ class HeadOnlyCore:
                 self.fail(str(exc) or type(exc).__name__)
         if self.phase != 'fault':
             self.phase = 'stopped'
-            self.message = ('Teleop stopped. The head is disabled and its receiver closed.' if self.live
-                            else 'Teleop stopped. The virtual head receiver is closed.')
+            self.message = (
+                'Teleop stopped. The head is disabled and its receiver closed.'
+                if self.live
+                else 'Teleop stopped. The virtual head receiver is closed.'
+            )
 
     # -- what the arms' sessions offer, which a head-only one does not -------------------------------
 
@@ -188,7 +217,7 @@ class HeadOnlyCore:
         raise ValueError('A head-only session has no grippers')
 
     def route(self, action, motor):
-        raise ValueError("A head-only session has no leader routes: the headset steers the head")
+        raise ValueError('A head-only session has no leader routes: the headset steers the head')
 
     def set_zero(self):
         raise ValueError("A head-only session has no leaders: Zero headset sets the head's straight ahead")
@@ -201,8 +230,15 @@ class HeadOnlyCore:
     def _pedal_context(self):
         # Returning is the head's shutdown: pedal C's Return is confirmed by it.
         state = 'SHUTDOWN' if self.head.returning is not None else self.head.state
-        return dict(phase=self.phase, state=state, fault=self.fault, recording_fault=None,
-                    spent=bool(self.live and self._powered), closing=self._closing, task=None)
+        return dict(
+            phase=self.phase,
+            state=state,
+            fault=self.fault,
+            recording_fault=None,
+            spent=bool(self.live and self._powered),
+            closing=self._closing,
+            task=None,
+        )
 
     def prepare_pedal(self, payload):
         return self.pedals.prepare(payload, self._pedal_context(), self.clock())
@@ -225,19 +261,50 @@ class HeadOnlyCore:
         head = self.head
         status = head.status() if head.session is not None else {'state': None, 'fault': head.fault}
         last = (head.receiver.last or {}) if head.receiver is not None else {}
-        durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles
-                           if c.get('completed_at') is not None and c.get('started_at') is not None)
-        return {'phase': self.phase, 'message': self.message, 'fault': self.fault, 'recording_fault': None,
-                'trial': None, 'position_only': False, 'velocity_feedforward': False,
-                'state': status['state'], 'receiver': (last.get('status') or {}).get('state'),
-                'manual_tuning_ack': None, 'manual_tuning_pending': False,
-                'live': {'arm': 'head', 'motors_enabled': last.get('hardware_enabled'),
-                         'watchdog': last.get('watchdog'), 'reference': last.get('reference')} if self.live else None,
-                'input_error': None, 'late_targets': 0, 'collision': {'mode': 'disabled'},
-                'task': None, 'grip_feedback': None, 'replay': None, 'policy': None, 'head': status,
-                'head_only': True, 'scheduling': self.scheduling, 'joints': [],
-                'cycle_ms': {'p50': durations[(len(durations) - 1) // 2],
-                             'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
-                             'max': durations[-1], 'overruns': sum(d > self.period_s * 1000 for d in durations),
-                             'largest_gap': self.largest_gap_ms} if durations else None,
-                'pedals': self.pedals.view(self._pedal_context(), self.clock())}
+        durations = sorted(
+            (c['completed_at'] - c['started_at']) * 1000
+            for c in self.cycles
+            if c.get('completed_at') is not None and c.get('started_at') is not None
+        )
+        return {
+            'phase': self.phase,
+            'message': self.message,
+            'fault': self.fault,
+            'recording_fault': None,
+            'trial': None,
+            'position_only': False,
+            'velocity_feedforward': False,
+            'state': status['state'],
+            'receiver': (last.get('status') or {}).get('state'),
+            'manual_tuning_ack': None,
+            'manual_tuning_pending': False,
+            'live': {
+                'arm': 'head',
+                'motors_enabled': last.get('hardware_enabled'),
+                'watchdog': last.get('watchdog'),
+                'reference': last.get('reference'),
+            }
+            if self.live
+            else None,
+            'input_error': None,
+            'late_targets': 0,
+            'collision': {'mode': 'disabled'},
+            'task': None,
+            'grip_feedback': None,
+            'replay': None,
+            'policy': None,
+            'head': status,
+            'head_only': True,
+            'scheduling': self.scheduling,
+            'joints': [],
+            'cycle_ms': {
+                'p50': durations[(len(durations) - 1) // 2],
+                'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
+                'max': durations[-1],
+                'overruns': sum(d > self.period_s * 1000 for d in durations),
+                'largest_gap': self.largest_gap_ms,
+            }
+            if durations
+            else None,
+            'pedals': self.pedals.view(self._pedal_context(), self.clock()),
+        }

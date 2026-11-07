@@ -24,8 +24,10 @@ from common.wire import unpack_camera
 # Cameras (N named streams)
 # ---------------------------------------------------------------------------
 
+
 def start_cam_receiver(
-    ctx: zmq.Context, cam_endpoints: Dict[str, str],
+    ctx: zmq.Context,
+    cam_endpoints: Dict[str, str],
 ) -> Tuple[threading.Event, threading.Thread, threading.Lock, dict]:
     """One thread owning a SUB socket per camera, all in one poller.
 
@@ -40,8 +42,8 @@ def start_cam_receiver(
     cache: dict = {}
     for name in cam_endpoints:
         cache[name] = None
-        cache[f"{name}_time"] = 0.0
-        cache[f"{name}_ts"] = None
+        cache[f'{name}_time'] = 0.0
+        cache[f'{name}_ts'] = None
     stop = threading.Event()
 
     def _run() -> None:
@@ -51,7 +53,7 @@ def start_cam_receiver(
             s = ctx.socket(zmq.SUB)
             s.setsockopt(zmq.LINGER, 0)
             s.setsockopt(zmq.RCVHWM, 2)
-            s.setsockopt_string(zmq.SUBSCRIBE, "")
+            s.setsockopt_string(zmq.SUBSCRIBE, '')
             s.connect(ep)
             socks[name] = s
             poller.register(s, zmq.POLLIN)
@@ -77,17 +79,17 @@ def start_cam_receiver(
                     if latest is not None:
                         with lock:
                             cache[name] = latest
-                            cache[f"{name}_time"] = now
-                            ts = latest.get("timestamp")
+                            cache[f'{name}_time'] = now
+                            ts = latest.get('timestamp')
                             if ts is not None:
-                                cache[f"{name}_ts"] = float(ts)
+                                cache[f'{name}_ts'] = float(ts)
         finally:
             for s in socks.values():
                 s.close()
 
-    thread = threading.Thread(target=_run, daemon=True, name="CamRx")
+    thread = threading.Thread(target=_run, daemon=True, name='CamRx')
     thread.start()
     return stop, thread, lock, cache
 
 
-__all__ = ["start_cam_receiver"]
+__all__ = ['start_cam_receiver']

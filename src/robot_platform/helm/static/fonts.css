@@ -4,7 +4,27 @@
    helm.css sizes text at 16 / 12 px and headings at 18 px. Monocraft (SIL OFL 1.1, licence in fonts/) sets live
    numbers, whose Minecraft digits differ in width, and fills the symbols Minecraft lacks (· ° − — … →); it is subset
    to Latin, Greek, punctuation, arrows and maths symbols. */
-@font-face{font-family:Minecraft;src:url(fonts/minecraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
-@font-face{font-family:Minecraft;src:url(fonts/minecraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}
-@font-face{font-family:Monocraft;src:url(fonts/monocraft-regular.woff2) format("woff2");font-weight:300 500;font-display:swap}
-@font-face{font-family:Monocraft;src:url(fonts/monocraft-bold.woff2) format("woff2");font-weight:600 900;font-display:swap}
+@font-face {
+  font-family: Minecraft;
+  src: url(fonts/minecraft-regular.woff2) format('woff2');
+  font-weight: 300 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: Minecraft;
+  src: url(fonts/minecraft-bold.woff2) format('woff2');
+  font-weight: 600 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: Monocraft;
+  src: url(fonts/monocraft-regular.woff2) format('woff2');
+  font-weight: 300 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: Monocraft;
+  src: url(fonts/monocraft-bold.woff2) format('woff2');
+  font-weight: 600 900;
+  font-display: swap;
+}

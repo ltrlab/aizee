@@ -16,21 +16,22 @@ control): each its grip's position `p` (metres) and orientation `q` in the same 
 The headset shows the wrist cameras' pictures on the model's wrists (static/xr_wrists.js), each where its camera is:
 wrist_mounts gives each camera's mount on its link, from the newest wrist calibration's solve, else the nominal one.
 """
+
 import json
 import math
 from pathlib import Path
 import time
 
-MAX_RATE_HZ = 120.  # Poses beyond this rate are dropped (a page renders at 72-90 Hz and sends at most 60).
-FRESH_S = .25  # A pose this recent counts as the headset tracking.
+MAX_RATE_HZ = 120.0  # Poses beyond this rate are dropped (a page renders at 72-90 Hz and sends at most 60).
+FRESH_S = 0.25  # A pose this recent counts as the headset tracking.
 HANDS = ('left', 'right')
 HAND_KEYS = frozenset({'p', 'q', 'grip', 'trigger', 'b', 'ui'})
-REACH_M = 10.  # A controller farther than this from where the session started is not a controller in the room.
+REACH_M = 10.0  # A controller farther than this from where the session started is not a controller in the room.
 # A wrist camera's mount on its link until a solve gives one (simulation/task_scene.py's wrist camera: 35 mm along the
 # link's y and z, looking 37 degrees below the link's y; optical axes x right, y down, z ahead), and its vertical field
 # of view.
-NOMINAL_MOUNT = ((1., 0., 0., 0.), (0., -.606, .795, .035), (0., -.795, -.606, .035), (0., 0., 0., 1.))
-NOMINAL_FOV_Y_DEG = 85.
+NOMINAL_MOUNT = ((1.0, 0.0, 0.0, 0.0), (0.0, -0.606, 0.795, 0.035), (0.0, -0.795, -0.606, 0.035), (0.0, 0.0, 0.0, 1.0))
+NOMINAL_FOV_Y_DEG = 85.0
 
 
 def _number(value):
@@ -42,21 +43,30 @@ def hand_sample(message):
     if not isinstance(message, dict) or set(message) - HAND_KEYS or not {'p', 'q', 'grip', 'trigger'} <= set(message):
         raise ValueError('A controller is p, q, grip and trigger, with b and ui')
     position, orientation = message['p'], message['q']
-    if (not isinstance(position, list) or len(position) != 3 or not all(_number(v) for v in position)
-            or not all(abs(v) <= REACH_M for v in position)):
+    if (
+        not isinstance(position, list)
+        or len(position) != 3
+        or not all(_number(v) for v in position)
+        or not all(abs(v) <= REACH_M for v in position)
+    ):
         raise ValueError(f'A controller position is three numbers within {REACH_M:g} m')
     if not isinstance(orientation, list) or len(orientation) != 4 or not all(_number(v) for v in orientation):
         raise ValueError('A controller orientation is four numbers x, y, z, w')
     norm = math.sqrt(sum(v * v for v in orientation))
-    if not .9 < norm < 1.1:
+    if not 0.9 < norm < 1.1:
         raise ValueError('A controller orientation is a unit quaternion')
     if not all(_number(message[k]) and 0 <= message[k] <= 1 for k in ('grip', 'trigger')):
         raise ValueError('A controller grip and trigger are 0 to 1')
     if any(type(message.get(k, False)) is not bool for k in ('b', 'ui')):
         raise ValueError('A controller b and ui are true or false')
-    return {'position': tuple(float(v) for v in position), 'orientation': tuple(float(v) / norm for v in orientation),
-            'grip': float(message['grip']), 'trigger': float(message['trigger']), 'hold': message.get('b', False),
-            'ui': message.get('ui', False)}
+    return {
+        'position': tuple(float(v) for v in position),
+        'orientation': tuple(float(v) / norm for v in orientation),
+        'grip': float(message['grip']),
+        'trigger': float(message['trigger']),
+        'hold': message.get('b', False),
+        'ui': message.get('ui', False),
+    }
 
 
 def yaw_pitch(quaternion):
@@ -65,12 +75,12 @@ def yaw_pitch(quaternion):
         raise ValueError('An orientation is four numbers x, y, z, w')
     x, y, z, w = (float(v) for v in quaternion)
     norm = math.sqrt(x * x + y * y + z * z + w * w)
-    if not math.isfinite(norm) or not .9 < norm < 1.1:
+    if not math.isfinite(norm) or not 0.9 < norm < 1.1:
         raise ValueError('An orientation is a unit quaternion')
     x, y, z, w = x / norm, y / norm, z / norm, w / norm
     # The gaze is -Z turned by the orientation: minus the rotation matrix's third column.
     gaze = (-2 * (x * z + w * y), -2 * (y * z - w * x), -(1 - 2 * (x * x + y * y)))
-    return math.atan2(-gaze[0], -gaze[2]), math.asin(max(-1., min(1., gaze[1])))
+    return math.atan2(-gaze[0], -gaze[2]), math.asin(max(-1.0, min(1.0, gaze[1])))
 
 
 def wrapped(angle):
@@ -86,7 +96,7 @@ class Headset:
         self.connection = 0  # The live connection's number; 0: none.
         self.owner = self.device = None  # Its login session (None: Helm without logins) and device name.
         self._connections = 0
-        self.zero_yaw, self.zero_pitch = 0., 0.
+        self.zero_yaw, self.zero_pitch = 0.0, 0.0
         self.raw = self.at = self.sequence = None
         self.poses = 0
         self._rate = None
@@ -97,8 +107,7 @@ class Headset:
         """A connection from the login session `owner`, which steers from now on; its number. While another
         device's headset is connected it is refused (ValueError); the same device's replaces its old one."""
         if self.connection and owner != self.owner:
-            raise ValueError(f"{self.device or 'Another headset'} is steering the head: stop head tracking there "
-                             'first')
+            raise ValueError(f'{self.device or "Another headset"} is steering the head: stop head tracking there first')
         self._connections += 1
         if owner != self.owner:
             self._restart()
@@ -117,7 +126,7 @@ class Headset:
         self._restart()
 
     def _restart(self):
-        self.zero_yaw, self.zero_pitch = 0., 0.
+        self.zero_yaw, self.zero_pitch = 0.0, 0.0
         self.raw = self.at = self.sequence = None
         self._rate = None
         self.hands = {}
@@ -146,7 +155,7 @@ class Headset:
             return None
         if self.at is not None and now > self.at:
             rate = 1 / (now - self.at)
-            self._rate = rate if self._rate is None else .9 * self._rate + .1 * rate
+            self._rate = rate if self._rate is None else 0.9 * self._rate + 0.1 * rate
         self.raw, self.at, self.sequence = (yaw, pitch), now, sequence
         self.poses += 1
         for hand, sample in hands.items():
@@ -186,12 +195,28 @@ class Headset:
         fresh = self.fresh()
         yaw, pitch = self.relative() if self.raw is not None else (None, None)
         now = self.clock()
-        hands = {hand: {'tracking': self.connection != 0 and now - sample['at'] <= FRESH_S, 'grip': sample['grip'],
-                        'trigger': sample['trigger'], 'ui': sample['ui']} for hand, sample in self.hands.items()}
-        return {'connected': self.connection != 0, 'device': self.device if self.connection else None,
-                'tracking': fresh, 'poses': self.poses, 'age_s': None if self.at is None else now - self.at,
-                'rate_hz': self._rate if fresh else None, 'yaw': yaw, 'pitch': pitch,
-                'zero': {'yaw': self.zero_yaw, 'pitch': self.zero_pitch}, 'hands': hands, 'epoch': self.epoch}
+        hands = {
+            hand: {
+                'tracking': self.connection != 0 and now - sample['at'] <= FRESH_S,
+                'grip': sample['grip'],
+                'trigger': sample['trigger'],
+                'ui': sample['ui'],
+            }
+            for hand, sample in self.hands.items()
+        }
+        return {
+            'connected': self.connection != 0,
+            'device': self.device if self.connection else None,
+            'tracking': fresh,
+            'poses': self.poses,
+            'age_s': None if self.at is None else now - self.at,
+            'rate_hz': self._rate if fresh else None,
+            'yaw': yaw,
+            'pitch': pitch,
+            'zero': {'yaw': self.zero_yaw, 'pitch': self.zero_pitch},
+            'hands': hands,
+            'epoch': self.epoch,
+        }
 
 
 def _solved(root):
@@ -210,8 +235,12 @@ def _solved(root):
 
 
 def _matrix(rows):
-    if not (isinstance(rows, list) and len(rows) == 4 and all(isinstance(row, list) and len(row) == 4 for row in rows)
-            and all(_number(value) for row in rows for value in row)):
+    if not (
+        isinstance(rows, list)
+        and len(rows) == 4
+        and all(isinstance(row, list) and len(row) == 4 for row in rows)
+        and all(_number(value) for row in rows for value in row)
+    ):
         raise ValueError('A mount is four rows of four numbers')
     return rows
 
@@ -236,17 +265,25 @@ def wrist_mounts(cameras, root=None):
     for role, camera in cameras.items():
         width, height = camera['size']
         horizontal = math.degrees(2 * math.atan(math.tan(math.radians(NOMINAL_FOV_Y_DEG) / 2) * width / height))
-        mounts[role] = dict(link=camera['link'], matrix=[list(row) for row in NOMINAL_MOUNT],
-                            fov_deg=[round(horizontal, 2), NOMINAL_FOV_Y_DEG], axis=_axis(camera), source='nominal')
+        mounts[role] = dict(
+            link=camera['link'],
+            matrix=[list(row) for row in NOMINAL_MOUNT],
+            fov_deg=[round(horizontal, 2), NOMINAL_FOV_Y_DEG],
+            axis=_axis(camera),
+            source='nominal',
+        )
         fitted = solved[0].get(role) if solved else None
         try:
             if fitted:
                 view = fitted['field_of_view_deg']
                 link = fitted.get('link') or camera['link']
-                mounts[role] = dict(link=link, matrix=_matrix(fitted['mount']['matrix']),
-                                    fov_deg=[float(view['horizontal']), float(view['vertical'])],
-                                    axis=_axis(camera) if link == camera['link'] else None,  # The rig's link's axis.
-                                    source=f'calibration {solved[1]}')
+                mounts[role] = dict(
+                    link=link,
+                    matrix=_matrix(fitted['mount']['matrix']),
+                    fov_deg=[float(view['horizontal']), float(view['vertical'])],
+                    axis=_axis(camera) if link == camera['link'] else None,  # The rig's link's axis.
+                    source=f'calibration {solved[1]}',
+                )
         except (KeyError, TypeError, ValueError):
             pass  # A solve without this camera's mount: the nominal stays.
     return mounts

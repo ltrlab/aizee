@@ -34,27 +34,27 @@ from serial_safe import open_serial
 # ---------------------------------------------------------------------------
 # Feetech STS3215 protocol constants
 # ---------------------------------------------------------------------------
-_BAUD      = 1_000_000
-_HEADER    = b"\xFF\xFF"
-_READ      = 0x02
-_SYNC_READ = 0x82   # Feetech INST_SYNC_READ — broadcast to N servos, one packet
-_BROADCAST = 0xFE   # Feetech broadcast ID
-_REG_POS   = 0x38   # Present_Position — 2 bytes, little-endian
-_CENTER    = 2048   # raw ticks at mechanical center
-_TICKS     = 4096   # ticks per full revolution (12-bit encoder)
+_BAUD = 1_000_000
+_HEADER = b'\xff\xff'
+_READ = 0x02
+_SYNC_READ = 0x82  # Feetech INST_SYNC_READ — broadcast to N servos, one packet
+_BROADCAST = 0xFE  # Feetech broadcast ID
+_REG_POS = 0x38  # Present_Position — 2 bytes, little-endian
+_CENTER = 2048  # raw ticks at mechanical center
+_TICKS = 4096  # ticks per full revolution (12-bit encoder)
 
-CALIB_PATH = Path("config/so101_calibration.json")
+CALIB_PATH = Path('config/so101_calibration.json')
 
 # Default AIZEE arm target range [rad_min, rad_max] per SO-101 joint.
 # Order matches JOINTS below.  Edit via the calibration JSON after recording.
 AIZEE_DEFAULTS: list[tuple[float, float]] = [
-    (-1.57,  1.57),   # swivel       ← shoulder_pan
-    (-1.57,  1.57),   # gantry_base  ← shoulder_lift
-    (-1.57,  0.50),   # gantry_mid   ← elbow_flex
-    (-0.50,  1.57),   # gantry_end   ← wrist_flex
-    (-1.00,  1.00),   # wrist_pitch  ← wrist_yaw (SO-101 servo 5)
-    (-1.57,  1.57),   # wrist_roll   ← wrist_roll
-    ( 0.00,  0.50),   # gripper      ← gripper  (0=open, 0.5=closed)
+    (-1.57, 1.57),  # swivel       ← shoulder_pan
+    (-1.57, 1.57),  # gantry_base  ← shoulder_lift
+    (-1.57, 0.50),  # gantry_mid   ← elbow_flex
+    (-0.50, 1.57),  # gantry_end   ← wrist_flex
+    (-1.00, 1.00),  # wrist_pitch  ← wrist_yaw (SO-101 servo 5)
+    (-1.57, 1.57),  # wrist_roll   ← wrist_roll
+    (0.00, 0.50),  # gripper      ← gripper  (0=open, 0.5=closed)
 ]
 
 
@@ -66,6 +66,7 @@ def ticks_to_rad(ticks: int) -> float:
 # ---------------------------------------------------------------------------
 # So101Leader
 # ---------------------------------------------------------------------------
+
 
 class So101Leader:
     """SO-101 7-DOF leader arm.  Reads STS3215 servo positions over USB serial
@@ -82,22 +83,22 @@ class So101Leader:
     """
 
     JOINTS = [
-        "shoulder_pan",
-        "shoulder_lift",
-        "elbow_flex",
-        "wrist_flex",
-        "wrist_yaw",
-        "wrist_roll",
-        "gripper",
+        'shoulder_pan',
+        'shoulder_lift',
+        'elbow_flex',
+        'wrist_flex',
+        'wrist_yaw',
+        'wrist_roll',
+        'gripper',
     ]
     AIZEE_JOINTS = [
-        "swivel",
-        "gantry_base",
-        "gantry_mid",
-        "gantry_end",
-        "wrist_pitch",
-        "wrist_roll",
-        "gripper",
+        'swivel',
+        'gantry_base',
+        'gantry_mid',
+        'gantry_end',
+        'wrist_pitch',
+        'wrist_roll',
+        'gripper',
     ]
 
     def __init__(
@@ -107,20 +108,20 @@ class So101Leader:
         calib: Path | str = CALIB_PATH,
     ) -> None:
         if serial is None:
-            raise ImportError("pyserial not installed — run: pip install pyserial")
-        self.port   = port
-        self.baud   = baud
+            raise ImportError('pyserial not installed — run: pip install pyserial')
+        self.port = port
+        self.baud = baud
         self._ser: Optional[serial.Serial] = None
         self._calib_path = Path(calib)
         self._calib = _load_calib(self._calib_path)
         # Per-joint unwrap state — tracks rollovers across 0/4095 boundary
-        self._prev_raw:   dict[str, Optional[int]] = {j: None for j in self.JOINTS}
-        self._unwrap_off: dict[str, int]           = {j: 0    for j in self.JOINTS}
+        self._prev_raw: dict[str, Optional[int]] = {j: None for j in self.JOINTS}
+        self._unwrap_off: dict[str, int] = {j: 0 for j in self.JOINTS}
         # Set by poll(): True if that joint's raw frac was outside [0,1] (clamped)
-        self._clamped:    list[bool]               = [False] * len(self.JOINTS)
+        self._clamped: list[bool] = [False] * len(self.JOINTS)
         # Glitch rejection state — detects multi-joint simultaneous jumps
-        self._last_clean: Optional[np.ndarray]     = None
-        self._reject_count: int                    = 0
+        self._last_clean: Optional[np.ndarray] = None
+        self._reject_count: int = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -133,14 +134,14 @@ class So101Leader:
             time.sleep(0.1)
             # Reset unwrap state so seeding runs again on first read.
             for j in self.JOINTS:
-                self._prev_raw[j]   = None
+                self._prev_raw[j] = None
                 self._unwrap_off[j] = 0
             self._clamped = [False] * len(self.JOINTS)
             self._last_clean = None
             self._reject_count = 0
             return True
         except (serial.SerialException, OSError, TimeoutError) as exc:
-            print(f"[SO-101] connect failed on {self.port}: {exc}")
+            print(f'[SO-101] connect failed on {self.port}: {exc}')
             return False
 
     def close(self) -> None:
@@ -179,7 +180,7 @@ class So101Leader:
         _prev_raw stores the UNWRAPPED value so that the delta computation
         stays valid even after the offset has been adjusted.
         """
-        prev_u = self._prev_raw[joint]     # stored as unwrapped (may be >4095)
+        prev_u = self._prev_raw[joint]  # stored as unwrapped (may be >4095)
         if prev_u is None:
             # First read — seed offset for genuine wrapped calibration ranges.
             # A genuine wrap crosses the 0/4095 boundary: the "short" path between
@@ -189,9 +190,9 @@ class So101Leader:
             # but entirely within one revolution) have mn > mx with mn - mx < TICKS//2
             # and do NOT need the unwrap offset.
             if self._calib:
-                jc = self._calib["joints"].get(joint, {})
-                mn = jc.get("min_raw", 0)
-                mx = jc.get("max_raw", _TICKS - 1)
+                jc = self._calib['joints'].get(joint, {})
+                mn = jc.get('min_raw', 0)
+                mx = jc.get('max_raw', _TICKS - 1)
                 if mn > mx and (mn - mx) > _TICKS // 2 and raw <= mx:
                     # raw is in the lower segment of a genuine wrapped range;
                     # shift up by one revolution so it reads above min_raw.
@@ -199,11 +200,11 @@ class So101Leader:
             self._prev_raw[joint] = raw + self._unwrap_off[joint]
             return raw + self._unwrap_off[joint]
 
-        prev_raw = prev_u % _TICKS         # physical tick implied by last unwrapped
+        prev_raw = prev_u % _TICKS  # physical tick implied by last unwrapped
         delta = raw - prev_raw
-        if delta > _TICKS // 2:            # backward wrap: e.g. 5 → 4090
+        if delta > _TICKS // 2:  # backward wrap: e.g. 5 → 4090
             self._unwrap_off[joint] -= _TICKS
-        elif delta < -(_TICKS // 2):       # forward wrap:  e.g. 4090 → 5
+        elif delta < -(_TICKS // 2):  # forward wrap:  e.g. 4090 → 5
             self._unwrap_off[joint] += _TICKS
         unwrapped = raw + self._unwrap_off[joint]
         self._prev_raw[joint] = unwrapped
@@ -233,13 +234,13 @@ class So101Leader:
 
         out = np.zeros(len(self.JOINTS), dtype=np.float32)
         for i, joint in enumerate(self.JOINTS):
-            u = unwrapped[joint]           # continuously varying (may be outside 0-4095)
+            u = unwrapped[joint]  # continuously varying (may be outside 0-4095)
             if self._calib:
-                jc    = self._calib["joints"].get(joint, {})
-                mn    = jc.get("min_raw",  0)
-                mx    = jc.get("max_raw",  _TICKS - 1)
-                r_min = jc.get("rad_min",  AIZEE_DEFAULTS[i][0])
-                r_max = jc.get("rad_max",  AIZEE_DEFAULTS[i][1])
+                jc = self._calib['joints'].get(joint, {})
+                mn = jc.get('min_raw', 0)
+                mx = jc.get('max_raw', _TICKS - 1)
+                r_min = jc.get('rad_min', AIZEE_DEFAULTS[i][0])
+                r_max = jc.get('rad_max', AIZEE_DEFAULTS[i][1])
                 # Three encoder range types:
                 #   Normal:       mn <= mx — simple ascending range.
                 #   Genuine wrap: mn > mx, mn - mx > TICKS//2 — crosses 0/4095.
@@ -261,7 +262,7 @@ class So101Leader:
                     # u = mn → frac = 0 (rad_min); u = mx → frac = 1 (rad_max).
                     span = mn - mx
                     raw_frac = (mn - u) / span if span else 0.5
-                self._clamped[i] = (raw_frac < 0.0 or raw_frac > 1.0)
+                self._clamped[i] = raw_frac < 0.0 or raw_frac > 1.0
                 frac = max(0.0, min(1.0, raw_frac))
                 out[i] = r_min + frac * (r_max - r_min)
             else:
@@ -279,9 +280,9 @@ class So101Leader:
         # The previous values (0.008 rad, 4 of 7 joints, 50 rejections)
         # tripped on normal-speed teleop and froze telemetry for ~333 ms
         # before snapping forward — visible as a "pause + jump" arm jerk.
-        _GLITCH_JOINT_THRESH = 0.15    # rad — min delta to count as "jumping"
-        _GLITCH_MIN_JOINTS   = 6       # simultaneous joints to flag as glitch
-        _MAX_REJECTS         = 3       # ~20 ms at 150 Hz; absorbs short bursts
+        _GLITCH_JOINT_THRESH = 0.15  # rad — min delta to count as "jumping"
+        _GLITCH_MIN_JOINTS = 6  # simultaneous joints to flag as glitch
+        _MAX_REJECTS = 3  # ~20 ms at 150 Hz; absorbs short bursts
 
         if self._last_clean is not None:
             n_big = int(np.sum(np.abs(out - self._last_clean) > _GLITCH_JOINT_THRESH))
@@ -306,7 +307,7 @@ class So101Leader:
         out = np.zeros(len(self.JOINTS), dtype=np.float32)
         if self._calib:
             for i, j in enumerate(self.JOINTS):
-                out[i] = float(self._calib["joints"].get(j, {}).get("zero_offset", 0.0))
+                out[i] = float(self._calib['joints'].get(j, {}).get('zero_offset', 0.0))
         return out
 
     @property
@@ -316,7 +317,7 @@ class So101Leader:
         out = np.ones(len(self.JOINTS), dtype=np.float32)
         if self._calib:
             for i, j in enumerate(self.JOINTS):
-                out[i] = float(self._calib["joints"].get(j, {}).get("direction", 1))
+                out[i] = float(self._calib['joints'].get(j, {}).get('direction', 1))
         return out
 
     def save_zero(self, offsets: np.ndarray) -> None:
@@ -324,9 +325,9 @@ class So101Leader:
         if not self._calib:
             return
         for i, joint in enumerate(self.JOINTS):
-            if joint in self._calib["joints"]:
-                self._calib["joints"][joint]["zero_offset"] = round(float(offsets[i]), 4)
-        with open(self._calib_path, "w") as f:
+            if joint in self._calib['joints']:
+                self._calib['joints'][joint]['zero_offset'] = round(float(offsets[i]), 4)
+        with open(self._calib_path, 'w') as f:
             json.dump(self._calib, f, indent=2)
 
     def save_limits(self, limits: dict[str, tuple[int, int]]) -> None:
@@ -338,12 +339,12 @@ class So101Leader:
         if not self._calib:
             return
         for joint, (mn, mx) in limits.items():
-            jc = self._calib["joints"].get(joint)
+            jc = self._calib['joints'].get(joint)
             if jc is None:
                 continue
-            jc["min_raw"] = int(mn)
-            jc["max_raw"] = int(mx)
-        with open(self._calib_path, "w") as f:
+            jc['min_raw'] = int(mn)
+            jc['max_raw'] = int(mx)
+        with open(self._calib_path, 'w') as f:
             json.dump(self._calib, f, indent=2)
 
     # ------------------------------------------------------------------
@@ -364,17 +365,17 @@ class So101Leader:
         offsets don't corrupt the whole batch.  Checksum is verified per
         response; returns None if any servo is missing or corrupt.
         """
-        ids = list(range(1, len(self.JOINTS) + 1))   # servo IDs 1..7
-        n   = len(ids)
+        ids = list(range(1, len(self.JOINTS) + 1))  # servo IDs 1..7
+        n = len(ids)
         # Packet: FF FF FE [LEN] SYNC_READ REG_POS 02 ID1 ID2 ... IDn CS
-        body     = bytes([_BROADCAST, n + 4, _SYNC_READ, _REG_POS, 2] + ids)
+        body = bytes([_BROADCAST, n + 4, _SYNC_READ, _REG_POS, 2] + ids)
         checksum = (~sum(body)) & 0xFF
-        pkt      = _HEADER + body + bytes([checksum])
+        pkt = _HEADER + body + bytes([checksum])
         try:
             self._ser.reset_input_buffer()
             self._ser.write(pkt)
             self._ser.flush()
-            raw = bytearray(self._ser.read(n * 8))   # 7 × 8 = 56 bytes
+            raw = bytearray(self._ser.read(n * 8))  # 7 × 8 = 56 bytes
         except serial.SerialException:
             return None
         if len(raw) < n * 8:
@@ -383,13 +384,13 @@ class So101Leader:
         for servo_id, joint in zip(ids, self.JOINTS):
             # Scan for FF FF [servo_id] — tolerates minor framing offsets
             found = False
-            pos   = 0
+            pos = 0
             while pos <= len(raw) - 8:
-                if raw[pos] == 0xFF and raw[pos+1] == 0xFF and raw[pos+2] == servo_id:
-                    pkt_len = raw[pos+3]   # expected 4 == data_length+2
-                    error   = raw[pos+4]
+                if raw[pos] == 0xFF and raw[pos + 1] == 0xFF and raw[pos + 2] == servo_id:
+                    pkt_len = raw[pos + 3]  # expected 4 == data_length+2
+                    error = raw[pos + 4]
                     if pkt_len == 4 and error == 0:
-                        d0, d1, cs = raw[pos+5], raw[pos+6], raw[pos+7]
+                        d0, d1, cs = raw[pos + 5], raw[pos + 6], raw[pos + 7]
                         cal = (~(servo_id + pkt_len + error + d0 + d1)) & 0xFF
                         if cs == cal:
                             result[joint] = d0 | (d1 << 8)
@@ -431,20 +432,20 @@ class So101Leader:
         Packet:   FF FF [ID] [LEN=4] [INST=0x02] [REG] [COUNT=2] [CHECKSUM]
         Response: FF FF [ID] [LEN=4] [ERROR]      [D0]  [D1]      [CHECKSUM]
         """
-        body     = bytes([servo_id, 4, _READ, reg, 2])
+        body = bytes([servo_id, 4, _READ, reg, 2])
         checksum = (~sum(body)) & 0xFF
-        pkt      = _HEADER + body + bytes([checksum])
+        pkt = _HEADER + body + bytes([checksum])
         try:
             self._ser.reset_input_buffer()
             self._ser.write(pkt)
             self._ser.flush()
-            resp = self._ser.read(8)          # 8 bytes total
+            resp = self._ser.read(8)  # 8 bytes total
         except serial.SerialException:
             return None
 
         if len(resp) < 8 or resp[0] != 0xFF or resp[1] != 0xFF:
             return None
-        if resp[4] != 0:                      # error byte
+        if resp[4] != 0:  # error byte
             return None
         return resp[5] | (resp[6] << 8)
 
@@ -452,6 +453,7 @@ class So101Leader:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_calib(path: Path) -> Optional[dict]:
     if path.exists():
@@ -486,21 +488,21 @@ def _probe_so101(device: str, baud: int = _BAUD, timeout: float = 0.2) -> tuple[
     callers can surface diagnostics when no port is found.
     """
     if serial is None:
-        return False, "pyserial not installed"
+        return False, 'pyserial not installed'
     try:
         ser = open_serial(device, baud, read_timeout=timeout)
     except TimeoutError:
-        return False, "open timed out (unresponsive device)"
+        return False, 'open timed out (unresponsive device)'
     except (serial.SerialException, OSError) as exc:
-        return False, f"open failed ({exc.__class__.__name__})"
+        return False, f'open failed ({exc.__class__.__name__})'
     try:
         # CH340/CH341 adapters reset on open — give the bus time to settle.
         time.sleep(0.25)
-        ids  = list(range(1, len(So101Leader.JOINTS) + 1))
-        n    = len(ids)
+        ids = list(range(1, len(So101Leader.JOINTS) + 1))
+        n = len(ids)
         body = bytes([_BROADCAST, n + 4, _SYNC_READ, _REG_POS, 2] + ids)
-        cs   = (~sum(body)) & 0xFF
-        pkt  = _HEADER + body + bytes([cs])
+        cs = (~sum(body)) & 0xFF
+        pkt = _HEADER + body + bytes([cs])
 
         best_found = 0
         for attempt in range(2):
@@ -510,22 +512,26 @@ def _probe_so101(device: str, baud: int = _BAUD, timeout: float = 0.2) -> tuple[
                 ser.flush()
                 raw = bytearray(ser.read(n * 8))
             except (serial.SerialException, OSError) as exc:
-                return False, f"io error ({exc.__class__.__name__})"
+                return False, f'io error ({exc.__class__.__name__})'
             found = 0
             for servo_id in ids:
                 pos = 0
                 while pos <= len(raw) - 8:
-                    if (raw[pos] == 0xFF and raw[pos+1] == 0xFF and raw[pos+2] == servo_id
-                            and raw[pos+3] == 4 and raw[pos+4] == 0):
+                    if (
+                        raw[pos] == 0xFF
+                        and raw[pos + 1] == 0xFF
+                        and raw[pos + 2] == servo_id
+                        and raw[pos + 3] == 4
+                        and raw[pos + 4] == 0
+                    ):
                         found += 1
                         break
                     pos += 1
             best_found = max(best_found, found)
             if found >= 4:
-                return True, f"{found}/{n} servos responded"
+                return True, f'{found}/{n} servos responded'
             time.sleep(0.05)
-        return False, (f"{best_found}/{n} servos responded"
-                       if best_found else "no response")
+        return False, (f'{best_found}/{n} servos responded' if best_found else 'no response')
     finally:
         try:
             ser.close()
@@ -557,26 +563,25 @@ def find_so101_port(
     except ImportError:
         return None
 
-    excl  = set(exclude or [])
+    excl = set(exclude or [])
     ports = [p for p in list_ports.comports() if p.device not in excl]
     # Try known-VID ports first; fall back to unknown-VID ports only if none match.
-    known  = [p for p in ports if p.vid in _SO101_KNOWN_VIDS]
+    known = [p for p in ports if p.vid in _SO101_KNOWN_VIDS]
     others = [p for p in ports if p.vid not in _SO101_KNOWN_VIDS]
     ordered = known + others
 
     if verbose:
         if not ordered:
-            print("  (no serial ports enumerated)")
+            print('  (no serial ports enumerated)')
         for p in ordered:
-            vid_pid = (f"{p.vid:04X}:{p.pid:04X}"
-                       if p.vid is not None and p.pid is not None else "????:????")
-            desc = p.description or ""
-            print(f"  {p.device:<10}  VID:PID={vid_pid}  {desc}")
+            vid_pid = f'{p.vid:04X}:{p.pid:04X}' if p.vid is not None and p.pid is not None else '????:????'
+            desc = p.description or ''
+            print(f'  {p.device:<10}  VID:PID={vid_pid}  {desc}')
 
     for p in ordered:
         ok, detail = _probe_so101(p.device, baud)
         if verbose:
-            print(f"  probe {p.device}: {'OK' if ok else 'fail'} — {detail}")
+            print(f'  probe {p.device}: {"OK" if ok else "fail"} — {detail}')
         if ok:
             return p.device
     return None

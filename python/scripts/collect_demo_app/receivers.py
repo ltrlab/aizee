@@ -1,4 +1,5 @@
 """Background camera / UPS / e-stop receiver threads (from collect_demo.py)."""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +11,7 @@ import zmq
 
 try:
     import serial as _serial
+
     _pyserial_available = True
 except ImportError:
     _pyserial_available = False
@@ -30,6 +32,7 @@ from common.wire import unpack_camera, unpack_msg
 # blocks the motor-command loop.  Caches the latest message per source;
 # the main loop reads cached values under a lock.
 
+
 def _start_cam_receiver(
     ctx: zmq.Context,
     gripper_ep: str,
@@ -38,9 +41,13 @@ def _start_cam_receiver(
 ) -> tuple[threading.Event, threading.Thread, threading.Lock, dict]:
     lock = threading.Lock()
     cache: dict = {
-        "gripper": None, "gripper_time": 0.0, "gripper_ts": None,
-        "scene":   None, "scene_time":   0.0, "scene_ts":   None,
-        "ups": None,
+        'gripper': None,
+        'gripper_time': 0.0,
+        'gripper_ts': None,
+        'scene': None,
+        'scene_time': 0.0,
+        'scene_ts': None,
+        'ups': None,
     }
     stop = threading.Event()
 
@@ -54,7 +61,7 @@ def _start_cam_receiver(
         gripper_sock = ctx.socket(zmq.SUB)
         gripper_sock.setsockopt(zmq.LINGER, 0)
         gripper_sock.setsockopt(zmq.RCVHWM, 2)
-        gripper_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+        gripper_sock.setsockopt_string(zmq.SUBSCRIBE, '')
         gripper_sock.connect(gripper_ep)
 
         scene_sock: Optional[zmq.Socket] = None
@@ -64,7 +71,7 @@ def _start_cam_receiver(
             scene_sock = ctx.socket(zmq.SUB)
             scene_sock.setsockopt(zmq.LINGER, 0)
             scene_sock.setsockopt(zmq.RCVHWM, 2)
-            scene_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+            scene_sock.setsockopt_string(zmq.SUBSCRIBE, '')
             scene_sock.connect(scene_ep)
 
         ups_sock: Optional[zmq.Socket] = None
@@ -72,7 +79,7 @@ def _start_cam_receiver(
             ups_sock = ctx.socket(zmq.SUB)
             ups_sock.setsockopt(zmq.LINGER, 0)
             ups_sock.setsockopt(zmq.CONFLATE, 1)
-            ups_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+            ups_sock.setsockopt_string(zmq.SUBSCRIBE, '')
             ups_sock.connect(ups_ep)
 
         poller = zmq.Poller()
@@ -106,11 +113,11 @@ def _start_cam_receiver(
                             break
                     if latest is not None:
                         with lock:
-                            cache["gripper"] = latest
-                            cache["gripper_time"] = now
-                            ts = latest.get("timestamp")
+                            cache['gripper'] = latest
+                            cache['gripper_time'] = now
+                            ts = latest.get('timestamp')
                             if ts is not None:
-                                cache["gripper_ts"] = float(ts)
+                                cache['gripper_ts'] = float(ts)
 
                 if scene_sock is not None and scene_sock in events:
                     latest = None
@@ -124,17 +131,17 @@ def _start_cam_receiver(
                             break
                     if latest is not None:
                         with lock:
-                            cache["scene"] = latest
-                            cache["scene_time"] = now
-                            ts = latest.get("timestamp")
+                            cache['scene'] = latest
+                            cache['scene_time'] = now
+                            ts = latest.get('timestamp')
                             if ts is not None:
-                                cache["scene_ts"] = float(ts)
+                                cache['scene_ts'] = float(ts)
 
                 if ups_sock and ups_sock in events:
                     try:
                         msg = unpack_msg(ups_sock.recv(zmq.NOBLOCK))
                         with lock:
-                            cache["ups"] = msg
+                            cache['ups'] = msg
                     except Exception:
                         pass
         finally:
@@ -155,13 +162,14 @@ def _start_cam_receiver(
 # Reads JSON lines from the ESP32 e-stop receiver over serial.
 # Sets/clears a threading.Event so the main loop can gate motor commands.
 
+
 def _start_estop_reader(
     port: str,
     stop: threading.Event,
     flag: threading.Event,
 ) -> Optional[threading.Thread]:
     if not _pyserial_available:
-        print("WARNING: pyserial not installed — hardware e-stop disabled")
+        print('WARNING: pyserial not installed — hardware e-stop disabled')
         return None
 
     def _run() -> None:
@@ -173,27 +181,27 @@ def _start_estop_reader(
                         ser = _open_serial(port, 115200, read_timeout=1)
                     else:
                         ser = _serial.Serial(port, 115200, timeout=1)
-                    print(f"E-stop receiver connected on {port}")
+                    print(f'E-stop receiver connected on {port}')
                 except (_serial.SerialException, OSError, TimeoutError):
                     stop.wait(2)
                     continue
             try:
                 raw = ser.readline()
             except _serial.SerialException:
-                print(f"E-stop serial error, reconnecting {port}...")
+                print(f'E-stop serial error, reconnecting {port}...')
                 ser = None
                 stop.wait(1)
                 continue
             if not raw:
                 continue
-            line = raw.decode(errors="replace").strip()
-            if not line or line.startswith("#"):
+            line = raw.decode(errors='replace').strip()
+            if not line or line.startswith('#'):
                 continue
             try:
                 data = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            estop = data.get("estop")
+            estop = data.get('estop')
             if estop is not None:
                 if estop:
                     flag.set()

@@ -3,6 +3,7 @@
 The previous reply supplies both feedback and a one-use receiver clock anchor.
 No queued targets, retries, geometry backend or collision verdicts are involved.
 """
+
 import math
 import time
 
@@ -12,25 +13,45 @@ from .guarded_lifecycle import GuardedLifecycleSession
 
 
 class DirectLifecycleSession(GuardedLifecycleSession):
-    def __init__(self, controller, config, lifecycle, snapshot, *, period_s=.02,
-                 cycle_budget_s=.035, hold_budget_s=None, clock=time.perf_counter):
+    def __init__(
+        self,
+        controller,
+        config,
+        lifecycle,
+        snapshot,
+        *,
+        period_s=0.02,
+        cycle_budget_s=0.035,
+        hold_budget_s=None,
+        clock=time.perf_counter,
+    ):
         """`hold_budget_s`: how long a cycle following nothing (Idle, Enable, a hold: no target) may take before its
         command goes out, at most that command's lifetime, which the receiver bounds it by (default: the cycle
         budget). The head's receiver answers each request at its next 10 ms tick, and Idle takes it and a fresh
         offer first: 37 ms on the Jetson, past the 35 ms of a following cycle (2026-10-31)."""
         names = tuple(j['name'] for j in config['joints'])
-        if (not config.get('direct') or config.get('collision') is not None
-                or controller.identity != config['identity'] or controller.group != config['group']
-                or controller.joint_names != names or lifecycle.names != names
-                or not all(math.isfinite(v) and 0 < v <= lifecycle.max_step_s
-                           for v in (period_s, cycle_budget_s))
-                or (hold_budget_s is not None
-                    and not (math.isfinite(hold_budget_s)
-                             and cycle_budget_s <= hold_budget_s <= config['direct']['command_ms'] / 1000))):
+        if (
+            not config.get('direct')
+            or config.get('collision') is not None
+            or controller.identity != config['identity']
+            or controller.group != config['group']
+            or controller.joint_names != names
+            or lifecycle.names != names
+            or not all(math.isfinite(v) and 0 < v <= lifecycle.max_step_s for v in (period_s, cycle_budget_s))
+            or (
+                hold_budget_s is not None
+                and not (
+                    math.isfinite(hold_budget_s)
+                    and cycle_budget_s <= hold_budget_s <= config['direct']['command_ms'] / 1000
+                )
+            )
+        ):
             raise ValueError('Matching explicit direct configuration and valid timing required')
         for row, limit in zip(lifecycle.joints, config['joints']):
-            if (any(row[k] != limit[k] for k in ('name', 'lower', 'upper', 'hold_kp', 'hold_kd'))
-                    or row['max_velocity'] > limit['max_velocity']):
+            if (
+                any(row[k] != limit[k] for k in ('name', 'lower', 'upper', 'hold_kp', 'hold_kd'))
+                or row['max_velocity'] > limit['max_velocity']
+            ):
                 raise ValueError('Lifecycle bounds and gains must match receiver configuration')
         self.controller, self.lifecycle, self.snapshot, self.clock = controller, lifecycle, snapshot, clock
         self.compiler = None
@@ -75,7 +96,7 @@ class DirectLifecycleSession(GuardedLifecycleSession):
         if status['state'] == 'stopping':
             return False
         if status['state'] != 'stopped':
-            raise RuntimeError(f"The receiver is {status['state']} ({status['reason']})")
+            raise RuntimeError(f'The receiver is {status["state"]} ({status["reason"]})')
         if not self.controller.owned:
             self.controller.acquire()
         self.owned = True
@@ -95,8 +116,11 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             if tuning is not None:
                 if self.lifecycle.state != 'HOLD' or action is not None:
                     raise ValueError('Hold before applying motor tuning')
-                previous_tuning = (plain_copy(self.lifecycle._joints), plain_copy(self.lifecycle._manual),
-                                   self.lifecycle._manual_hold)
+                previous_tuning = (
+                    plain_copy(self.lifecycle._joints),
+                    plain_copy(self.lifecycle._manual),
+                    self.lifecycle._manual_hold,
+                )
                 self.lifecycle.configure_manual(tuning)
             if action == 'disable':
                 record.update(proposal=self.disable(), accepted=True)
@@ -116,11 +140,18 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             now = self.clock()
             # Preserve the observations even if proposal construction faults.
             # Otherwise the first divergent cycle loses precisely its evidence.
-            record.update(feedback=feedback, target=plain_copy(target), mapped_at=now,
-                          lifecycle_before=self.lifecycle.state,
-                          feedback_age_ms=[(now-row['sampled_at'])*1000 for row in rows])
-            proposal = (self.lifecycle.action(action, rows, target=target, now=now) if action
-                        else self.lifecycle.step(rows, target=target, now=now))
+            record.update(
+                feedback=feedback,
+                target=plain_copy(target),
+                mapped_at=now,
+                lifecycle_before=self.lifecycle.state,
+                feedback_age_ms=[(now - row['sampled_at']) * 1000 for row in rows],
+            )
+            proposal = (
+                self.lifecycle.action(action, rows, target=target, now=now)
+                if action
+                else self.lifecycle.step(rows, target=target, now=now)
+            )
             record.update(proposal=plain_copy(proposal))
             operation = proposal['operation']
             self._deadline(started, target)
@@ -136,28 +167,39 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                 if lifetime <= 0:
                     raise ValueError('Leader target expired before dispatch')
                 try:
-                    reply = self.controller.direct_update(proposal['joints'], offered, valid_for_ms=lifetime,
-                                                          ramp_efforts=proposal.get('ramp_efforts'),
-                                                          update_hold_gains=tuning is not None)
+                    reply = self.controller.direct_update(
+                        proposal['joints'],
+                        offered,
+                        valid_for_ms=lifetime,
+                        ramp_efforts=proposal.get('ramp_efforts'),
+                        update_hold_gains=tuning is not None,
+                    )
                 except GuardRejected as exc:
                     # A settling check may change after the UI preflight. This
                     # definitive rejection precedes native offer consumption and
                     # gain commit; keep holding with the old settings. An unknown
                     # outcome, loss of authority or receiver fault still faults.
-                    if not (previous_tuning is not None and exc.reason == 'invalid_state'
-                            and exc.status.get('reason') == 'ok'
-                            and exc.status.get('state') in ('holding', 'executing')
-                            and self.controller.owned and self.lifecycle.state == 'HOLD'):
+                    if not (
+                        previous_tuning is not None
+                        and exc.reason == 'invalid_state'
+                        and exc.status.get('reason') == 'ok'
+                        and exc.status.get('state') in ('holding', 'executing')
+                        and self.controller.owned
+                        and self.lifecycle.state == 'HOLD'
+                    ):
                         raise
                     self.lifecycle._joints, self.lifecycle._manual, self.lifecycle._manual_hold = previous_tuning
                     previous_tuning = None
                     proposal = self.lifecycle._proposal('move')
-                    record.update(proposal=plain_copy(proposal), tuning_rejected=
-                                  'The arm is still settling; settings were not applied. Wait in Hold and apply again.')
+                    record.update(
+                        proposal=plain_copy(proposal),
+                        tuning_rejected='The arm is still settling; settings were not applied. Wait in Hold and apply again.',
+                    )
                     self._deadline(started, target)
                     # No new offer, refreshed lifetime or retry of the edit.
-                    reply = self.controller.direct_update(proposal['joints'], offered, valid_for_ms=lifetime,
-                                                          ramp_efforts=proposal.get('ramp_efforts'))
+                    reply = self.controller.direct_update(
+                        proposal['joints'], offered, valid_for_ms=lifetime, ramp_efforts=proposal.get('ramp_efforts')
+                    )
                 previous_tuning = None  # Receiver acknowledged the whole batch, including fallback gains.
                 self._cache(reply, rpc_started)
                 status = reply['status']
@@ -179,10 +221,14 @@ class DirectLifecycleSession(GuardedLifecycleSession):
                     self.owned = False
                 else:
                     raise ValueError(f'Unknown lifecycle operation {operation}')
-            record.update(accepted=True, status=status, rpc_ms=(self.clock() - rpc_started) * 1000,
-                          receiver_accepted_ms=status['now_ms'],
-                          request_sequence=(status.get('lease') or {}).get('last_sequence'),
-                          receiver_applied=status.get('last_applied_target'))
+            record.update(
+                accepted=True,
+                status=status,
+                rpc_ms=(self.clock() - rpc_started) * 1000,
+                receiver_accepted_ms=status['now_ms'],
+                request_sequence=(status.get('lease') or {}).get('last_sequence'),
+                receiver_applied=status.get('last_applied_target'),
+            )
             return record
         except Exception as exc:
             if previous_tuning is not None:
@@ -192,6 +238,9 @@ class DirectLifecycleSession(GuardedLifecycleSession):
             self._cached = None
             raise
         finally:
-            record.update(completed_at=self.clock(), stop_error=self.stop_error,
-                          lifecycle_after=self.lifecycle.state,
-                          rpc_count=self.controller.exchanges - exchanges)
+            record.update(
+                completed_at=self.clock(),
+                stop_error=self.stop_error,
+                lifecycle_after=self.lifecycle.state,
+                rpc_count=self.controller.exchanges - exchanges,
+            )

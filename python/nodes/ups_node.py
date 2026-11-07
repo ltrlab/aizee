@@ -39,22 +39,20 @@ except ImportError:
     from ina219 import INA219
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class UPSTelemetry:
     """UPS power telemetry data"""
+
     timestamp: float
-    voltage: float          # Volts
-    current: float          # Amperes
-    power: float            # Watts
-    percentage: float       # Battery percentage (0-100)
-    shunt_voltage: float    # Shunt voltage in V (for diagnostics)
+    voltage: float  # Volts
+    current: float  # Amperes
+    power: float  # Watts
+    percentage: float  # Battery percentage (0-100)
+    shunt_voltage: float  # Shunt voltage in V (for diagnostics)
 
 
 class UPSMonitor:
@@ -64,7 +62,7 @@ class UPSMonitor:
         self,
         i2c_bus: int = 7,
         i2c_addr: int = 0x41,
-        publish_endpoint: str = "tcp://*:5562",
+        publish_endpoint: str = 'tcp://*:5562',
         update_rate: float = 1.0,  # Hz
     ):
         """Initialize UPS monitor
@@ -91,23 +89,23 @@ class UPSMonitor:
 
     def initialize_hardware(self):
         """Initialize INA219 sensor"""
-        logger.info(f"Initializing INA219 on I2C bus {self.i2c_bus}, address 0x{self.i2c_addr:02x}")
+        logger.info(f'Initializing INA219 on I2C bus {self.i2c_bus}, address 0x{self.i2c_addr:02x}')
 
         try:
             self.ina219 = INA219(i2c_bus=self.i2c_bus, addr=self.i2c_addr)
-            logger.info("INA219 initialized successfully")
+            logger.info('INA219 initialized successfully')
 
             # Test read
             voltage = self.ina219.getBusVoltage_V()
-            logger.info(f"Initial voltage reading: {voltage:.2f}V")
+            logger.info(f'Initial voltage reading: {voltage:.2f}V')
 
         except Exception as e:
-            logger.error(f"Failed to initialize INA219: {e}")
+            logger.error(f'Failed to initialize INA219: {e}')
             raise
 
     def initialize_zmq(self):
         """Initialize ZeroMQ publisher"""
-        logger.info(f"Initializing ZeroMQ publisher at {self.publish_endpoint}")
+        logger.info(f'Initializing ZeroMQ publisher at {self.publish_endpoint}')
 
         self.zmq_context = zmq.Context()
         self.telemetry_pub = self.zmq_context.socket(zmq.PUB)
@@ -121,7 +119,7 @@ class UPSMonitor:
         # Give time for subscribers to connect
         time.sleep(0.5)
 
-        logger.info("ZeroMQ publisher initialized")
+        logger.info('ZeroMQ publisher initialized')
 
     def read_telemetry(self) -> UPSTelemetry:
         """Read current telemetry from UPS module
@@ -154,7 +152,7 @@ class UPSMonitor:
             current=current,
             power=power,
             percentage=percentage,
-            shunt_voltage=shunt_voltage
+            shunt_voltage=shunt_voltage,
         )
 
     def publish_telemetry(self, telemetry: UPSTelemetry):
@@ -164,14 +162,14 @@ class UPSMonitor:
             telemetry: UPSTelemetry object to publish
         """
         message = {
-            "timestamp": telemetry.timestamp,
-            "ups": {
-                "voltage": telemetry.voltage,
-                "current": telemetry.current,
-                "power": telemetry.power,
-                "percentage": telemetry.percentage,
-                "shunt_voltage": telemetry.shunt_voltage,
-            }
+            'timestamp': telemetry.timestamp,
+            'ups': {
+                'voltage': telemetry.voltage,
+                'current': telemetry.current,
+                'power': telemetry.power,
+                'percentage': telemetry.percentage,
+                'shunt_voltage': telemetry.shunt_voltage,
+            },
         }
 
         self.telemetry_pub.send(pack_msg(message))
@@ -179,8 +177,8 @@ class UPSMonitor:
 
     def run_loop(self):
         """Main monitoring loop"""
-        logger.info("Starting UPS monitoring loop...")
-        logger.info(f"Publishing at {1.0/self.update_interval:.1f} Hz")
+        logger.info('Starting UPS monitoring loop...')
+        logger.info(f'Publishing at {1.0 / self.update_interval:.1f} Hz')
         self.running = True
 
         next_publish_time = time.time()
@@ -202,11 +200,11 @@ class UPSMonitor:
                         elapsed = current_time - self.last_stats_time
                         rate = self.message_count / elapsed
                         logger.info(
-                            f"UPS Status: {telemetry.voltage:.2f}V, "
-                            f"{telemetry.current:.3f}A, "
-                            f"{telemetry.power:.2f}W, "
-                            f"{telemetry.percentage:.0f}% "
-                            f"(Publishing at {rate:.1f} Hz)"
+                            f'UPS Status: {telemetry.voltage:.2f}V, '
+                            f'{telemetry.current:.3f}A, '
+                            f'{telemetry.power:.2f}W, '
+                            f'{telemetry.percentage:.0f}% '
+                            f'(Publishing at {rate:.1f} Hz)'
                         )
                         self.message_count = 0
                         self.last_stats_time = current_time
@@ -224,15 +222,15 @@ class UPSMonitor:
                     time.sleep(min(sleep_time, 0.1))  # Wake up periodically to check running flag
 
             except KeyboardInterrupt:
-                logger.info("Received interrupt signal")
+                logger.info('Received interrupt signal')
                 break
             except Exception as e:
-                logger.error(f"Error in monitoring loop: {e}", exc_info=True)
+                logger.error(f'Error in monitoring loop: {e}', exc_info=True)
                 time.sleep(1.0)  # Backoff on error
 
     def cleanup(self):
         """Clean up resources"""
-        logger.info("Cleaning up UPS monitor...")
+        logger.info('Cleaning up UPS monitor...')
 
         self.running = False
 
@@ -242,7 +240,7 @@ class UPSMonitor:
         if self.zmq_context:
             self.zmq_context.term()
 
-        logger.info("Cleanup complete")
+        logger.info('Cleanup complete')
 
     def run(self):
         """Main run method"""
@@ -250,25 +248,25 @@ class UPSMonitor:
             self.initialize_hardware()
             self.initialize_zmq()
 
-            logger.info("=" * 60)
-            logger.info("UPS Power Monitor Ready")
-            logger.info(f"I2C: Bus {self.i2c_bus}, Address 0x{self.i2c_addr:02x}")
-            logger.info(f"Publishing to: {self.publish_endpoint}")
-            logger.info("=" * 60)
+            logger.info('=' * 60)
+            logger.info('UPS Power Monitor Ready')
+            logger.info(f'I2C: Bus {self.i2c_bus}, Address 0x{self.i2c_addr:02x}')
+            logger.info(f'Publishing to: {self.publish_endpoint}')
+            logger.info('=' * 60)
 
             self.run_loop()
 
         except KeyboardInterrupt:
-            logger.info("Received interrupt signal")
+            logger.info('Received interrupt signal')
         except Exception as e:
-            logger.error(f"Fatal error: {e}", exc_info=True)
+            logger.error(f'Fatal error: {e}', exc_info=True)
         finally:
             self.cleanup()
 
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
-    logger.info(f"Received signal {signum}, shutting down...")
+    logger.info(f'Received signal {signum}, shutting down...')
     sys.exit(0)
 
 
@@ -287,38 +285,19 @@ def load_config(config_path: str) -> dict:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description='AIZEE UPS Power Monitor - Waveshare UPS Module (C)'
-    )
-    parser.add_argument(
-        '--config',
-        type=str,
-        help='Path to YAML config file'
-    )
-    parser.add_argument(
-        '--i2c-bus',
-        type=int,
-        default=7,
-        help='I2C bus number (default: 7 for Jetson)'
-    )
+    parser = argparse.ArgumentParser(description='AIZEE UPS Power Monitor - Waveshare UPS Module (C)')
+    parser.add_argument('--config', type=str, help='Path to YAML config file')
+    parser.add_argument('--i2c-bus', type=int, default=7, help='I2C bus number (default: 7 for Jetson)')
     parser.add_argument(
         '--i2c-addr',
         type=lambda x: int(x, 0),  # Support hex notation like 0x41
         default=0x41,
-        help='INA219 I2C address (default: 0x41)'
+        help='INA219 I2C address (default: 0x41)',
     )
     parser.add_argument(
-        '--publish',
-        type=str,
-        default='tcp://*:5562',
-        help='ZeroMQ publish endpoint (default: tcp://*:5562)'
+        '--publish', type=str, default='tcp://*:5562', help='ZeroMQ publish endpoint (default: tcp://*:5562)'
     )
-    parser.add_argument(
-        '--rate',
-        type=float,
-        default=1.0,
-        help='Publishing rate in Hz (default: 1.0)'
-    )
+    parser.add_argument('--rate', type=float, default=1.0, help='Publishing rate in Hz (default: 1.0)')
 
     args = parser.parse_args()
 
@@ -326,7 +305,7 @@ def main():
     config = {}
     if args.config:
         config = load_config(args.config)
-        logger.info(f"Loaded config from {args.config}")
+        logger.info(f'Loaded config from {args.config}')
 
     # Override with config values if present
     i2c_bus = config.get('ups', {}).get('i2c_bus', args.i2c_bus)
@@ -338,12 +317,7 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Create and run monitor
-    monitor = UPSMonitor(
-        i2c_bus=i2c_bus,
-        i2c_addr=i2c_addr,
-        publish_endpoint=publish_endpoint,
-        update_rate=args.rate
-    )
+    monitor = UPSMonitor(i2c_bus=i2c_bus, i2c_addr=i2c_addr, publish_endpoint=publish_endpoint, update_rate=args.rate)
 
     monitor.run()
 

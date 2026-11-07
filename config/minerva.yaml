@@ -15,16 +15,16 @@
 # ---------------------------------------------------------------------------
 endpoints:
   cameras:
-    left_wrist:  "tcp://localhost:5563"   # ELP UVC on the left wrist
-    right_wrist: "tcp://localhost:5565"   # ELP UVC on the right wrist
-    head:        "tcp://localhost:5564"   # RealSense on the 2-DoF head
+    left_wrist: 'tcp://localhost:5563' # ELP UVC on the left wrist
+    right_wrist: 'tcp://localhost:5565' # ELP UVC on the right wrist
+    head: 'tcp://localhost:5564' # RealSense on the 2-DoF head
 
 cameras:
   # Resolution the policy consumes. Wrist cams full-res for fine manipulation;
   # the head/scene cam can run lower to save token budget on the Jetson.
-  left_wrist:  { width: 640, height: 480 }
+  left_wrist: { width: 640, height: 480 }
   right_wrist: { width: 640, height: 480 }
-  head:        { width: 424, height: 240 }
+  head: { width: 424, height: 240 }
 
 # ---------------------------------------------------------------------------
 # Control
@@ -35,20 +35,20 @@ control:
   # Receding-horizon open-loop execution: predict a chunk, execute this many
   # steps, then replan. (execute < chunk_size)
   execute_steps: 16
-  flow_steps: 8          # Euler integration steps for the flow-matching sampler
+  flow_steps: 8 # Euler integration steps for the flow-matching sampler
 
 # Model architecture and language encoder identity are loaded from the checkpoint.
 language:
   enabled: true
-  cache: "checkpoints/minerva/task_embeddings.npz"
+  cache: 'checkpoints/minerva/task_embeddings.npz'
   # Default instruction if none is supplied at deploy time.
-  default_instruction: ""
+  default_instruction: ''
 
 # ---------------------------------------------------------------------------
 # Deploy-time safety (see minerva_constants.apply_safety_limits)
 # ---------------------------------------------------------------------------
 safety:
-  max_delta_arm: 0.30      # rad/step
-  max_delta_gripper: 0.50  # legacy policy-coordinate units/step; not measured jaw travel
-  max_delta_head: 0.15     # rad/step
-  max_delta_lift: 0.01     # m/step
+  max_delta_arm: 0.30 # rad/step
+  max_delta_gripper: 0.50 # legacy policy-coordinate units/step; not measured jaw travel
+  max_delta_head: 0.15 # rad/step
+  max_delta_lift: 0.01 # m/step

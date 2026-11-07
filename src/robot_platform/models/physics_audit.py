@@ -1,4 +1,5 @@
 """Read-only physical-input audit for URDF; passing is not physical validation."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,9 +19,17 @@ def audit_urdf(path, *, minimum_mass_kg=1e-6):
         raise ValueError('Minimum mass must be finite and positive')
     path = Path(path).resolve()
     raw = path.read_bytes()
-    report = {'schema_version': 1, 'urdf': str(path), 'sha256': hashlib.sha256(raw).hexdigest(),
-              'minimum_mass_kg': minimum_mass_kg, 'physical_validation': 'unvalidated',
-              'errors': [], 'warnings': [], 'links': [], 'mimic_joints': []}
+    report = {
+        'schema_version': 1,
+        'urdf': str(path),
+        'sha256': hashlib.sha256(raw).hexdigest(),
+        'minimum_mass_kg': minimum_mass_kg,
+        'physical_validation': 'unvalidated',
+        'errors': [],
+        'warnings': [],
+        'links': [],
+        'mimic_joints': [],
+    }
     try:
         root = ET.fromstring(raw)
     except ET.ParseError as exc:
@@ -47,9 +56,12 @@ def audit_urdf(path, *, minimum_mass_kg=1e-6):
             mass = numbers([masses[0].get('value')], 1, 'mass', True)[0]
             entry['mass_kg'] = mass
             if mass <= minimum_mass_kg:
-                report['errors'].append(f'{name}: mass {mass:g} kg is below the audit minimum; likely an exporter placeholder')
+                report['errors'].append(
+                    f'{name}: mass {mass:g} kg is below the audit minimum; likely an exporter placeholder'
+                )
             xx, xy, xz, yy, yz, zz = numbers(
-                [tensors[0].get(k) for k in ('ixx', 'ixy', 'ixz', 'iyy', 'iyz', 'izz')], 6, 'inertia')
+                [tensors[0].get(k) for k in ('ixx', 'ixy', 'ixz', 'iyy', 'iyz', 'izz')], 6, 'inertia'
+            )
             principal = np.linalg.eigvalsh([[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]])
             entry['principal_inertia_kg_m2'] = principal.tolist()
             if principal[0] <= 0:
@@ -72,7 +84,7 @@ def audit_urdf(path, *, minimum_mass_kg=1e-6):
                 numbers([limit.get('effort'), limit.get('velocity')], 2, 'effort/velocity limits', True)
             except ValueError as exc:
                 report['errors'].append(f'{name}: {exc}')
-    report['total_declared_mass_kg'] = sum(link.get('mass_kg', 0.) for link in report['links'])
+    report['total_declared_mass_kg'] = sum(link.get('mass_kg', 0.0) for link in report['links'])
     report['structurally_usable_for_dynamics'] = not report['errors']
     return report
 

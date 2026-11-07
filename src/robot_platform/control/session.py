@@ -33,7 +33,7 @@ class PartialSendError(RuntimeError):
     def __init__(self, sent_arms: Sequence[str], failed_arm: str) -> None:
         self.sent_arms = tuple(sent_arms)
         self.failed_arm = failed_arm
-        super().__init__(f"Send failed for {failed_arm!r}; already sent: {self.sent_arms!r}")
+        super().__init__(f'Send failed for {failed_arm!r}; already sent: {self.sent_arms!r}')
 
 
 @dataclass(frozen=True)
@@ -81,13 +81,13 @@ class Observation:
 
 def _number(value: Any) -> float:
     if isinstance(value, (bool, str, bytes)):
-        raise ValueError("expected a finite numeric value")
+        raise ValueError('expected a finite numeric value')
     try:
         result = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("expected a finite numeric value") from exc
+        raise ValueError('expected a finite numeric value') from exc
     if not math.isfinite(result):
-        raise ValueError("expected a finite numeric value")
+        raise ValueError('expected a finite numeric value')
     return result
 
 
@@ -95,64 +95,74 @@ def _layout(spec: Any, arms: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[
     names = tuple(joint.name for joint in spec.joints)
     active = tuple(joint.active for joint in spec.joints)
     if not names or len(set(names)) != len(names):
-        raise ValueError("Robot joint names must be nonempty and unique")
+        raise ValueError('Robot joint names must be nonempty and unique')
     if any(not isinstance(name, str) or not name for name in names):
-        raise ValueError("Robot joint names must be nonempty strings")
+        raise ValueError('Robot joint names must be nonempty strings')
     if any(not isinstance(value, bool) for value in active):
-        raise ValueError("Each joint must declare a boolean active flag")
+        raise ValueError('Each joint must declare a boolean active flag')
     if not isinstance(arms, Mapping) or not arms:
-        raise ValueError("At least one arm endpoint is required")
+        raise ValueError('At least one arm endpoint is required')
     endpoints: dict[str, ArmEndpoint] = {}
     assigned: set[str] = set()
     active_names = {name for name, enabled in zip(names, active) if enabled}
     for arm, values in arms.items():
         if not isinstance(arm, str) or not arm:
-            raise ValueError("Arm names must be nonempty strings")
+            raise ValueError('Arm names must be nonempty strings')
         if isinstance(values, ArmEndpoint):
             endpoint = ArmEndpoint(values.command, values.telemetry, tuple(values.joints))
         else:
             if not isinstance(values, Mapping):
-                raise ValueError(f"Invalid endpoint for arm {arm!r}")
-            raw_joints = values.get("joints")
+                raise ValueError(f'Invalid endpoint for arm {arm!r}')
+            raw_joints = values.get('joints')
             if not isinstance(raw_joints, (list, tuple)):
-                raise ValueError(f"Arm {arm!r} must list its joints in wire order")
-            endpoint = ArmEndpoint(values.get("command"), values.get("telemetry"), tuple(raw_joints))
+                raise ValueError(f'Arm {arm!r} must list its joints in wire order')
+            endpoint = ArmEndpoint(values.get('command'), values.get('telemetry'), tuple(raw_joints))
         if any(not isinstance(url, str) or not url for url in (endpoint.command, endpoint.telemetry)):
-            raise ValueError(f"Arm {arm!r} requires command and telemetry endpoints")
+            raise ValueError(f'Arm {arm!r} requires command and telemetry endpoints')
         if not endpoint.joints or any(not isinstance(name, str) for name in endpoint.joints):
-            raise ValueError(f"Arm {arm!r} requires named joints")
+            raise ValueError(f'Arm {arm!r} requires named joints')
         if len(set(endpoint.joints)) != len(endpoint.joints):
-            raise ValueError(f"Duplicate joint in arm {arm!r}")
+            raise ValueError(f'Duplicate joint in arm {arm!r}')
         if set(endpoint.joints) - active_names:
-            raise ValueError(f"Arm {arm!r} contains unknown or inactive joints")
+            raise ValueError(f'Arm {arm!r} contains unknown or inactive joints')
         if assigned.intersection(endpoint.joints):
-            raise ValueError("A joint cannot belong to multiple arm endpoints")
+            raise ValueError('A joint cannot belong to multiple arm endpoints')
         assigned.update(endpoint.joints)
         endpoints[arm] = endpoint
     if assigned != active_names:
-        raise ValueError(f"Active joints without an endpoint: {sorted(active_names - assigned)}")
-    for kind in ("command", "telemetry"):
+        raise ValueError(f'Active joints without an endpoint: {sorted(active_names - assigned)}')
+    for kind in ('command', 'telemetry'):
         addresses = [getattr(endpoint, kind) for endpoint in endpoints.values()]
         if len(set(addresses)) != len(addresses):
-            raise ValueError(f"Each arm requires a distinct {kind} endpoint")
+            raise ValueError(f'Each arm requires a distinct {kind} endpoint')
     return names, active, endpoints
 
 
-def _vector(label: str, values: Sequence[float], names: tuple[str, ...], active: tuple[bool, ...], *, allow_partial: bool = False) -> tuple[float, ...]:
+def _vector(
+    label: str,
+    values: Sequence[float],
+    names: tuple[str, ...],
+    active: tuple[bool, ...],
+    *,
+    allow_partial: bool = False,
+) -> tuple[float, ...]:
     if isinstance(values, (str, bytes)):
-        raise ValueError(f"{label} must be a joint vector")
+        raise ValueError(f'{label} must be a joint vector')
     try:
         raw = tuple(values)
-        result = tuple(float(value) if allow_partial and not isinstance(value, (bool, str, bytes)) else _number(value) for value in raw)
+        result = tuple(
+            float(value) if allow_partial and not isinstance(value, (bool, str, bytes)) else _number(value)
+            for value in raw
+        )
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{label} must contain finite numbers") from exc
+        raise ValueError(f'{label} must contain finite numbers') from exc
     if len(result) != len(names):
-        raise ValueError(f"{label} requires {len(names)} values, received {len(result)}")
+        raise ValueError(f'{label} requires {len(names)} values, received {len(result)}')
     for name, enabled, value in zip(names, active, result):
         if not enabled and value != 0.0:
-            raise ValueError(f"Cannot command inactive joint {name!r} in {label}")
-    if label in ("kp", "kd") and any(value < 0.0 for value in result):
-        raise ValueError(f"{label} cannot contain negative gains")
+            raise ValueError(f'Cannot command inactive joint {name!r} in {label}')
+    if label in ('kp', 'kd') and any(value < 0.0 for value in result):
+        raise ValueError(f'{label} cannot contain negative gains')
     return result
 
 
@@ -174,16 +184,16 @@ def route_joint_target(
     gains/torques remain absent so the existing Rust defaults apply.
     """
     names, active, endpoints = _layout(spec, arms)
-    vectors = {"positions": _vector("positions", positions, names, active, allow_partial=allow_partial)}
+    vectors = {'positions': _vector('positions', positions, names, active, allow_partial=allow_partial)}
     if velocities is None:
         velocities = (0.0,) * len(names)
-    for label, values in (("velocities", velocities), ("kp", kp), ("kd", kd), ("torques", torques)):
+    for label, values in (('velocities', velocities), ('kp', kp), ('kd', kd), ('torques', torques)):
         if values is not None:
             vectors[label] = _vector(label, values, names, active, allow_partial=allow_partial)
     indices = {name: index for index, name in enumerate(names)}
     return {
         arm: {
-            "type": "arm_joints",
+            'type': 'arm_joints',
             **{label: [values[indices[name]] for name in endpoint.joints] for label, values in vectors.items()},
         }
         for arm, endpoint in endpoints.items()
@@ -194,34 +204,37 @@ def route_joint_target(
 class RobotSession:
     """Pure in-memory routing and observation state for any robot definition."""
 
-    def __init__(self, spec: Any, settings: Mapping[str, Any], *, max_age_s: float | None = None,
-                 command_gate=None) -> None:
-        arms = settings.get("endpoints", {}).get("arms", {})
+    def __init__(
+        self, spec: Any, settings: Mapping[str, Any], *, max_age_s: float | None = None, command_gate=None
+    ) -> None:
+        arms = settings.get('endpoints', {}).get('arms', {})
         self.joint_names, self.active_mask, endpoints = _layout(spec, arms)
         self.spec = spec
         self.arms = MappingProxyType(endpoints)
         if max_age_s is None:
-            max_age_s = settings.get("control", {}).get("stale_after_s", 0.5)
+            max_age_s = settings.get('control', {}).get('stale_after_s', 0.5)
         self.max_age_s = _number(max_age_s)
         if self.max_age_s <= 0:
-            raise ValueError("max_age_s must be greater than zero")
+            raise ValueError('max_age_s must be greater than zero')
         self._samples: dict[str, tuple[float, tuple[float, ...], tuple[float, ...]]] = {}
         self._messages: dict[str, dict[str, Any]] = {}
-        control = settings.get("control", {})
-        self.require_source_freshness = control.get("require_source_freshness", False)
+        control = settings.get('control', {})
+        self.require_source_freshness = control.get('require_source_freshness', False)
         if not isinstance(self.require_source_freshness, bool):
-            raise ValueError("require_source_freshness must be boolean")
-        self.target_lease_s = _number(control.get("target_lease_s", 0.5))
+            raise ValueError('require_source_freshness must be boolean')
+        self.target_lease_s = _number(control.get('target_lease_s', 0.5))
         if not 0 < self.target_lease_s <= 60:
-            raise ValueError("target_lease_s must be positive and at most 60")
+            raise ValueError('target_lease_s must be positive and at most 60')
         self._source_trackers = {arm: SourceFreshness() for arm in self.arms}
         self._source_origins = {}
         self.state_sequence = 0
         self.command_gate = command_gate
         from urllib.parse import urlsplit
-        self.simulation_only = (settings.get("simulation", {}).get("evidence") == "synthetic"
-            and all(urlsplit(ep.command).hostname == "127.0.0.1" and urlsplit(ep.telemetry).hostname == "127.0.0.1"
-                    for ep in self.arms.values()))
+
+        self.simulation_only = settings.get('simulation', {}).get('evidence') == 'synthetic' and all(
+            urlsplit(ep.command).hostname == '127.0.0.1' and urlsplit(ep.telemetry).hostname == '127.0.0.1'
+            for ep in self.arms.values()
+        )
         if command_gate is not None:
             command_gate._require_simulation(self)
 
@@ -235,8 +248,8 @@ class RobotSession:
         endpoint = self.arms[arm]
         received_at = _number(time.monotonic() if received_at is None else received_at)
         if arm in self._samples and received_at < self._samples[arm][0]:
-            raise ValueError(f"Out-of-order receive time for arm {arm!r}")
-        motors = message.get("motors", {}) if isinstance(message, Mapping) else {}
+            raise ValueError(f'Out-of-order receive time for arm {arm!r}')
+        motors = message.get('motors', {}) if isinstance(message, Mapping) else {}
         if not isinstance(motors, Mapping):
             motors = {}
 
@@ -251,10 +264,11 @@ class RobotSession:
                 values.append(value)
             return tuple(values)
 
-        self._samples[arm] = (received_at, field_values("position"), field_values("torque"))
+        self._samples[arm] = (received_at, field_values('position'), field_values('torque'))
         self._messages[arm] = deepcopy(dict(message)) if isinstance(message, Mapping) else {}
         self._source_origins[arm] = self._source_trackers[arm].ingest(
-            self._messages[arm], endpoint.joints, received_at, required=self.require_source_freshness)
+            self._messages[arm], endpoint.joints, received_at, required=self.require_source_freshness
+        )
         self.state_sequence += 1
 
     def telemetry_sample(self, arm: str) -> tuple[dict[str, Any] | None, float | None]:
@@ -272,16 +286,16 @@ class RobotSession:
     def joint_field(self, field: str, *, now: float | None = None) -> tuple[float, ...]:
         """Any numeric motor field in canonical order, with NaNs for unavailable slots."""
         observation = self.observation(now=now)
-        if field == "position":
+        if field == 'position':
             return observation.positions
-        if field == "torque":
+        if field == 'torque':
             return observation.torques
         indices = {name: index for index, name in enumerate(self.joint_names)}
         values = [math.nan] * len(self.joint_names)
         for arm, endpoint in self.arms.items():
             if not observation.arm_freshness[arm].fresh:
                 continue
-            motors = self._messages.get(arm, {}).get("motors", {})
+            motors = self._messages.get(arm, {}).get('motors', {})
             if not isinstance(motors, Mapping):
                 continue
             for name in endpoint.joints:
@@ -293,7 +307,7 @@ class RobotSession:
                         pass
         return tuple(values)
 
-    def arm_ready(self, field: str = "position", *, now: float | None = None) -> dict[str, bool]:
+    def arm_ready(self, field: str = 'position', *, now: float | None = None) -> dict[str, bool]:
         values = self.joint_field(field, now=now)
         indices = {name: index for index, name in enumerate(self.joint_names)}
         return {arm: all(math.isfinite(values[indices[name]]) for name in ep.joints) for arm, ep in self.arms.items()}
@@ -306,97 +320,111 @@ class RobotSession:
         ownership/state checks. This method never invents a motion command.
         """
         if not isinstance(commands, Mapping):
-            raise ValueError("commands must map arm names to wire messages")
+            raise ValueError('commands must map arm names to wire messages')
         result = {}
-        motor_commands = {"enable", "disable", "zero_position", "mech_zero", "clear_fault", "trigger_fault"}
+        motor_commands = {'enable', 'disable', 'zero_position', 'mech_zero', 'clear_fault', 'trigger_fault'}
 
         def arm_payload(payload, size):
-            if isinstance(payload, Mapping) and payload.get("type") == "arm_joints":
-                payload = {key: value for key, value in payload.items() if key != "type"}
-            if not isinstance(payload, Mapping) or set(payload) - {"positions", "velocities", "kp", "kd", "torques"}:
-                raise ValueError("invalid arm_joints payload")
+            if isinstance(payload, Mapping) and payload.get('type') == 'arm_joints':
+                payload = {key: value for key, value in payload.items() if key != 'type'}
+            if not isinstance(payload, Mapping) or set(payload) - {'positions', 'velocities', 'kp', 'kd', 'torques'}:
+                raise ValueError('invalid arm_joints payload')
             output = {}
-            for field in ("positions", "velocities", "kp", "kd", "torques"):
+            for field in ('positions', 'velocities', 'kp', 'kd', 'torques'):
                 if field not in payload:
-                    if field in ("positions", "velocities"):
-                        raise ValueError(f"arm_joints requires {field}")
+                    if field in ('positions', 'velocities'):
+                        raise ValueError(f'arm_joints requires {field}')
                     continue
                 raw = payload[field]
-                if raw is None and field in ("kp", "kd", "torques"):
+                if raw is None and field in ('kp', 'kd', 'torques'):
                     continue
                 if not isinstance(raw, (list, tuple)):
-                    raise ValueError(f"{field} must be a vector")
+                    raise ValueError(f'{field} must be a vector')
                 values = [_number(value) for value in raw]
-                if len(values) != size and not (field in ("kp", "kd", "torques") and not values):
-                    raise ValueError(f"{field} requires {size} values")
-                if field in ("kp", "kd") and any(value < 0 for value in values):
-                    raise ValueError(f"{field} cannot contain negative gains")
+                if len(values) != size and not (field in ('kp', 'kd', 'torques') and not values):
+                    raise ValueError(f'{field} requires {size} values')
+                if field in ('kp', 'kd') and any(value < 0 for value in values):
+                    raise ValueError(f'{field} cannot contain negative gains')
                 output[field] = values
             return output
 
         def drive_payload(payload):
-            if isinstance(payload, Mapping) and payload.get("type") == "drive":
-                payload = {key: value for key, value in payload.items() if key != "type"}
-            if not isinstance(payload, Mapping) or set(payload) - {"linear", "angular", "kp", "kd"}:
-                raise ValueError("invalid drive payload")
-            if "linear" not in payload or "angular" not in payload:
-                raise ValueError("drive requires linear and angular values")
-            output = {key: _number(value) for key, value in payload.items() if value is not None or key in ("linear", "angular")}
-            if any(output.get(key, 0.0) < 0 for key in ("kp", "kd")):
-                raise ValueError("drive gains cannot be negative")
+            if isinstance(payload, Mapping) and payload.get('type') == 'drive':
+                payload = {key: value for key, value in payload.items() if key != 'type'}
+            if not isinstance(payload, Mapping) or set(payload) - {'linear', 'angular', 'kp', 'kd'}:
+                raise ValueError('invalid drive payload')
+            if 'linear' not in payload or 'angular' not in payload:
+                raise ValueError('drive requires linear and angular values')
+            output = {
+                key: _number(value)
+                for key, value in payload.items()
+                if value is not None or key in ('linear', 'angular')
+            }
+            if any(output.get(key, 0.0) < 0 for key in ('kp', 'kd')):
+                raise ValueError('drive gains cannot be negative')
             return output
 
         for arm, message in commands.items():
             if arm not in self.arms:
-                raise ValueError(f"Unknown arm endpoint {arm!r}")
+                raise ValueError(f'Unknown arm endpoint {arm!r}')
             if not isinstance(message, Mapping):
-                raise ValueError("wire command must be an object")
+                raise ValueError('wire command must be an object')
             payload = dict(message)
-            kind = payload.pop("type", None)
-            if kind == "arm_joints":
+            kind = payload.pop('type', None)
+            if kind == 'arm_joints':
                 payload = arm_payload(payload, len(self.arms[arm].joints))
-            elif kind == "drive":
+            elif kind == 'drive':
                 payload = drive_payload(payload)
-            elif kind == "bundle":
-                if set(payload) - {"arm_joints", "drive"}:
-                    raise ValueError("invalid bundle fields")
-                payload = {key: (arm_payload(value, len(self.arms[arm].joints)) if key == "arm_joints" else drive_payload(value))
-                           for key, value in payload.items() if value is not None}
+            elif kind == 'bundle':
+                if set(payload) - {'arm_joints', 'drive'}:
+                    raise ValueError('invalid bundle fields')
+                payload = {
+                    key: (
+                        arm_payload(value, len(self.arms[arm].joints)) if key == 'arm_joints' else drive_payload(value)
+                    )
+                    for key, value in payload.items()
+                    if value is not None
+                }
             elif kind in motor_commands:
-                allowed = {"motor_ids", "save"} if kind == "mech_zero" else {"motor_ids"}
-                ids = payload.get("motor_ids")
-                if set(payload) - allowed or not isinstance(ids, (list, tuple)) or any(not isinstance(v, str) or not v for v in ids):
-                    raise ValueError(f"invalid {kind} motor_ids")
-                if "save" in payload and not isinstance(payload["save"], bool):
-                    raise ValueError("mech_zero save must be boolean")
-                payload = {**payload, "motor_ids": list(ids)}
-            elif kind in ("emergency_stop", "clear_emergency_stop"):
+                allowed = {'motor_ids', 'save'} if kind == 'mech_zero' else {'motor_ids'}
+                ids = payload.get('motor_ids')
+                if (
+                    set(payload) - allowed
+                    or not isinstance(ids, (list, tuple))
+                    or any(not isinstance(v, str) or not v for v in ids)
+                ):
+                    raise ValueError(f'invalid {kind} motor_ids')
+                if 'save' in payload and not isinstance(payload['save'], bool):
+                    raise ValueError('mech_zero save must be boolean')
+                payload = {**payload, 'motor_ids': list(ids)}
+            elif kind in ('emergency_stop', 'clear_emergency_stop'):
                 if payload:
-                    raise ValueError(f"{kind} takes no payload")
+                    raise ValueError(f'{kind} takes no payload')
             else:
-                raise ValueError(f"Unsupported command type {kind!r}")
-            result[arm] = {"type": kind, **payload}
+                raise ValueError(f'Unsupported command type {kind!r}')
+            result[arm] = {'type': kind, **payload}
         return result
 
-    def prepare_commands(self, commands: Mapping[str, Mapping[str, Any]], *, now: float | None = None,
-                         require_torque: bool = False) -> dict[str, dict[str, Any]]:
+    def prepare_commands(
+        self, commands: Mapping[str, Mapping[str, Any]], *, now: float | None = None, require_torque: bool = False
+    ) -> dict[str, dict[str, Any]]:
         """Validate wire commands and remove stale arm motion; keep drive stops/services."""
         result = self.validate_commands(commands)
         ready = self.arm_ready(now=now)
         if require_torque:
-            torque_ready = self.arm_ready("torque", now=now)
+            torque_ready = self.arm_ready('torque', now=now)
             ready = {arm: value and torque_ready[arm] for arm, value in ready.items()}
-        if self.command_gate is not None and self.command_gate.mode == "enforce_simulation" and not all(ready.values()):
+        if self.command_gate is not None and self.command_gate.mode == 'enforce_simulation' and not all(ready.values()):
             if self.command_gate._motion(result):
                 return self.command_gate.stops(self)
         for arm, command in list(result.items()):
             if ready[arm]:
                 continue
-            if command["type"] == "arm_joints":
+            if command['type'] == 'arm_joints':
                 del result[arm]
-            elif command["type"] == "bundle":
-                command.pop("arm_joints", None)
-                if "drive" not in command:
+            elif command['type'] == 'bundle':
+                command.pop('arm_joints', None)
+                if 'drive' not in command:
                     del result[arm]
         return result
 
@@ -423,13 +451,25 @@ class RobotSession:
         position_valid = tuple(math.isfinite(value) for value in positions)
         torque_valid = tuple(math.isfinite(value) for value in torques)
         return Observation(
-            self.joint_names, tuple(positions), tuple(torques), self.active_mask,
-            position_valid, torque_valid, tuple(p and t for p, t in zip(position_valid, torque_valid)),
+            self.joint_names,
+            tuple(positions),
+            tuple(torques),
+            self.active_mask,
+            position_valid,
+            torque_valid,
+            tuple(p and t for p, t in zip(position_valid, torque_valid)),
             MappingProxyType(freshness),
         )
 
-    def route_target(self, positions: Sequence[float], *, now: float | None = None,
-                     allow_partial: bool = False, require_torque: bool = True, **kwargs: Any) -> dict[str, dict[str, Any]]:
+    def route_target(
+        self,
+        positions: Sequence[float],
+        *,
+        now: float | None = None,
+        allow_partial: bool = False,
+        require_torque: bool = True,
+        **kwargs: Any,
+    ) -> dict[str, dict[str, Any]]:
         """Route fresh arms; opt-in partial control drops unavailable/NaN arms.
 
         Position readiness suffices for targeting with ``require_torque=False``;
@@ -438,11 +478,11 @@ class RobotSession:
         commands = route_joint_target(self.spec, self.arms, positions, allow_partial=allow_partial, **kwargs)
         ready = self.arm_ready(now=now)
         if require_torque:
-            torque_ready = self.arm_ready("torque", now=now)
+            torque_ready = self.arm_ready('torque', now=now)
             ready = {arm: valid and torque_ready[arm] for arm, valid in ready.items()}
         if not allow_partial and not all(ready.values()):
             unavailable = [arm for arm, valid in ready.items() if not valid]
-            raise StaleTelemetryError(f"Fresh, complete telemetry required for arms: {unavailable}")
+            raise StaleTelemetryError(f'Fresh, complete telemetry required for arms: {unavailable}')
         return {arm: command for arm, command in commands.items() if ready[arm]}
 
 
@@ -485,7 +525,7 @@ class ZmqRobotClient:
                 self._sub[arm] = sub
                 sub.setsockopt(zmq.LINGER, 0)
                 sub.setsockopt(zmq.CONFLATE, 1)
-                sub.setsockopt(zmq.SUBSCRIBE, b"")
+                sub.setsockopt(zmq.SUBSCRIBE, b'')
                 sub.connect(endpoint.telemetry)
         except Exception:
             self.close()
@@ -494,9 +534,9 @@ class ZmqRobotClient:
     def poll(self, *, max_messages_per_arm: int = 32) -> Observation:
         """Drain up to the given count per arm without blocking; malformed frames fail visibly."""
         if not self._sub:
-            raise RuntimeError("Call connect() before poll()")
+            raise RuntimeError('Call connect() before poll()')
         if not isinstance(max_messages_per_arm, int) or max_messages_per_arm < 1:
-            raise ValueError("max_messages_per_arm must be a positive integer")
+            raise ValueError('max_messages_per_arm must be a positive integer')
         from robot_platform.transport.wire import unpack_msg
 
         first_error = None
@@ -524,18 +564,18 @@ class ZmqRobotClient:
 
     def send_target(self, positions: Sequence[float], **kwargs: Any) -> None:
         if self.receive_only:
-            raise RuntimeError("receive-only clients cannot send commands")
+            raise RuntimeError('receive-only clients cannot send commands')
         if not self._push:
-            raise RuntimeError("Call connect() before send_target()")
+            raise RuntimeError('Call connect() before send_target()')
         # Real sends always use the current clock; deterministic times belong in
         # the pure session tests, not on a transport path that can move hardware.
-        if "now" in kwargs:
-            raise TypeError("send_target does not accept a clock override")
+        if 'now' in kwargs:
+            raise TypeError('send_target does not accept a clock override')
         try:
             commands = self.session.route_target(positions, **kwargs)
         except StaleTelemetryError:
             gate = self.session.command_gate
-            if gate is not None and gate.mode == "enforce_simulation":
+            if gate is not None and gate.mode == 'enforce_simulation':
                 self._send_prepared(gate.stops(self.session))
             raise
         self._send_prepared(commands)
@@ -543,9 +583,9 @@ class ZmqRobotClient:
     def send_commands(self, commands: Mapping[str, Mapping[str, Any]]) -> None:
         """Send validated one-shot commands, gating arm motion at the current clock."""
         if self.receive_only:
-            raise RuntimeError("receive-only clients cannot send commands")
+            raise RuntimeError('receive-only clients cannot send commands')
         if not self._push:
-            raise RuntimeError("Call connect() before send_commands()")
+            raise RuntimeError('Call connect() before send_commands()')
         commands = self.session.prepare_commands(commands)
         self._send_prepared(commands)
 
@@ -559,9 +599,9 @@ class ZmqRobotClient:
         sent = []
         for arm, frame in frames.items():
             if gate is not None and not gate.dispatch_valid(self.session, commands):
-                gate.last_verdict.update(clear=False, reason="expired_before_dispatch")
+                gate.last_verdict.update(clear=False, reason='expired_before_dispatch')
                 self._send_prepared(gate.stops(self.session))
-                raise RuntimeError("Collision verdict expired before dispatch; simulation stopped")
+                raise RuntimeError('Collision verdict expired before dispatch; simulation stopped')
             try:
                 self._push[arm].send(frame, flags=self._zmq.NOBLOCK)
             except Exception as exc:

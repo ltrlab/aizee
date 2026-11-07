@@ -3,6 +3,7 @@ it stays above 500 kbit/s, ignores loss, and assumes 30 frames a second. Needs a
 scripts/webrtc_link_probe.py runs it on a machine without Helm. The Orin Nano has no hardware encoder, so this is libx264
 on the CPU, which is why it runs in a process of its own (webrtc_worker).
 """
+
 import asyncio
 import fractions
 import time
@@ -21,8 +22,8 @@ except ImportError:  # Beside the probe, outside the package.
 # The most one picture may take, in bits: without a limit x264's first picture of a busy scene is 148 kB (measured), over
 # 2 s of a 600 kbit/s link.
 FRAME_LIMIT_BITS = 160_000
-RETUNE_SHARE = .05  # A rate this far from the encoder's is worth telling it.
-LOSS_POLL_S = .5
+RETUNE_SHARE = 0.05  # A rate this far from the encoder's is worth telling it.
+LOSS_POLL_S = 0.5
 # Most of one packet, in a frame's filler NAL (type 12): the probe's exact rate.
 FILLER_START = b'\x00\x00\x00\x01\x0c'
 # aiortc reports a receiver's fraction lost as RTP does, out of 256.
@@ -60,8 +61,15 @@ class LinkEncoder(H264Encoder):
         # x264's rate control counts frames at this rate, whatever their timestamps say.
         codec.framerate = fractions.Fraction(self.fps)
         codec.time_base = fractions.Fraction(1, 90_000)
-        codec.options = {'level': '31', 'tune': 'zerolatency', 'preset': self.preset, 'forced-idr': '1',
-                         'threads': '1', 'maxrate': str(top), 'bufsize': str(FRAME_LIMIT_BITS)}
+        codec.options = {
+            'level': '31',
+            'tune': 'zerolatency',
+            'preset': self.preset,
+            'forced-idr': '1',
+            'threads': '1',
+            'maxrate': str(top),
+            'bufsize': str(FRAME_LIMIT_BITS),
+        }
         codec.profile = 'Baseline'
         codec.open()
         codec.bit_rate = self._encoding(target)
@@ -98,6 +106,7 @@ def limit_resends(sender, rate):
     async def limited(sequence_number):
         if budget.allow(sequence_number):
             await resend(sequence_number)
+
     sender._retransmit = limited
     return budget
 
@@ -109,6 +118,7 @@ def use_encoder(encoder):
 
     def get_encoder(codec):
         return encoder() if codec.mimeType.lower() == 'video/h264' else original(codec)
+
     aiortc.rtcrtpsender.get_encoder = get_encoder
 
 
@@ -121,8 +131,9 @@ def peer_connection():
 def prefer_h264(transceiver):
     """H.264 only: a Quest decodes it in hardware."""
     capabilities = RTCRtpSender.getCapabilities('video').codecs
-    transceiver.setCodecPreferences([codec for codec in capabilities if codec.mimeType.lower() in
-                                     ('video/h264', 'video/rtx')])
+    transceiver.setCodecPreferences(
+        [codec for codec in capabilities if codec.mimeType.lower() in ('video/h264', 'video/rtx')]
+    )
 
 
 async def follow_loss(sender, rate, period=LOSS_POLL_S):
@@ -134,7 +145,15 @@ async def follow_loss(sender, rate, period=LOSS_POLL_S):
         for stats in report.values():
             if stats.type == 'remote-inbound-rtp' and stats.packetsReceived is not None and stats.timestamp != seen:
                 seen = stats.timestamp
-                rate.loss(min(1., stats.fractionLost / FRACTION_UNIT))
+                rate.loss(min(1.0, stats.fractionLost / FRACTION_UNIT))
 
 
-__all__ = ['LinkEncoder', 'RateControl', 'follow_loss', 'limit_resends', 'peer_connection', 'prefer_h264', 'use_encoder']
+__all__ = [
+    'LinkEncoder',
+    'RateControl',
+    'follow_loss',
+    'limit_resends',
+    'peer_connection',
+    'prefer_h264',
+    'use_encoder',
+]

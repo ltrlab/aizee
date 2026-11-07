@@ -1,5 +1,6 @@
 """Joint zero: arm joints' motor zeros at the zero pose, proven by a power cycle, and the arms' new reference with what
 is bound to it moved onto it (helm.joint_zero)."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -23,6 +24,7 @@ ZEROED = -1.654  # What left J5 read at the zero pose before its zero.
 
 class Maintenance:
     """Stands in for StoppedMaintenance: zeroes the roster in order, failing at `fail_at` if given."""
+
     runs, fail_at = [], None
 
     def __init__(self, exchange):
@@ -33,11 +35,21 @@ class Maintenance:
         zero.update(success=True, motors=[])
         for motor in roster:
             if motor['name'] == Maintenance.fail_at:
-                zero.update(success=False, error=f"{motor['name']}: pose changed after preflight")
+                zero.update(success=False, error=f'{motor["name"]}: pose changed after preflight')
                 break
-            zero['motors'].append(dict(name=motor['name'], uid=motor['uid'], firmware=motor['firmware'],
-                                       before_rad=[ZEROED, ZEROED], zero_requested=True, zero_reply={'ok': 1},
-                                       after_zero_rad=[0., .0001], save_requested=True, after_save_rad=[.0001, 0.]))
+            zero['motors'].append(
+                dict(
+                    name=motor['name'],
+                    uid=motor['uid'],
+                    firmware=motor['firmware'],
+                    before_rad=[ZEROED, ZEROED],
+                    zero_requested=True,
+                    zero_reply={'ok': 1},
+                    after_zero_rad=[0.0, 0.0001],
+                    save_requested=True,
+                    after_save_rad=[0.0001, 0.0],
+                )
+            )
         return zero
 
 
@@ -56,12 +68,14 @@ def test_the_robot_zeroes_and_saves_only_the_chosen_arm_joints(tmp_path, monkeyp
     Maintenance.runs.clear()
     Maintenance.fail_at = None
     report = probe.zero_joints(['left_arm_j4', 'left_arm_j5'], capture=capture, maintenance=Maintenance)
-    (roster, options), = Maintenance.runs
+    ((roster, options),) = Maintenance.runs
     assert roster == ['left_arm_j4', 'left_arm_j5']  # Every other drive is left alone.
     assert options['reference_confirmed'] is True and options['save'] is True
     assert report['success'] and [joint['motor'] for joint in report['joints']] == ['left_arm_j4', 'left_arm_j5']
-    assert all(joint['zero_sent'] and joint['before_rad'] == ZEROED and joint['after_save_rad'] == 0.
-               for joint in report['joints'])
+    assert all(
+        joint['zero_sent'] and joint['before_rad'] == ZEROED and joint['after_save_rad'] == 0.0
+        for joint in report['joints']
+    )
     assert Path(report['evidence']).name.startswith('mechanical-zero-left-j4-j5-')
     for refused in (['left_gripper'], ['left_arm_j7'], ['left_arm_j1', 'left_arm_j1'], []):
         with pytest.raises(ValueError, match='Only arm joints'):
@@ -76,8 +90,10 @@ def test_a_failure_part_way_says_which_drives_were_zeroed(tmp_path, monkeypatch)
     finally:
         Maintenance.fail_at = None
     assert not report['success'] and 'pose changed' in report['error']
-    assert [(joint['motor'], joint['zero_sent']) for joint in report['joints']] == [('right_arm_j5', True),
-                                                                                   ('right_arm_j6', False)]
+    assert [(joint['motor'], joint['zero_sent']) for joint in report['joints']] == [
+        ('right_arm_j5', True),
+        ('right_arm_j6', False),
+    ]
     assert Path(report['evidence']).name.startswith('mechanical-zero-right-j5-j6-')
 
 
@@ -111,24 +127,55 @@ def robot(monkeypatch, replies, seen):
         seen.append(command)
         word = command.split('robot_platform.ops.probe ')[1].split()[0]
         return 0, json.dumps(dict(ok=True, **replies[word])) + '\n', ''
+
     monkeypatch.setattr(ssh, 'run', run)
     return lambda profile, address: Client()
 
 
 def zero_reply(motors, *, before=ZEROED):
-    return {'motors': motors, 'success': True, 'error': None, 'power_cycle_verified': False,
-            'evidence': '~/minerva/evidence/mechanical-zero-left-j5-20261101T200000Z.json',
-            'joints': [dict(motor=motor, uid='u', firmware='f', zero_sent=True, zero_acknowledged=True, save_sent=True,
-                            save_response_missing=False, before_rad=before, after_zero_rad=.0001, after_save_rad=0.)
-                       for motor in motors]}
+    return {
+        'motors': motors,
+        'success': True,
+        'error': None,
+        'power_cycle_verified': False,
+        'evidence': '~/minerva/evidence/mechanical-zero-left-j5-20261101T200000Z.json',
+        'joints': [
+            dict(
+                motor=motor,
+                uid='u',
+                firmware='f',
+                zero_sent=True,
+                zero_acknowledged=True,
+                save_sent=True,
+                save_response_missing=False,
+                before_rad=before,
+                after_zero_rad=0.0001,
+                after_save_rad=0.0,
+            )
+            for motor in motors
+        ],
+    }
 
 
 def scan_reply(session, readings):
-    return {'success': True, 'started_at': '2026-11-01T20:05:00+00:00',
-            'evidence': '~/minerva/evidence/check-motors-20261101T200500Z.json',
-            'motors': [dict(name=m['name'], bus=m['bus'], id=m['id'], uid=m['uid'], firmware=m['firmware'],
-                            position_rad=readings.get(m['name'], .2), reset_confirmed=True, zero_sta=1)
-                       for m in session.reference['motors']]}
+    return {
+        'success': True,
+        'started_at': '2026-11-01T20:05:00+00:00',
+        'evidence': '~/minerva/evidence/check-motors-20261101T200500Z.json',
+        'motors': [
+            dict(
+                name=m['name'],
+                bus=m['bus'],
+                id=m['id'],
+                uid=m['uid'],
+                firmware=m['firmware'],
+                position_rad=readings.get(m['name'], 0.2),
+                reset_confirmed=True,
+                zero_sta=1,
+            )
+            for m in session.reference['motors']
+        ],
+    }
 
 
 @pytest.fixture
@@ -139,8 +186,9 @@ def minerva(tmp_path):
     session = HelmSession(PROFILE, runs=runs, seed=SEED, on_robot=True, operator_files=folder)
     teleop = runs / f'{ASSET}-teleop'
     teleop.mkdir(parents=True)
-    (teleop / 'minerva-teleop-direct-tuning-manual.json').write_text(json.dumps(
-        {'kind': 'manual_teleop_tuning', 'binding': {'calibration': session.bindings, 'servo_sha256': 's'}}))
+    (teleop / 'minerva-teleop-direct-tuning-manual.json').write_text(
+        json.dumps({'kind': 'manual_teleop_tuning', 'binding': {'calibration': session.bindings, 'servo_sha256': 's'}})
+    )
     (teleop / 'routes.json').write_text(json.dumps({'routes': {}}))
     yield session, folder, runs
     session.close()
@@ -152,8 +200,9 @@ def test_a_zero_waits_for_the_power_cycle_and_verify_moves_everything_to_the_new
     assert session.reference_path == (folder / arms_reference_name(ASSET)).resolve()
     assert 'left_arm_j5' in session.saved_limits['joints'] and session.saved_limits_error is None
     seen, replies = [], {'zero_joints': zero_reply(['left_arm_j5'])}
-    zeroer = JointZero(session, runs=runs, open_ssh=robot(monkeypatch, replies, seen), remote_root='/r',
-                       clock=lambda: 1793563200.)
+    zeroer = JointZero(
+        session, runs=runs, open_ssh=robot(monkeypatch, replies, seen), remote_root='/r', clock=lambda: 1793563200.0
+    )
     with pytest.raises(ValueError, match='confirm'):
         zeroer.zero(['left_arm_j5'])
     with pytest.raises(ValueError, match='arm joints'):
@@ -168,14 +217,14 @@ def test_a_zero_waits_for_the_power_cycle_and_verify_moves_everything_to_the_new
         zeroer.verify()
 
     # The arm moved, or the drive lost the zero: nothing changes, the zero still waits.
-    replies['motors'] = scan_reply(session, {'left_arm_j5': .2})
+    replies['motors'] = scan_reply(session, {'left_arm_j5': 0.2})
     failed = zeroer.verify(confirm=True)
     assert not failed['success'] and 'reads +0.200 rad' in failed['error'] and 'did not keep' not in failed['error']
-    replies['motors'] = scan_reply(session, {'left_arm_j5': ZEROED + .003})
+    replies['motors'] = scan_reply(session, {'left_arm_j5': ZEROED + 0.003})
     assert 'did not keep the zero' in zeroer.verify(confirm=True)['error']
     assert zeroer.pending() and session.reference_path.read_bytes() == old_reference_bytes(old_reference, folder)
 
-    replies['motors'] = scan_reply(session, {'left_arm_j5': .0004})
+    replies['motors'] = scan_reply(session, {'left_arm_j5': 0.0004})
     verified = zeroer.verify(confirm=True)
     assert verified['success'] and verified['restart'] and verified['resweep'] == ['left_arm_j5']
     assert not pending_path(folder, ASSET).exists()
@@ -190,7 +239,7 @@ def test_a_zero_waits_for_the_power_cycle_and_verify_moves_everything_to_the_new
     assert new['power_cycle_verified'] and new['rezeroed']['motors'] == ['left_arm_j5']
     assert set(new['direction_evidence_from']) >= {old_reference['id'], 'minerva-mechanical-reference-20260924'}
     j5 = next(m for m in new['motors'] if m['name'] == 'left_arm_j5')
-    assert j5['raw_reference_rad'] == 0. and j5['before_zero_rad'] == ZEROED
+    assert j5['raw_reference_rad'] == 0.0 and j5['before_zero_rad'] == ZEROED
     assert new['power_cycle_verification']['all_14_passed'] is True
     limits = json.loads(session.limits_path.read_text())
     assert limits['reference'] == new['id'] and limits['reference_sha256'] == new_digest
@@ -203,8 +252,13 @@ def test_a_zero_waits_for_the_power_cycle_and_verify_moves_everything_to_the_new
     assert json.loads((teleop / 'routes.json').read_text()) == {'routes': {}}
     kept = Path(verified['kept'])
     assert {path.name for path in kept.iterdir()} >= {
-        f'replaced-{arms_reference_name(ASSET)}', f'replaced-{ASSET}-joint-limits.json', 'replaced-session.json',
-        'replaced-minerva-teleop-direct-tuning-manual.json', f'replaced-{ASSET}-joint-zero.json', 'applied.json'}
+        f'replaced-{arms_reference_name(ASSET)}',
+        f'replaced-{ASSET}-joint-limits.json',
+        'replaced-session.json',
+        'replaced-minerva-teleop-direct-tuning-manual.json',
+        f'replaced-{ASSET}-joint-zero.json',
+        'applied.json',
+    }
     results = session.state['results']
     session.close()
 
@@ -250,19 +304,28 @@ def test_joint_zero_needs_helms_operator_files(tmp_path):
 
 def test_the_new_revision_keeps_the_roster_and_raw_references(minerva):
     session = minerva[0]
-    zeroed = {'left_arm_j4': dict(before_rad=-.62, after_save_rad=0., save_sent=True, save_response_missing=True,
-                                  at='2026-11-01T20:00:00+00:00', evidence='e1')}
-    scan = scan_reply(session, {'left_arm_j4': .0002})
-    document = next_reference(session.reference, zeroed, scan, at=1793563200., labels=session.labels)
+    zeroed = {
+        'left_arm_j4': dict(
+            before_rad=-0.62,
+            after_save_rad=0.0,
+            save_sent=True,
+            save_response_missing=True,
+            at='2026-11-01T20:00:00+00:00',
+            evidence='e1',
+        )
+    }
+    scan = scan_reply(session, {'left_arm_j4': 0.0002})
+    document = next_reference(session.reference, zeroed, scan, at=1793563200.0, labels=session.labels)
     assert [m['name'] for m in document['motors']] == [m['name'] for m in session.reference['motors']]
-    assert all(m['raw_reference_rad'] == 0. for m in document['motors'])
+    assert all(m['raw_reference_rad'] == 0.0 for m in document['motors'])
     assert all(a['uid'] == b['uid'] for a, b in zip(document['motors'], session.reference['motors']))
     assert 'Left J4' in document['reference_description']
-    assert document['power_cycle_verification']['rezeroed_max_absolute_readback_rad'] == .0002
+    assert document['power_cycle_verification']['rezeroed_max_absolute_readback_rad'] == 0.0002
 
 
 def test_helm_starts_with_a_joint_to_sweep_again_and_refuses_sessions_until_it_is(minerva, monkeypatch):
     from robot_platform.helm.teleop import TeleopSession
+
     session, folder, runs = minerva
     complete = dict(session.saved_limits, joints=dict(session.saved_limits['joints']))
     session.saved_limits['joints'].pop('left_arm_j5')  # As Joint zero leaves them until the re-sweep.
@@ -283,7 +346,7 @@ class FakeLink:
     def connect(self):
         self.calls.append('connect')
 
-    def disconnect(self, timeout=10.):
+    def disconnect(self, timeout=10.0):
         self.calls.append('disconnect')
         self.running = False
 
@@ -330,14 +393,16 @@ class FakeTune:
 def test_the_server_zeroes_on_confirmation_and_holds_the_arms_until_verify(tmp_path, monkeypatch):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm import server
-    monkeypatch.setattr(server, 'RESTART_DELAY_S', 0.)
+
+    monkeypatch.setattr(server, 'RESTART_DELAY_S', 0.0)
     session = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=tmp_path / 'limits.json', seed=SEED)
     link, zero, tune, restarts = FakeLink(), FakeZero(), FakeTune(), []
     headers = {'X-Helm-Token': 'secret'}
 
     async def run():
-        app = server.create_app(session, link, token='secret', joint_zero=zero, tune=tune,
-                                restart=lambda: restarts.append(True))
+        app = server.create_app(
+            session, link, token='secret', joint_zero=zero, tune=tune, restart=lambda: restarts.append(True)
+        )
         async with TestClient(TestServer(app)) as client:
             post = lambda path, payload: client.post(path, json=payload, headers=headers)  # noqa: E731
             refused = await post('/api/helm/joint-zero/zero', {'motors': ['left_arm_j5']})
@@ -351,11 +416,12 @@ def test_the_server_zeroes_on_confirmation_and_holds_the_arms_until_verify(tmp_p
             assert tune.started == []
             assert (await post('/api/helm/joint-zero/verify', {})).status == 422
             await post('/api/helm/joint-zero/verify', {'confirm': True})
-            await asyncio.sleep(.05)
+            await asyncio.sleep(0.05)
             assert zero.calls[-1] == ('verify', True) and restarts == [True]
             session.connection = 'wifi'  # Stand-in for Via Wi-Fi: the zero needs the tether.
             wifi = await post('/api/helm/joint-zero/zero', {'motors': ['left_arm_j5'], 'confirm': True})
             assert wifi.status == 422 and len(zero.calls) == 2
+
     try:
         asyncio.run(run())
     finally:
@@ -366,6 +432,7 @@ def test_the_loop_on_minerva_reads_helms_copy_of_the_reference():
     from types import SimpleNamespace
     from robot_platform.helm.teleop import calibration_reference, edge_reference
     from robot_platform.ops.release import ROOT as RELEASE
+
     assert calibration_reference(SimpleNamespace(reference_path=None)) == {}
     copy = RELEASE.parent / 'operator' / arms_reference_name(ASSET)  # Outside the release (the gate's tmp is in it).
     assert calibration_reference(SimpleNamespace(reference_path=copy)) == {'calibration_reference': str(copy)}
@@ -378,10 +445,22 @@ def test_the_loop_on_minerva_reads_helms_copy_of_the_reference():
 
 def test_minerva_check_reads_helms_copy_of_the_reference(minerva):
     from robot_platform.ops.check import Context, _calibration
+
     session, folder, runs = minerva
     reference_file = folder / arms_reference_name(ASSET)
     reference_file.write_text(json.dumps(dict(json.loads(reference_file.read_text()), id='revised-on-minerva')))
-    context = Context(root=ROOT, profile=PROFILE, teleop=TELEOP, runs=runs, limits=None, address=None, motors=False,
-                      open_ssh=None, operator_files=folder)
+    context = Context(
+        root=ROOT,
+        profile=PROFILE,
+        teleop=TELEOP,
+        runs=runs,
+        limits=None,
+        address=None,
+        motors=False,
+        open_ssh=None,
+        operator_files=folder,
+    )
     status, detail = _calibration(context)[:2]
-    assert 'revised-on-minerva' in detail and context.facts['bindings']['reference'] == digest(reference_file.read_bytes())
+    assert 'revised-on-minerva' in detail and context.facts['bindings']['reference'] == digest(
+        reference_file.read_bytes()
+    )

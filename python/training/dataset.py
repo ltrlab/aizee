@@ -46,16 +46,19 @@ from torch.utils.data import Dataset
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
-STATE_MODES = ("qpos", "qpos_qcmd", "qpos_qcmd_tq")
-ACTION_MODES = ("absolute", "relative")
+STATE_MODES = ('qpos', 'qpos_qcmd', 'qpos_qcmd_tq')
+ACTION_MODES = ('absolute', 'relative')
 
 
 def _state_mode_k(mode: str) -> int:
     """Number of per-joint feature blocks concatenated to form state."""
-    if mode == "qpos":         return 1
-    if mode == "qpos_qcmd":    return 2
-    if mode == "qpos_qcmd_tq": return 3
-    raise ValueError(f"unknown state_mode: {mode!r}; expected one of {STATE_MODES}")
+    if mode == 'qpos':
+        return 1
+    if mode == 'qpos_qcmd':
+        return 2
+    if mode == 'qpos_qcmd_tq':
+        return 3
+    raise ValueError(f'unknown state_mode: {mode!r}; expected one of {STATE_MODES}')
 
 
 class EpisodeDataset(Dataset):
@@ -91,8 +94,8 @@ class EpisodeDataset(Dataset):
         self,
         data_dir: Optional[str] = None,
         chunk_size: int = 32,
-        state_mode: str = "qpos_qcmd",
-        action_mode: str = "relative",
+        state_mode: str = 'qpos_qcmd',
+        action_mode: str = 'relative',
         augment: bool = False,
         cache: bool = False,
         episode_paths: Optional[List[Path]] = None,
@@ -100,9 +103,9 @@ class EpisodeDataset(Dataset):
         future_offset: int = 0,
     ):
         if state_mode not in STATE_MODES:
-            raise ValueError(f"state_mode must be in {STATE_MODES}, got {state_mode!r}")
+            raise ValueError(f'state_mode must be in {STATE_MODES}, got {state_mode!r}')
         if action_mode not in ACTION_MODES:
-            raise ValueError(f"action_mode must be in {ACTION_MODES}, got {action_mode!r}")
+            raise ValueError(f'action_mode must be in {ACTION_MODES}, got {action_mode!r}')
 
         self.chunk_size = chunk_size
         self.state_mode = state_mode
@@ -117,14 +120,14 @@ class EpisodeDataset(Dataset):
             self._episode_paths: List[Path] = list(episode_paths)
         else:
             if data_dir is None:
-                raise ValueError("either data_dir or episode_paths must be provided")
-            self._episode_paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
+                raise ValueError('either data_dir or episode_paths must be provided')
+            self._episode_paths = sorted(Path(data_dir).glob('episode_*.hdf5'))
         if len(self._episode_paths) == 0:
-            raise FileNotFoundError("no episode_*.hdf5 files found")
+            raise FileNotFoundError('no episode_*.hdf5 files found')
 
         # Infer num_joints from first episode
-        with h5py.File(self._episode_paths[0], "r") as f:
-            qpos0 = f["observations/qpos"]
+        with h5py.File(self._episode_paths[0], 'r') as f:
+            qpos0 = f['observations/qpos']
             self.num_joints = int(qpos0.shape[1])
         self.state_dim = self.num_joints * self._k
         self.action_dim = self.num_joints
@@ -133,11 +136,10 @@ class EpisodeDataset(Dataset):
         self._episode_lengths: List[int] = []
         self._index: List[Tuple[int, int]] = []
         for ep_idx, path in enumerate(self._episode_paths):
-            with h5py.File(path, "r") as f:
-                T = f["observations/qpos"].shape[0]
-                assert f["observations/qpos"].shape[1] == self.num_joints, (
-                    f"{path.name}: qpos has {f['observations/qpos'].shape[1]} "
-                    f"joints, expected {self.num_joints}"
+            with h5py.File(path, 'r') as f:
+                T = f['observations/qpos'].shape[0]
+                assert f['observations/qpos'].shape[1] == self.num_joints, (
+                    f'{path.name}: qpos has {f["observations/qpos"].shape[1]} joints, expected {self.num_joints}'
                 )
             self._episode_lengths.append(T)
             for t in range(T):
@@ -168,12 +170,11 @@ class EpisodeDataset(Dataset):
         start_poses: List[np.ndarray] = []
 
         for path in self._episode_paths:
-            with h5py.File(path, "r") as f:
-                qpos = f["observations/qpos"][:]
-                actions = f["actions"][:]
-                qcmd = f["observations/qcmd"][:] if "observations/qcmd" in f else qpos.copy()
-                torques = (f["observations/torques"][:]
-                           if "observations/torques" in f else np.zeros_like(qpos))
+            with h5py.File(path, 'r') as f:
+                qpos = f['observations/qpos'][:]
+                actions = f['actions'][:]
+                qcmd = f['observations/qcmd'][:] if 'observations/qcmd' in f else qpos.copy()
+                torques = f['observations/torques'][:] if 'observations/torques' in f else np.zeros_like(qpos)
 
             all_qpos.append(qpos)
             all_actions.append(actions)
@@ -188,7 +189,7 @@ class EpisodeDataset(Dataset):
             horizons = min(self.chunk_size, T)
             for t in range(T):
                 end = min(t + horizons, T)
-                all_rel_actions.append(actions[t:end] - qpos[t:t + 1])
+                all_rel_actions.append(actions[t:end] - qpos[t : t + 1])
 
         qpos_cat = np.concatenate(all_qpos, axis=0)
         act_cat = np.concatenate(all_actions, axis=0)
@@ -216,16 +217,23 @@ class EpisodeDataset(Dataset):
 
         start_arr = np.stack(start_poses)
         return {
-            "qpos_mean": qpos_mean, "qpos_std": qpos_std,
-            "qcmd_mean": qcmd_mean, "qcmd_std": qcmd_std,
-            "torque_mean": torque_mean, "torque_std": torque_std,
-            "action_mean": action_mean, "action_std": action_std,
-            "action_min": action_min, "action_max": action_max,
-            "rel_action_mean": rel_mean, "rel_action_std": rel_std,
-            "rel_action_min": rel_min, "rel_action_max": rel_max,
+            'qpos_mean': qpos_mean,
+            'qpos_std': qpos_std,
+            'qcmd_mean': qcmd_mean,
+            'qcmd_std': qcmd_std,
+            'torque_mean': torque_mean,
+            'torque_std': torque_std,
+            'action_mean': action_mean,
+            'action_std': action_std,
+            'action_min': action_min,
+            'action_max': action_max,
+            'rel_action_mean': rel_mean,
+            'rel_action_std': rel_std,
+            'rel_action_min': rel_min,
+            'rel_action_max': rel_max,
             # Representative start poses — policy ramps to the closest one at deploy
-            "start_poses": start_arr.astype(np.float32),
-            "ready_pose": start_arr.mean(axis=0).astype(np.float32),
+            'start_poses': start_arr.astype(np.float32),
+            'ready_pose': start_arr.mean(axis=0).astype(np.float32),
         }
 
     # ------------------------------------------------------------------
@@ -236,17 +244,19 @@ class EpisodeDataset(Dataset):
         """Load all episode data into RAM."""
         self._cache_data = []
         for path in self._episode_paths:
-            with h5py.File(path, "r") as f:
-                qpos = f["observations/qpos"][:]
-                self._cache_data.append({
-                    "qpos": qpos,
-                    "gripper": f["observations/images/gripper"][:],
-                    "actions": f["actions"][:],
-                    "qcmd": (f["observations/qcmd"][:]
-                             if "observations/qcmd" in f else qpos.copy()),
-                    "torques": (f["observations/torques"][:]
-                                if "observations/torques" in f else np.zeros_like(qpos)),
-                })
+            with h5py.File(path, 'r') as f:
+                qpos = f['observations/qpos'][:]
+                self._cache_data.append(
+                    {
+                        'qpos': qpos,
+                        'gripper': f['observations/images/gripper'][:],
+                        'actions': f['actions'][:],
+                        'qcmd': (f['observations/qcmd'][:] if 'observations/qcmd' in f else qpos.copy()),
+                        'torques': (
+                            f['observations/torques'][:] if 'observations/torques' in f else np.zeros_like(qpos)
+                        ),
+                    }
+                )
 
     def _read_frame(self, ep_idx: int, t: int, t_end: int) -> Dict:
         """Return per-frame arrays for (ep_idx, t) plus action chunk [t:t_end].
@@ -260,28 +270,27 @@ class EpisodeDataset(Dataset):
         if self._cache_data is not None:
             ep = self._cache_data[ep_idx]
             out = {
-                "qpos": ep["qpos"][t],
-                "gripper": ep["gripper"][t],
-                "actions": ep["actions"][t:t_end],
-                "qcmd": ep["qcmd"][t],
-                "torques": ep["torques"][t],
+                'qpos': ep['qpos'][t],
+                'gripper': ep['gripper'][t],
+                'actions': ep['actions'][t:t_end],
+                'qcmd': ep['qcmd'][t],
+                'torques': ep['torques'][t],
             }
             if t_future is not None:
-                out["future_gripper"] = ep["gripper"][t_future]
+                out['future_gripper'] = ep['gripper'][t_future]
             return out
         path = self._episode_paths[ep_idx]
-        with h5py.File(path, "r") as f:
-            qpos = f["observations/qpos"][t]
+        with h5py.File(path, 'r') as f:
+            qpos = f['observations/qpos'][t]
             out = {
-                "qpos": qpos,
-                "gripper": f["observations/images/gripper"][t],
-                "actions": f["actions"][t:t_end],
-                "qcmd": f["observations/qcmd"][t] if "observations/qcmd" in f else qpos.copy(),
-                "torques": (f["observations/torques"][t]
-                            if "observations/torques" in f else np.zeros_like(qpos)),
+                'qpos': qpos,
+                'gripper': f['observations/images/gripper'][t],
+                'actions': f['actions'][t:t_end],
+                'qcmd': f['observations/qcmd'][t] if 'observations/qcmd' in f else qpos.copy(),
+                'torques': (f['observations/torques'][t] if 'observations/torques' in f else np.zeros_like(qpos)),
             }
             if t_future is not None:
-                out["future_gripper"] = f["observations/images/gripper"][t_future]
+                out['future_gripper'] = f['observations/images/gripper'][t_future]
         return out
 
     # ------------------------------------------------------------------
@@ -291,9 +300,14 @@ class EpisodeDataset(Dataset):
     def _norm(self, x: np.ndarray, mean_key: str, std_key: str) -> np.ndarray:
         return (x - self.dataset_stats[mean_key]) / self.dataset_stats[std_key]
 
-    def normalize_qpos(self, qpos):    return self._norm(qpos, "qpos_mean", "qpos_std")
-    def normalize_qcmd(self, qcmd):    return self._norm(qcmd, "qcmd_mean", "qcmd_std")
-    def normalize_torques(self, tq):   return self._norm(tq, "torque_mean", "torque_std")
+    def normalize_qpos(self, qpos):
+        return self._norm(qpos, 'qpos_mean', 'qpos_std')
+
+    def normalize_qcmd(self, qcmd):
+        return self._norm(qcmd, 'qcmd_mean', 'qcmd_std')
+
+    def normalize_torques(self, tq):
+        return self._norm(tq, 'torque_mean', 'torque_std')
 
     def normalize_actions(self, actions: np.ndarray, qpos: Optional[np.ndarray] = None) -> np.ndarray:
         """Normalize target actions according to the configured action_mode.
@@ -301,22 +315,20 @@ class EpisodeDataset(Dataset):
         For "relative" mode, qpos is the anchor (current joint position) — each
         chunk step is converted to (action - qpos) before normalization.
         """
-        if self.action_mode == "absolute":
-            return self._norm(actions, "action_mean", "action_std")
+        if self.action_mode == 'absolute':
+            return self._norm(actions, 'action_mean', 'action_std')
         if qpos is None:
-            raise ValueError("qpos anchor required for relative action mode")
+            raise ValueError('qpos anchor required for relative action mode')
         rel = actions - qpos[None, :]
-        return self._norm(rel, "rel_action_mean", "rel_action_std")
+        return self._norm(rel, 'rel_action_mean', 'rel_action_std')
 
-    def denormalize_actions(
-        self, norm_actions: np.ndarray, qpos: Optional[np.ndarray] = None
-    ) -> np.ndarray:
+    def denormalize_actions(self, norm_actions: np.ndarray, qpos: Optional[np.ndarray] = None) -> np.ndarray:
         """Invert normalize_actions → absolute joint positions."""
-        if self.action_mode == "absolute":
-            return norm_actions * self.dataset_stats["action_std"] + self.dataset_stats["action_mean"]
+        if self.action_mode == 'absolute':
+            return norm_actions * self.dataset_stats['action_std'] + self.dataset_stats['action_mean']
         if qpos is None:
-            raise ValueError("qpos anchor required for relative action mode")
-        rel = norm_actions * self.dataset_stats["rel_action_std"] + self.dataset_stats["rel_action_mean"]
+            raise ValueError('qpos anchor required for relative action mode')
+        rel = norm_actions * self.dataset_stats['rel_action_std'] + self.dataset_stats['rel_action_mean']
         # Broadcast qpos across chunk dim if needed
         if rel.ndim == 2 and qpos.ndim == 1:
             return rel + qpos[None, :]
@@ -336,16 +348,12 @@ class EpisodeDataset(Dataset):
     # Preserve the original static-method name for back-compat with act_policy_node.py
     normalize_image = _imagenet_normalize
 
-    def _augment_and_normalize(
-        self, gripper_u8: np.ndarray, rng: random.Random
-    ) -> np.ndarray:
+    def _augment_and_normalize(self, gripper_u8: np.ndarray, rng: random.Random) -> np.ndarray:
         """Train-time augmentation for the gripper camera."""
         out = self._augment_batch_and_normalize([gripper_u8], rng)
         return out[0]
 
-    def _augment_batch_and_normalize(
-        self, imgs_u8: List[np.ndarray], rng: random.Random
-    ) -> List[np.ndarray]:
+    def _augment_batch_and_normalize(self, imgs_u8: List[np.ndarray], rng: random.Random) -> List[np.ndarray]:
         """Augment a batch of co-registered images.
 
         - SHARED geometric crop across every image in the batch (so current
@@ -368,9 +376,9 @@ class EpisodeDataset(Dataset):
         left = rng.randint(0, W - crop_w)
 
         def geom(img: np.ndarray) -> np.ndarray:
-            cropped = img[top:top + crop_h, left:left + crop_w]
+            cropped = img[top : top + crop_h, left : left + crop_w]
             t = torch.from_numpy(cropped).permute(2, 0, 1).unsqueeze(0).float()
-            t = F.interpolate(t, size=(H, W), mode="bilinear", align_corners=False)
+            t = F.interpolate(t, size=(H, W), mode='bilinear', align_corners=False)
             return t.squeeze(0).permute(1, 2, 0).clamp(0, 255).to(torch.uint8).numpy()
 
         def color_jitter(img_u8: np.ndarray) -> np.ndarray:
@@ -413,27 +421,29 @@ class EpisodeDataset(Dataset):
         t_end = min(t + self.chunk_size, T)
 
         frame = self._read_frame(ep_idx, t, t_end)
-        qpos_raw = frame["qpos"]
-        qcmd_raw = frame["qcmd"]
-        torque_raw = frame["torques"]
-        chunk_raw = frame["actions"]
-        gripper_raw = frame["gripper"]
+        qpos_raw = frame['qpos']
+        qcmd_raw = frame['qcmd']
+        torque_raw = frame['torques']
+        chunk_raw = frame['actions']
+        gripper_raw = frame['gripper']
 
         # State vector
         qpos_n = self.normalize_qpos(qpos_raw).astype(np.float32)
-        if self.state_mode == "qpos":
+        if self.state_mode == 'qpos':
             state = qpos_n
-        elif self.state_mode == "qpos_qcmd":
+        elif self.state_mode == 'qpos_qcmd':
             state = np.concatenate([qpos_n, self.normalize_qcmd(qcmd_raw)]).astype(np.float32)
         else:  # qpos_qcmd_tq
-            state = np.concatenate([
-                qpos_n,
-                self.normalize_qcmd(qcmd_raw),
-                self.normalize_torques(torque_raw),
-            ]).astype(np.float32)
+            state = np.concatenate(
+                [
+                    qpos_n,
+                    self.normalize_qcmd(qcmd_raw),
+                    self.normalize_torques(torque_raw),
+                ]
+            ).astype(np.float32)
 
         # Future-frame (JEPA target). Only present when future_offset > 0.
-        future_gripper_raw = frame.get("future_gripper")
+        future_gripper_raw = frame.get('future_gripper')
         has_future = future_gripper_raw is not None
 
         # Image augmentation / normalization. When future frame is present
@@ -442,9 +452,7 @@ class EpisodeDataset(Dataset):
         if self.augment:
             rng = random.Random((ep_idx * 1_000_003 + t) ^ torch.randint(0, 2**31 - 1, (1,)).item())
             if has_future:
-                gripper_n, fgrip_n = self._augment_batch_and_normalize(
-                    [gripper_raw, future_gripper_raw], rng
-                )
+                gripper_n, fgrip_n = self._augment_batch_and_normalize([gripper_raw, future_gripper_raw], rng)
             else:
                 gripper_n = self._augment_and_normalize(gripper_raw, rng)
                 fgrip_n = None
@@ -461,15 +469,15 @@ class EpisodeDataset(Dataset):
         chunk_n = self.normalize_actions(chunk, qpos=qpos_raw).astype(np.float32)
 
         obs = {
-            "qpos": torch.from_numpy(qpos_n),
-            "state": torch.from_numpy(state),
-            "images": {
-                "gripper": torch.from_numpy(gripper_n),
+            'qpos': torch.from_numpy(qpos_n),
+            'state': torch.from_numpy(state),
+            'images': {
+                'gripper': torch.from_numpy(gripper_n),
             },
         }
         if has_future:
-            obs["future_images"] = {
-                "gripper": torch.from_numpy(fgrip_n),
+            obs['future_images'] = {
+                'gripper': torch.from_numpy(fgrip_n),
             }
         return obs, torch.from_numpy(chunk_n)
 
@@ -487,8 +495,7 @@ class EpisodeDataset(Dataset):
 
     def stats_as_tensors(self) -> Dict[str, torch.Tensor]:
         """Return dataset_stats with numpy arrays converted to float tensors."""
-        return {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v
-                for k, v in self.dataset_stats.items()}
+        return {k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v for k, v in self.dataset_stats.items()}
 
 
 def split_episodes(
@@ -507,15 +514,17 @@ def split_episodes(
     `episode_min` / `episode_max` filter by the integer suffix in the filename
     (`episode_0068.hdf5` -> 68), inclusive on both ends.
     """
-    paths = sorted(Path(data_dir).glob("episode_*.hdf5"))
+    paths = sorted(Path(data_dir).glob('episode_*.hdf5'))
     if episode_min is not None or episode_max is not None:
         lo = episode_min if episode_min is not None else -1
         hi = episode_max if episode_max is not None else 10**9
+
         def _idx(p: Path) -> int:
-            return int(p.stem.split("_")[-1])
+            return int(p.stem.split('_')[-1])
+
         paths = [p for p in paths if lo <= _idx(p) <= hi]
     if len(paths) == 0:
-        raise FileNotFoundError(f"no episode_*.hdf5 files found in {data_dir}")
+        raise FileNotFoundError(f'no episode_*.hdf5 files found in {data_dir}')
     if val_fraction <= 0:
         return paths, []
 
@@ -523,7 +532,7 @@ def split_episodes(
     shuffled = paths[:]
     rng.shuffle(shuffled)
     n_val = max(1, int(round(len(shuffled) * val_fraction)))
-    n_val = min(n_val, len(shuffled) - 1)   # keep at least one for train
+    n_val = min(n_val, len(shuffled) - 1)  # keep at least one for train
     val = shuffled[:n_val]
     train = shuffled[n_val:]
     # Return in original file-order for readable logs

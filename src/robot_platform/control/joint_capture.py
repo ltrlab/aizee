@@ -6,6 +6,7 @@ The one exception is explicit: run_capture's `maintain` caller (the power-on
 range) gets the session's exchange after the stopped preflight, and the socket
 boundary still limits it to the fixed maintenance frames.
 """
+
 import itertools
 import json
 import math
@@ -29,11 +30,12 @@ POWER_ON_RANGE = 0x7029  # zero_sta: the window a drive puts its angle in at pow
 
 def stopped_exchange(exchange):
     def call(bus, frame, kind, parameter):
-        if kind not in {"identity", "stop", "version", "read"}:
-            raise ValueError("Calibration permits stopped reads only")
-        if kind == "read" and parameter not in {0x7005, 0x7019, 0x701B, POWER_ON_RANGE}:
-            raise ValueError("Calibration parameter is not allowlisted")
+        if kind not in {'identity', 'stop', 'version', 'read'}:
+            raise ValueError('Calibration permits stopped reads only')
+        if kind == 'read' and parameter not in {0x7005, 0x7019, 0x701B, POWER_ON_RANGE}:
+            raise ValueError('Calibration parameter is not allowlisted')
         return exchange(bus, frame, kind, parameter)
+
     return call
 
 
@@ -42,31 +44,32 @@ def capture_roster(motors, exchange, *, sleep=time.sleep):
     names = [m['name'] for m in motors]
     addresses = [(m['bus'], m['id']) for m in motors]
     if not names or len(names) > 32 or len(set(names)) != len(names) or len(set(addresses)) != len(names):
-        raise ValueError("Invalid motor roster")
+        raise ValueError('Invalid motor roster')
     reader = StoppedMaintenance(stopped_exchange(exchange), sleep=sleep)
     rows, cleanup_errors = [], []
     try:
         for motor in motors:
             if reader.request(motor, 'identity') != motor['uid']:
-                raise RuntimeError(f"{motor['name']}: UID changed")
+                raise RuntimeError(f'{motor["name"]}: UID changed')
             reader.request(motor, 'stop')
             if reader.request(motor, 'version') != motor['firmware']:
-                raise RuntimeError(f"{motor['name']}: firmware changed")
+                raise RuntimeError(f'{motor["name"]}: firmware changed')
             if reader.request(motor, 'read', 0x7005) != 0:
-                raise RuntimeError(f"{motor['name']}: wrong run mode")
+                raise RuntimeError(f'{motor["name"]}: wrong run mode')
         for motor in motors:
             samples = reader.stationary(motor)
             if not all(math.isfinite(q) for q in samples):
                 raise RuntimeError('Nonfinite position')
-            rows.append({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
-                        {'position_rad': statistics.median(samples), 'samples_rad': samples,
-                         'reset_confirmed': True})
+            rows.append(
+                {k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')}
+                | {'position_rad': statistics.median(samples), 'samples_rad': samples, 'reset_confirmed': True}
+            )
     finally:
         for motor in motors:
             try:
                 reader.request(motor, 'stop')
             except Exception as exc:
-                cleanup_errors.append(f"{motor['name']}: {exc}")
+                cleanup_errors.append(f'{motor["name"]}: {exc}')
         if cleanup_errors:
             raise RuntimeError('Final stopped replies failed: ' + '; '.join(cleanup_errors))
     return rows
@@ -74,6 +77,7 @@ def capture_roster(motors, exchange, *, sleep=time.sleep):
 
 class MotorSilent(TimeoutError):
     """A motor stopped answering; `motor` names it for the operator."""
+
     def __init__(self, message, motor):
         super().__init__(message)
         self.motor = motor
@@ -108,16 +112,17 @@ def live_preflight(reader, motors, result):
     result['identity_verified'] = True
 
 
-def paced(io, gap=.01, *, clock=time.perf_counter, sleep=time.sleep):
+def paced(io, gap=0.01, *, clock=time.perf_counter, sleep=time.sleep):
     """`io` with at least `gap` seconds between requests on each bus; every bus is its own USB adapter."""
     sent = {}
 
     def exchange(bus, *args):
-        sleep(max(0., sent.get(bus, -math.inf) + gap - clock()))
+        sleep(max(0.0, sent.get(bus, -math.inf) + gap - clock()))
         try:
             return io(bus, *args)
         finally:
             sent[bus] = io.last_tx
+
     return exchange
 
 
@@ -133,20 +138,24 @@ def live_scan(reader, motors, *, power_on=True):
     """Stop and read every motor, rows in roster order, each with the temperature its stop reply reports.
     Requests alternate buses, so one adapter answers while the other waits out its spacing. `power_on` also reads each drive's zero_sta, for Check's scan; the live
     stream never uses it, and skipping it cuts each frame by a third."""
+
     def request(motor, *args):
         try:
             return reader.request(motor, *args)
         except TimeoutError as exc:
             raise MotorSilent('Missing stopped position: ' + motor['name'], motor['name']) from exc
+
     rows, temperatures = {}, {}
     for rank in alternating(motors):
         for motor in rank:
             # The stop's own reply carries the drive's temperature: no extra request.
             temperatures[motor['name']] = (request(motor, 'stop') or {}).get('temperature_c')
         for motor in rank:
-            rows[motor['name']] = ({k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} |
-                                   {'position_rad': request(motor, 'read', 0x7019), 'reset_confirmed': True,
-                                    'temperature_c': temperatures[motor['name']]})
+            rows[motor['name']] = {k: motor[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')} | {
+                'position_rad': request(motor, 'read', 0x7019),
+                'reset_confirmed': True,
+                'temperature_c': temperatures[motor['name']],
+            }
         for motor in rank if power_on else ():
             try:
                 rows[motor['name']]['zero_sta'] = reader.request(motor, 'read', POWER_ON_RANGE)
@@ -168,7 +177,10 @@ def run_capture(device, reference, *, live=None, maintain=None):
         raise ValueError('Reference belongs to another device')
     if Path('/etc/machine-id').read_text().strip() != device['machine_id']:
         raise RuntimeError('Wrong host machine identity')
-    if device.get('module_serial') and Path('/proc/device-tree/serial-number').read_bytes().rstrip(b'\0\n').decode() != device['module_serial']:
+    if (
+        device.get('module_serial')
+        and Path('/proc/device-tree/serial-number').read_bytes().rstrip(b'\0\n').decode() != device['module_serial']
+    ):
         raise RuntimeError('Wrong module identity')
     interfaces = [b['interface'] for b in device['buses']]
     if len(set(interfaces)) != len(interfaces) or any(m['bus'] not in interfaces for m in reference['motors']):
@@ -185,17 +197,26 @@ def run_capture(device, reference, *, live=None, maintain=None):
         raise RuntimeError('Guarded receiver already running')
 
     def links():
-        return {name: json.loads(command(['ip', '-details', '-statistics', '-json', 'link', 'show', name]))[0] for name in interfaces}
+        return {
+            name: json.loads(command(['ip', '-details', '-statistics', '-json', 'link', 'show', name]))[0]
+            for name in interfaces
+        }
 
     with open('/tmp/robot-platform-mechanical-reference.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         before = links()
         if any('UP' in row['flags'] for row in before.values()):
             raise RuntimeError('CAN must start down; another process may own it')
-        result = {'schema': 1, 'asset_id': device['asset_id'], 'success': False,
-                  'started_at': datetime.now(timezone.utc).isoformat(),
-                  'enable_requested': False, 'parameter_writes_requested': False,
-                  'before': before, 'events': []}
+        result = {
+            'schema': 1,
+            'asset_id': device['asset_id'],
+            'success': False,
+            'started_at': datetime.now(timezone.utc).isoformat(),
+            'enable_requested': False,
+            'parameter_writes_requested': False,
+            'before': before,
+            'events': [],
+        }
         io = None
         try:
             for name in interfaces:
@@ -249,6 +270,7 @@ def main():
     directory = Path(__file__).resolve().parent / 'captures'
     directory.mkdir(exist_ok=True)
     name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+
     def stream(reader, motors, result):
         # On disconnect, retain Python cleanup instead of dying with CAN up.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
@@ -274,32 +296,53 @@ def main():
                     try:
                         rows = live_scan(reader, motors, power_on=False)
                         span = time.perf_counter() - begin
-                        if span > .5:
+                        if span > 0.5:
                             raise TimeoutError('Live scan exceeded 500 ms')
                     except TimeoutError as exc:
-                        rejected += 1; consecutive += 1
+                        rejected += 1
+                        consecutive += 1
                         audit.write(json.dumps({'rejected_scan': str(exc), 'events': result['events']}) + '\n')
-                        audit.flush(); result['events'].clear()
+                        audit.flush()
+                        result['events'].clear()
                         result['rejected_scans'] = rejected
                         if consecutive >= 3:
                             result['error_code'] = 'incomplete_scans'
                             if isinstance(exc, MotorSilent):
                                 result['unresponsive'] = [exc.motor]
                             raise RuntimeError('Three incomplete scans: ' + str(exc)) from exc
-                        print(json.dumps({'kind': 'scan_rejected', 'request_id': payload['request_id'],
-                                          'request_nonce': nonce, 'error': str(exc)}), flush=True)
+                        print(
+                            json.dumps(
+                                {
+                                    'kind': 'scan_rejected',
+                                    'request_id': payload['request_id'],
+                                    'request_nonce': nonce,
+                                    'error': str(exc),
+                                }
+                            ),
+                            flush=True,
+                        )
                         continue  # Never emit or freshen a partial scan.
                     consecutive = 0
                     sequence += 1
-                    frame = {'kind': 'positions', 'request_id': payload['request_id'], 'sequence': sequence,
-                             'request_nonce': nonce,
-                             'asset_id': device['asset_id'], 'scan_seconds': span, 'motors': rows,
-                             'enable_requested': False, 'parameter_writes_requested': False}
+                    frame = {
+                        'kind': 'positions',
+                        'request_id': payload['request_id'],
+                        'sequence': sequence,
+                        'request_nonce': nonce,
+                        'asset_id': device['asset_id'],
+                        'scan_seconds': span,
+                        'motors': rows,
+                        'enable_requested': False,
+                        'parameter_writes_requested': False,
+                    }
                     # The CAN trace is kept for the preflight, the first frame and every rejected scan; later
                     # healthy frames log their positions alone, so hours of live view stay small.
-                    audit.write(json.dumps({'frame': frame, 'events': result['events']} if sequence == 1
-                                           else {'frame': frame}) + '\n')
-                    audit.flush(); result['events'].clear()
+                    audit.write(
+                        json.dumps({'frame': frame, 'events': result['events']} if sequence == 1 else {'frame': frame})
+                        + '\n'
+                    )
+                    audit.flush()
+                    result['events'].clear()
                     print(json.dumps(frame), flush=True)
                 else:
                     result['completion_reason'] = 'duration_limit'

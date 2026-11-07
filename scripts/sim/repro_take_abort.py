@@ -9,6 +9,7 @@ the demonstrator started, and when the right's fingers first pressed on the bloc
 open: the receiver stops on the right gripper's position_above_upper about 1 s into 'right turns', a right finger on
 the held block from about 0.64 s into it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,9 +32,13 @@ def main():
     from robot_platform.evaluation.runner import RunConfig, TrialRunner
     from robot_platform.simulation.task_scene import JAW_BODIES
     from robot_platform.simulation.workcell import Workcell
+
     saved = json.loads(Path(args.fixture).read_text(encoding='utf-8'))
-    runner = TrialRunner(RunConfig(grippers='driven', timeout_s=90., workcell=str(WORKCELL), plant_seed=args.plant_seed),
-                         stack=derive_stack(), directory=Path(tempfile.mkdtemp()))
+    runner = TrialRunner(
+        RunConfig(grippers='driven', timeout_s=90.0, workcell=str(WORKCELL), plant_seed=args.plant_seed),
+        stack=derive_stack(),
+        directory=Path(tempfile.mkdtemp()),
+    )
     demo, touches = HandoffDemonstrator(), {}
     try:
         runner.use_workcell(Workcell.from_description(saved['workcell']))
@@ -47,6 +52,7 @@ def main():
                 if name.split('/')[0] in JAW_BODIES['right']:
                     touches.setdefault(name, state['scene_time'])
             return state
+
         scene.snapshot = watched
         index = saved['seed'][1]
         record = runner.run_trial(demo, dict(saved['cube_start'], cell='layout', index=index), index)
@@ -62,9 +68,13 @@ def main():
     for name, at in sorted(touches.items(), key=lambda item: item[1]):
         print(f'right finger on the block from {at:.3f} s: {name}')
     expected = saved['expected']
-    reproduced = record['outcome'] == expected['outcome'] and trip is not None and all(
-        trip.get(key) == value for key, value in expected['trip'].items()) and moves and \
-        moves[-1][0] == expected['last_move']
+    reproduced = (
+        record['outcome'] == expected['outcome']
+        and trip is not None
+        and all(trip.get(key) == value for key, value in expected['trip'].items())
+        and moves
+        and moves[-1][0] == expected['last_move']
+    )
     print('reproduced' if reproduced else 'NOT reproduced (the follow-up may be fixed)')
 
 

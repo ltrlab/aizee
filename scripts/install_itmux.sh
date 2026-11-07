@@ -23,24 +23,24 @@ INSTALL_DIR="${1:-/c/itmux}"
 # Non-Windows: just advise and exit
 # ---------------------------------------------------------------------------
 case "$(uname -s)" in
-    Linux*)
-        echo "Linux detected — install tmux via your package manager:"
-        echo "  Debian/Ubuntu:  sudo apt install tmux"
-        echo "  Fedora/RHEL:    sudo dnf install tmux"
-        exit 0
-        ;;
-    Darwin*)
-        echo "macOS detected — install tmux via Homebrew:"
-        echo "  brew install tmux"
-        exit 0
-        ;;
-    MINGW*|MSYS*|CYGWIN*)
-        : # continue below
-        ;;
-    *)
-        echo "Unknown OS — cannot install itmux automatically."
-        exit 1
-        ;;
+Linux*)
+    echo "Linux detected — install tmux via your package manager:"
+    echo "  Debian/Ubuntu:  sudo apt install tmux"
+    echo "  Fedora/RHEL:    sudo dnf install tmux"
+    exit 0
+    ;;
+Darwin*)
+    echo "macOS detected — install tmux via Homebrew:"
+    echo "  brew install tmux"
+    exit 0
+    ;;
+MINGW* | MSYS* | CYGWIN*)
+    : # continue below
+    ;;
+*)
+    echo "Unknown OS — cannot install itmux automatically."
+    exit 1
+    ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ if echo "$PATH" | tr ':' '\n' | grep -qxF "$TMUX_BIN_DIR"; then
 else
     echo ""
     echo "Adding to ${BASHRC}..."
-    cat >> "$BASHRC" <<EOF
+    cat >>"$BASHRC" <<EOF
 
 # itmux (portable tmux for Windows) — added by install_itmux.sh
 export ITMUX_HOME="${INSTALL_DIR}"

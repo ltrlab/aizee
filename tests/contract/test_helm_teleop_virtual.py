@@ -3,6 +3,7 @@ limits, the native keep-out model and the actual Rust receiver (native harness),
 driven through the GUI keys with scripted leaders on a test clock. Each leader
 channel's saved range scales straight onto its robot joint's usable range, and
 the leader zero maps onto the robot's reference pose."""
+
 from collections import deque
 import json
 import math
@@ -23,18 +24,22 @@ ROOT = Path(__file__).resolve().parents[2]
 DEVICES = ROOT / 'config/devices'
 SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
 # Saved leader ranges: centers (the right trigger's range crosses the encoder seam) and spans.
-CENTERS = {'left': [4.67, 3.07, 1.2, 2.2, 3.2, .4, 5.1], 'right': [1.69, 4.76, 2.1, .9, 5.9, 3.3, 6.2]}
-SPANS = [2., 2., 2., 2., 2., 2., .8]
-HANG = .3  # The leaders hang 0.3 rad above their range centers; that pose is the zero.
+CENTERS = {'left': [4.67, 3.07, 1.2, 2.2, 3.2, 0.4, 5.1], 'right': [1.69, 4.76, 2.1, 0.9, 5.9, 3.3, 6.2]}
+SPANS = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.8]
+HANG = 0.3  # The leaders hang 0.3 rad above their range centers; that pose is the zero.
 
-pytestmark = [pytest.mark.integration, pytest.mark.skipif(
-    not default_binary().is_file() or not library_path().is_file(),
-    reason='Build control_harness and the robot_collision library first')]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not default_binary().is_file() or not library_path().is_file(),
+        reason='Build control_harness and the robot_collision library first',
+    ),
+]
 
 
 class Clock:
     def __init__(self):
-        self.now = 100.
+        self.now = 100.0
 
     def __call__(self):
         return self.now
@@ -42,8 +47,9 @@ class Clock:
 
 class Leaders:
     """Both leaders, offset per channel from their reference; stamped on the test clock."""
+
     class inputs:
-        max_age_s, max_skew_s = .05, .02
+        max_age_s, max_skew_s = 0.05, 0.02
 
     def __init__(self, clock):
         self.clock, self.sequence, self.failure, self.closed = clock, 0, None, False
@@ -55,9 +61,19 @@ class Leaders:
         self.sequence += 1
         now = self.clock()
         # The encoders report within one turn.
-        return {name: LeaderSample(tuple((c + d) % (2 * math.pi) for c, d in zip(CENTERS[name], self.offsets[name])),
-                                   (0,) * 7, self.sequence, now - .005, now - .002, (0, 0, 1, 1), 1, 2)
-                for name in CENTERS}
+        return {
+            name: LeaderSample(
+                tuple((c + d) % (2 * math.pi) for c, d in zip(CENTERS[name], self.offsets[name])),
+                (0,) * 7,
+                self.sequence,
+                now - 0.005,
+                now - 0.002,
+                (0, 0, 1, 1),
+                1,
+                2,
+            )
+            for name in CENTERS
+        }
 
     def close(self):
         self.closed = True
@@ -66,19 +82,39 @@ class Leaders:
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp('helm-teleop')
-    helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                       limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
+    helm = HelmSession(
+        DEVICES / 'minerva-joint-calibration.json',
+        runs=tmp_path / 'runs',
+        limits=DEVICES / 'minerva-production-01-joint-limits.json',
+        seed=SEED,
+    )
     assert helm.saved_limits is not None, helm.saved_limits_error
     leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
-    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
-              'units': UNITS, 'runtime_approved': False, 'leaders': {
-                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
-                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
-                  for name, item in leader_profile['leaders'].items()},
-              'reference': {'captured_at': 'fixture', 'leaders': {
-                  name: {joint['name']: (center + HANG) % (2 * math.pi)
-                         for joint, center in zip(item['joints'], CENTERS[name])}
-                  for name, item in leader_profile['leaders'].items()}}}
+    ranges = {
+        'schema': SCHEMA,
+        'kind': KIND,
+        'profile': leader_profile['id'],
+        'pins': pins(leader_profile),
+        'units': UNITS,
+        'runtime_approved': False,
+        'leaders': {
+            name: {
+                joint['name']: {'center_rad': center, 'span_rad': span}
+                for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)
+            }
+            for name, item in leader_profile['leaders'].items()
+        },
+        'reference': {
+            'captured_at': 'fixture',
+            'leaders': {
+                name: {
+                    joint['name']: (center + HANG) % (2 * math.pi)
+                    for joint, center in zip(item['joints'], CENTERS[name])
+                }
+                for name, item in leader_profile['leaders'].items()
+            },
+        },
+    }
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
     profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'))
     profile_path = tmp_path / 'teleop.json'
@@ -98,6 +134,7 @@ def built(tmp_path_factory):
             current.append((core, clock, leaders))
             core.build()
         return current[0]
+
     yield rig
     while current:
         current.pop()[0].close()
@@ -141,7 +178,7 @@ def state(core):
     return core.session.lifecycle.state, core.view()['receiver']
 
 
-def expected_motor(core, motor, offset, sign, span=2., zero=HANG):
+def expected_motor(core, motor, offset, sign, span=2.0, zero=HANG):
     """Arm routes: the zero maps to the robot's reference; one straight scale reaching both robot ends."""
     row = next(r for r in core.derived['joint_map'].values() if r['actuator'] == motor)
     report = next(r for r in core.derived['report'] if r['motor'] == motor)
@@ -172,16 +209,16 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     for motor in ('left_arm_j1', 'right_arm_j3'):  # Leaders hanging: robot at its reference.
         assert joints[motor]['command'] == pytest.approx(homes[motor], abs=1e-6)
     grip = joints['right_gripper']  # Grippers map end to end, not anchored.
-    fraction = (HANG + .4) / .8
+    fraction = (HANG + 0.4) / 0.8
     assert grip['command'] == pytest.approx(grip['usable'][0] + fraction * (grip['usable'][1] - grip['usable'][0]))
-    ramp(core, clock, leaders, 'left', 1, -.5)  # Left J2's route sign is -1.
+    ramp(core, clock, leaders, 'left', 1, -0.5)  # Left J2's route sign is -1.
     run(core, clock, seconds=4)  # Speeding up within its braking (8 rad/s2), it arrives within 4 s.
     joints = {row['motor']: row for row in core.view()['joints']}
-    target = expected_motor(core, 'left_arm_j2', -.5, -1)
+    target = expected_motor(core, 'left_arm_j2', -0.5, -1)
     assert joints['left_arm_j2']['command'] == pytest.approx(target, abs=1e-6)
     assert joints['left_arm_j2']['measured'] == pytest.approx(target, abs=1e-6)
     for side in ('left', 'right'):  # Triggers to the low end of their range: grippers close.
-        ramp(core, clock, leaders, side, 6, -.4)
+        ramp(core, clock, leaders, side, 6, -0.4)
     run(core, clock, seconds=6.4)
     joints = {row['motor']: row for row in core.view()['joints']}
     for motor in ('left_gripper', 'right_gripper'):
@@ -192,15 +229,14 @@ def test_gui_keys_drive_the_virtual_receiver_through_the_whole_lifecycle(rig):
     assert state(core)[0] == 'HOLD'
     core.route('flip', 'left_arm_j2')
     run(core, clock, 'T', until='TELEOP', seconds=16)
-    run(core, clock, seconds=.4)
+    run(core, clock, seconds=0.4)
     flipped = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
-    assert flipped['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, 1), abs=1e-6)
+    assert flipped['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -0.5, 1), abs=1e-6)
 
     run(core, clock, 'X', until='DISABLED', seconds=32)
     assert state(core) == ('DISABLED', 'disarmed')
     measured = core.view()['joints']
-    assert all(row['measured'] == pytest.approx(home, abs=.05)
-               for row, home in zip(measured, core.derived['initial']))
+    assert all(row['measured'] == pytest.approx(home, abs=0.05) for row, home in zip(measured, core.derived['initial']))
 
 
 def test_engage_needs_live_leaders_and_a_lost_leader_holds(rig):
@@ -214,7 +250,7 @@ def test_engage_needs_live_leaders_and_a_lost_leader_holds(rig):
     leaders.failure = None
     run(core, clock, 'T', until='TELEOP', seconds=16)
     leaders.failure = LeaderSampleSkipped('Leader pair arrived late')
-    run(core, clock, seconds=.12)
+    run(core, clock, seconds=0.12)
     assert state(core)[0] == 'HOLD'
     assert 'Leader input lost' in core.message
     run(core, clock, 'H')
@@ -226,7 +262,7 @@ def test_a_stalled_cycle_faults_with_the_receivers_reason_then_lowers_the_held_a
     run(core, clock, 'I')
     run(core, clock, 'E')
     run(core, clock, 'T', until='TELEOP', seconds=16)
-    clock.now += .1  # Past the 80 ms collision verdict: the receiver brakes and revokes the lease.
+    clock.now += 0.1  # Past the 80 ms collision verdict: the receiver brakes and revokes the lease.
     core.tick(None, clock())
     assert re.match(r'Receiver stop(ping|ped): collision_expired · ', core.fault), core.fault
     assert core.session.lifecycle.state == 'FAULT'
@@ -281,7 +317,7 @@ def test_a_late_cycle_just_after_a_camera_dropped_holds_the_arm_where_it_stopped
     run(core, clock, 'E')
     run(core, clock, 'T', until='TELEOP', seconds=16)
     watch(core, monkeypatch, 'the camera at USB 1-2.2 (05a3:9230)')
-    clock.now += .1  # The reconnect's hotplug burst: past the 80 ms collision verdict, the receiver brakes.
+    clock.now += 0.1  # The reconnect's hotplug burst: past the 80 ms collision verdict, the receiver brakes.
     core.tick(None, clock())
     assert re.match(r'Receiver stop(ping|ped): collision_expired · ', core.fault), core.fault
     assert 'PAUSED' in core.message and 'taking it back there' in core.message, core.message
@@ -295,7 +331,7 @@ def test_a_late_cycle_just_after_a_camera_dropped_holds_the_arm_where_it_stopped
     assert core.fault is None and core.session.lifecycle.state == 'HOLD', core.message
     assert 'PAUSED' in core.message and 'Engage (T) follows again' in core.message, core.message
     held = [joint['position'] for joint in core.harness.last['status']['joints']]
-    assert max(abs(a - b) for a, b in zip(held, stopped)) < .05
+    assert max(abs(a - b) for a, b in zip(held, stopped)) < 0.05
     run(core, clock, 'T', until='TELEOP', seconds=16)
 
 
@@ -311,11 +347,13 @@ def over_speed(core, harness, monkeypatch, joint, readings=3):
     def stepped(now_ms, request=None, **kwargs):
         if left[0] > 0:
             left[0] -= 1
-            measured = [{key: row[key] for key in ('position', 'velocity', 'effort')}
-                        for row in harness.last['feedback']]
+            measured = [
+                {key: row[key] for key in ('position', 'velocity', 'effort')} for row in harness.last['feedback']
+            ]
             measured[index]['velocity'] = -1.5 * cap
             kwargs['feedback'] = measured
         return step(now_ms, request, **kwargs)
+
     monkeypatch.setattr(harness, 'step', stepped)
     monkeypatch.setattr(core, '_pauses', deque(maxlen=PAUSE_ATTEMPTS))
     return index, cap * cap / (2 * braking)
@@ -346,8 +384,10 @@ def test_a_joint_over_its_speed_is_held_where_the_receiver_stopped_it_and_engage
     assert 'PAUSED: the receiver stopped the arms' in core.message, core.message
     assert 'Engage (T) follows again' in core.message and core.harness.last['hardware_enabled']
     held = [row['position'] for row in core.harness.last['feedback']]
-    assert all(abs(a - b) < (travel + .01 if i == index else .05)
-               for i, (a, b) in enumerate(zip(held, before))), (held, before)
+    assert all(abs(a - b) < (travel + 0.01 if i == index else 0.05) for i, (a, b) in enumerate(zip(held, before))), (
+        held,
+        before,
+    )
     run(core, clock, 'T', until='TELEOP', seconds=16)
 
 
@@ -363,11 +403,13 @@ def test_a_joint_past_its_limit_still_lowers_the_arm(rig, monkeypatch):
     def stepped(now_ms, request=None, **kwargs):
         if left[0] > 0:
             left[0] -= 1
-            measured = [{key: row[key] for key in ('position', 'velocity', 'effort')}
-                        for row in core.harness.last['feedback']]
-            measured[index]['position'] = joints[index]['upper'] + .01
+            measured = [
+                {key: row[key] for key in ('position', 'velocity', 'effort')} for row in core.harness.last['feedback']
+            ]
+            measured[index]['position'] = joints[index]['upper'] + 0.01
             kwargs['feedback'] = measured
         return step(now_ms, request, **kwargs)
+
     monkeypatch.setattr(core.harness, 'step', stepped)
     monkeypatch.setattr(core, '_pauses', deque(maxlen=PAUSE_ATTEMPTS))
     tick_until(core, clock, lambda: core.fault, limit=10)
@@ -377,11 +419,12 @@ def test_a_joint_past_its_limit_still_lowers_the_arm(rig, monkeypatch):
 
 def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(rig, monkeypatch):
     from robot_platform.control.guarded import GuardRejected
+
     core, clock, _leaders = rig
     run(core, clock, 'I')
     run(core, clock, 'E')
     run(core, clock, 'T', until='TELEOP', seconds=16)
-    clock.now += .1
+    clock.now += 0.1
     core.tick(None, clock())
     assert core.session.lifecycle.state == 'FAULT'
     # A drive rebooted: the live adapter withholds its readings and names it; a re-arm is refused while it is quiet.
@@ -391,10 +434,12 @@ def test_a_drive_that_left_run_mode_is_named_while_the_receiver_holds_the_arm(ri
         result = step(*args, **kwargs)
         core.harness.last = dict(result, hardware_dropped='right_arm_j4: left Run mode while driven')
         return core.harness.last
+
     monkeypatch.setattr(core.harness, 'step', dropped)
 
     def refused():
         raise GuardRejected('feedback_stale', core.session.controller.poll())
+
     monkeypatch.setattr(core.session, 'recover', refused)
     for _ in range(3):
         clock.now += core.period_s
@@ -409,7 +454,7 @@ def test_h_disables_a_faulted_arm_at_once_rather_than_lowering_it(rig):
     run(core, clock, 'I')
     run(core, clock, 'E')
     run(core, clock, 'T', until='TELEOP', seconds=16)
-    clock.now += .1
+    clock.now += 0.1
     core.tick(None, clock())
     assert core.fault
     clock.now += core.period_s
@@ -439,12 +484,12 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     run(core, clock, 'E')
     run(core, clock, 'T', until='TELEOP', seconds=16)
     sign = core.routes()['left_arm_j2']['sign']  # Earlier tests may have flipped it.
-    ramp(core, clock, leaders, 'left', 1, -.5)
+    ramp(core, clock, leaders, 'left', 1, -0.5)
     run(core, clock, seconds=4)
     moved = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
-    assert moved['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, sign), abs=1e-6)
+    assert moved['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -0.5, sign), abs=1e-6)
     zero = core.set_zero()
-    assert zero['left']['channel_2'] == pytest.approx(CENTERS['left'][1] - .5)
+    assert zero['left']['channel_2'] == pytest.approx(CENTERS['left'][1] - 0.5)
     run(core, clock)
     held = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert state(core)[0] == 'HOLD' and held['command'] == pytest.approx(moved['command'], abs=1e-6)
@@ -453,7 +498,7 @@ def test_setting_the_zero_while_engaged_holds_then_follows_from_the_new_zero(rig
     home = next(r['home'] for r in core.derived['report'] if r['motor'] == 'left_arm_j2')
     now = {row['motor']: row for row in core.view()['joints']}['left_arm_j2']
     assert now['command'] == pytest.approx(home, abs=1e-6)
-    assert now['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -.5, sign, zero=-.5), abs=1e-6)
+    assert now['command'] == pytest.approx(expected_motor(core, 'left_arm_j2', -0.5, sign, zero=-0.5), abs=1e-6)
     core.set_zero()  # Back to the hanging zero for the tests that share this build.
     ramp(core, clock, leaders, 'left', 1, HANG)
     core.set_zero()

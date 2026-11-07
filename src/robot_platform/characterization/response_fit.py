@@ -37,6 +37,7 @@ Per joint, with the arm's other joints held (a sweep moves one joint at a time):
 Every fit uses alternate BLOCK_S blocks of the recording and is scored on the others. Recordings from before
 the command block exist only for stage 1 and the open-loop replay; the report says so instead of guessing.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,28 +49,28 @@ from pathlib import Path
 
 import numpy as np
 
-TICK_S = .0025  # The receiver's period.
-CUTOFF_HZ = 8.  # Zero-phase low-pass on position and effort alike (4th-order Butterworth, run both ways).
-EDGE_S = .25  # Rows this close to a run's ends carry the filter's start-up transient and are dropped.
-BLOCK_S = 10.  # Alternate blocks fit and test.
-V_EPS = .005  # rad/s: the friction sign's smoothing, before it is filtered like everything else.
-SIGN_CUTOFF_HZ = 30.  # The speed whose sign gives friction's direction: lightly filtered position, differenced.
+TICK_S = 0.0025  # The receiver's period.
+CUTOFF_HZ = 8.0  # Zero-phase low-pass on position and effort alike (4th-order Butterworth, run both ways).
+EDGE_S = 0.25  # Rows this close to a run's ends carry the filter's start-up transient and are dropped.
+BLOCK_S = 10.0  # Alternate blocks fit and test.
+V_EPS = 0.005  # rad/s: the friction sign's smoothing, before it is filtered like everything else.
+SIGN_CUTOFF_HZ = 30.0  # The speed whose sign gives friction's direction: lightly filtered position, differenced.
 STICK_V = 1e-4  # rad/s: a replayed joint below this sticks while its net torque is within friction.
 SUBSTEPS = 5
-OPEN_WINDOW_S = .25
-CLOSED_WINDOW_S = 1.
+OPEN_WINDOW_S = 0.25
+CLOSED_WINDOW_S = 1.0
 FIT_WINDOWS = 120  # Closed-loop fit windows, spread evenly over the fit blocks.
 FIT_STRIDE = 4  # Every 4th tick of a window enters the closed-loop fit's residual.
 MAX_DELAY_TICKS = 24  # 60 ms
-DELAY_STEP_TICKS = .25
-DEAD_EFFORT_NM = .01  # A reported effort spanning less than this over a whole recording carries no torque (left J1).
+DELAY_STEP_TICKS = 0.25
+DEAD_EFFORT_NM = 0.01  # A reported effort spanning less than this over a whole recording carries no torque (left J1).
 MIN_INERTIA = 1e-3  # kg m2: below this a fitted joint is not simulated (it would not be a joint of Minerva's).
-OTHERS_MOVED_RAD = .05  # Another joint of the recording moving more than this breaks the one-joint gravity model.
+OTHERS_MOVED_RAD = 0.05  # Another joint of the recording moving more than this breaks the one-joint gravity model.
 BOOTSTRAP = 64
-EFFORT_SHIFTS = np.round(np.arange(-4., 4.0001, .1), 3)  # ticks: the effort as reported at t + shift stands for t.
+EFFORT_SHIFTS = np.round(np.arange(-4.0, 4.0001, 0.1), 3)  # ticks: the effort as reported at t + shift stands for t.
 PARAMS = ('inertia', 'viscous', 'friction', 'gravity_sin', 'gravity_cos', 'gravity_offset')
 COMMAND_FIELDS = ('command_velocity', 'command_effort', 'kp', 'kd')
-GAIN_SPREAD = .05  # kp varying this much (std / mean, drive on) separates the effort-sampling term.
+GAIN_SPREAD = 0.05  # kp varying this much (std / mean, drive on) separates the effort-sampling term.
 
 
 @dataclass
@@ -93,10 +94,10 @@ def load_session(path):
         raise ValueError(f'{path}: samples.f32 does not hold whole rows of its {len(columns)} columns')
     data = values.reshape(-1, len(columns)).astype(float)
     index = {name: i for i, name in enumerate(columns)}
-    t = data[:, 0] / 1000.
+    t = data[:, 0] / 1000.0
     if len(t) > 1 and np.any(np.diff(t) <= 0):
         raise ValueError(f'{path}: recorder time does not increase')
-    names = [c[:-len('.position')] for c in columns if c.endswith('.position')]
+    names = [c[: -len('.position')] for c in columns if c.endswith('.position')]
     joints = {}
     for name in names:
         fields = [index[f'{name}.{f}'] for f in ('position', 'velocity', 'effort', 'command')]
@@ -107,14 +108,21 @@ def load_session(path):
                 commands = None  # Padded from an older receiver: unknown, not zero.
         joints[name] = Joint(name, t, *(data[:, i] for i in fields), commands)
     gaps = np.diff(t) > 1.5 * TICK_S
-    return {'joints': joints, 'provenance': {
-        'session': str(path), 'samples_sha256': hashlib.sha256(raw).hexdigest(), 'rows': len(t),
-        'span_s': float(t[-1] - t[0]) if len(t) else 0., 'gaps': int(gaps.sum()),
-        'command_block': any(j.commands is not None for j in joints.values())}}
+    return {
+        'joints': joints,
+        'provenance': {
+            'session': str(path),
+            'samples_sha256': hashlib.sha256(raw).hexdigest(),
+            'rows': len(t),
+            'span_s': float(t[-1] - t[0]) if len(t) else 0.0,
+            'gaps': int(gaps.sum()),
+            'command_block': any(j.commands is not None for j in joints.values()),
+        },
+    }
 
 
 def travel(joint):
-    return float(np.ptp(joint.q)) if len(joint.q) else 0.
+    return float(np.ptp(joint.q)) if len(joint.q) else 0.0
 
 
 def runs(t):
@@ -126,6 +134,7 @@ def runs(t):
 
 def _filter(cutoff_hz=CUTOFF_HZ):
     from scipy.signal import butter
+
     return butter(4, cutoff_hz, fs=1 / TICK_S, output='sos')
 
 
@@ -141,17 +150,19 @@ def aligned_effort(joint, shift_ticks):
     return np.interp(joint.t + shift_ticks * TICK_S, joint.t, joint.effort)
 
 
-def filtered_effort(joint, shift_ticks=0.):
+def filtered_effort(joint, shift_ticks=0.0):
     """The aligned effort, filtered as smoothed() filters position, at smoothed()'s rows."""
     from scipy.signal import sosfiltfilt
+
     sos, (spans, edge) = _filter(), _long_runs(joint)
     effort = aligned_effort(joint, shift_ticks)
-    return np.concatenate([sosfiltfilt(sos, effort[start:end])[edge:end - start - edge] for start, end in spans])
+    return np.concatenate([sosfiltfilt(sos, effort[start:end])[edge : end - start - edge] for start, end in spans])
 
 
-def smoothed(joint, shift_ticks=0.):
+def smoothed(joint, shift_ticks=0.0):
     """Rows away from run edges, with filtered position, its velocity and acceleration, and filtered effort."""
     from scipy.signal import sosfiltfilt
+
     sos, light, (spans, edge) = _filter(), _filter(SIGN_CUTOFF_HZ), _long_runs(joint)
     if not spans:
         raise ValueError(f'{joint.name}: no contiguous run long enough to filter')
@@ -162,9 +173,15 @@ def smoothed(joint, shift_ticks=0.):
         vf = np.gradient(qf, TICK_S)
         speed = np.gradient(sosfiltfilt(light, raw), TICK_S)
         inside = slice(edge, end - start - edge)
-        values = [('index', np.arange(start, end)), ('q', qf), ('v', vf), ('a', np.gradient(vf, TICK_S)),
-                  ('sign', sosfiltfilt(sos, np.tanh(speed / V_EPS))), ('sin', sosfiltfilt(sos, np.sin(raw))),
-                  ('cos', sosfiltfilt(sos, np.cos(raw)))]
+        values = [
+            ('index', np.arange(start, end)),
+            ('q', qf),
+            ('v', vf),
+            ('a', np.gradient(vf, TICK_S)),
+            ('sign', sosfiltfilt(sos, np.tanh(speed / V_EPS))),
+            ('sin', sosfiltfilt(sos, np.sin(raw))),
+            ('cos', sosfiltfilt(sos, np.cos(raw))),
+        ]
         if joint.commands is not None:
             values.append(('kpv', sosfiltfilt(sos, joint.commands['kp'][start:end] * speed)))
         for key, value in values:
@@ -183,7 +200,7 @@ def align(joint, s, fit):
     for shift in EFFORT_SHIFTS:
         y = filtered_effort(joint, shift)[fit]
         residual = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
-        rms = float(np.sqrt(np.mean(residual ** 2)))
+        rms = float(np.sqrt(np.mean(residual**2)))
         if best is None or rms < best[0]:
             best = (rms, float(shift))
     s = dict(s, tau=filtered_effort(joint, best[1]), shift_ticks=best[1])
@@ -226,23 +243,30 @@ def fit_mechanics(joint, s, fit, *, seed=1):
 
     def score(rows):
         residual = y[rows] - X[rows] @ theta
-        return {'rms_nm': float(np.sqrt(np.mean(residual ** 2))),
-                'r2': float(1 - np.sum(residual ** 2) / np.sum((y[rows] - y[rows].mean()) ** 2))}
+        return {
+            'rms_nm': float(np.sqrt(np.mean(residual**2))),
+            'r2': float(1 - np.sum(residual**2) / np.sum((y[rows] - y[rows].mean()) ** 2)),
+        }
+
     flags = []
     if params['inertia'] <= 0 or params['friction'] < 0:
         flags.append('implausible: negative inertia or friction')
-    if params['inertia'] > 0 and spread[0] / params['inertia'] > .2:
+    if params['inertia'] > 0 and spread[0] / params['inertia'] > 0.2:
         flags.append('inertia poorly excited (bootstrap spread over 20%)')
     if not s.get('sampling_separable'):
         flags.append("viscous includes the drive's effort-sampling term (gains constant or not recorded)")
-    return {'params': params, 'bootstrap_std': dict(zip(names, map(float, spread))),
-            'effort_sampling_tick': (-params['effort_sampling_s'] / TICK_S if 'effort_sampling_s' in params
-                                     else None),
-            'effort_shift_ms': s.get('shift_ticks', 0.) * TICK_S * 1000,
-            'fit': score(fit), 'holdout': score(~fit), 'flags': flags}
+    return {
+        'params': params,
+        'bootstrap_std': dict(zip(names, map(float, spread))),
+        'effort_sampling_tick': (-params['effort_sampling_s'] / TICK_S if 'effort_sampling_s' in params else None),
+        'effort_shift_ms': s.get('shift_ticks', 0.0) * TICK_S * 1000,
+        'fit': score(fit),
+        'holdout': score(~fit),
+        'flags': flags,
+    }
 
 
-def drive_torque(joint, delay_ticks, *, scale=1.):
+def drive_torque(joint, delay_ticks, *, scale=1.0):
     """Each tick's torque from the command d ticks earlier, at the drive's measured state now."""
     c = joint.commands
     t = joint.t
@@ -250,8 +274,12 @@ def drive_torque(joint, delay_ticks, *, scale=1.):
 
     def at(x):
         return np.interp(late, t, x)
-    return scale * (at(c['kp']) * (at(joint.command) - joint.q) + at(c['kd']) * (at(c['command_velocity']) - joint.v)
-                    + at(c['command_effort']))
+
+    return scale * (
+        at(c['kp']) * (at(joint.command) - joint.q)
+        + at(c['kd']) * (at(c['command_velocity']) - joint.v)
+        + at(c['command_effort'])
+    )
 
 
 def enabled(joint):
@@ -261,12 +289,12 @@ def enabled(joint):
 
 def fit_drive(joint):
     if joint.commands is None:
-        return {'unavailable': 'the recording lacks each tick\'s command (recorded before 5852fe2)'}
+        return {'unavailable': "the recording lacks each tick's command (recorded before 5852fe2)"}
     fit = (np.floor((joint.t - joint.t[0]) / BLOCK_S).astype(int) % 2) == 0
     on = enabled(joint)
     on &= np.concatenate([[False] * MAX_DELAY_TICKS, on[:-MAX_DELAY_TICKS]]) if len(on) > MAX_DELAY_TICKS else on
     best = None
-    for d in np.arange(0., MAX_DELAY_TICKS + 1e-9, DELAY_STEP_TICKS):
+    for d in np.arange(0.0, MAX_DELAY_TICKS + 1e-9, DELAY_STEP_TICKS):
         x = drive_torque(joint, d)
         rows = on & fit
         A = np.column_stack([x[rows], np.ones(rows.sum())])
@@ -277,8 +305,15 @@ def fit_drive(joint):
     rms, d, k, c0 = best
     rows = on & ~fit
     residual = joint.effort[rows] - k * drive_torque(joint, d)[rows] - c0
-    return {'delay_ms': d * TICK_S * 1000, 'delay_ticks': d, 'scale': k, 'offset_nm': c0, 'fit_rms_nm': rms,
-            'holdout_rms_nm': float(np.sqrt(np.mean(residual ** 2))), 'enabled_rows': int(on.sum())}
+    return {
+        'delay_ms': d * TICK_S * 1000,
+        'delay_ticks': d,
+        'scale': k,
+        'offset_nm': c0,
+        'fit_rms_nm': rms,
+        'holdout_rms_nm': float(np.sqrt(np.mean(residual**2))),
+        'enabled_rows': int(on.sum()),
+    }
 
 
 def _integrate(params, q, v, torque, static, h):
@@ -287,7 +322,7 @@ def _integrate(params, q, v, torque, static, h):
     moving = np.abs(v) >= STICK_V
     stuck = ~moving & (np.abs(net) <= static)
     direction = np.where(moving, np.sign(v), np.sign(net))
-    v = np.where(stuck, 0., v + (net - params['friction'] * direction) / params['inertia'] * h)
+    v = np.where(stuck, 0.0, v + (net - params['friction'] * direction) / params['inertia'] * h)
     return q + v * h, v
 
 
@@ -298,7 +333,7 @@ def _windows(joint, s, rows_ok, length_s):
     starts = []
     i = 0
     while i + n < len(index):
-        span = index[i:i + n + 1]
+        span = index[i : i + n + 1]
         if span[-1] - span[0] == n and rows_ok[span].all():
             starts.append(i)
             i += n
@@ -309,9 +344,13 @@ def _windows(joint, s, rows_ok, length_s):
 
 def _summary(errors):
     worst = np.max(np.abs(errors), axis=1)
-    rms = np.sqrt(np.mean(errors ** 2, axis=1))
-    return {'windows': len(errors), 'rms_mrad_p50': float(np.median(rms) * 1000),
-            'max_mrad_p50': float(np.median(worst) * 1000), 'max_mrad_p95': float(np.percentile(worst, 95) * 1000)}
+    rms = np.sqrt(np.mean(errors**2, axis=1))
+    return {
+        'windows': len(errors),
+        'rms_mrad_p50': float(np.median(rms) * 1000),
+        'max_mrad_p50': float(np.median(worst) * 1000),
+        'max_mrad_p95': float(np.percentile(worst, 95) * 1000),
+    }
 
 
 def replay_open(joint, s, mechanics, holdout_rows):
@@ -325,13 +364,13 @@ def replay_open(joint, s, mechanics, holdout_rows):
         return {'unavailable': 'no held-out window'}
     rows = s['index'][starts]
     q, v = s['q'][starts].copy(), s['v'][starts].copy()
-    static = max(params['friction'], 0.)
+    static = max(params['friction'], 0.0)
     sim, coast = np.empty((len(starts), n)), np.empty((len(starts), n))
-    effort = aligned_effort(joint, s.get('shift_ticks', 0.))
-    sampling = params.get('effort_sampling_s', 0.)
+    effort = aligned_effort(joint, s.get('shift_ticks', 0.0))
+    sampling = params.get('effort_sampling_s', 0.0)
     for k in range(n):
         # The torque that moves the joint: the reported effort without the drive's sampling term.
-        torque = effort[rows + k] - (sampling * joint.commands['kp'][rows + k] * v if sampling else 0.)
+        torque = effort[rows + k] - (sampling * joint.commands['kp'][rows + k] * v if sampling else 0.0)
         for _ in range(SUBSTEPS):
             q, v = _integrate(params, q, v, torque, static, TICK_S / SUBSTEPS)
         sim[:, k] = q
@@ -340,16 +379,17 @@ def replay_open(joint, s, mechanics, holdout_rows):
     return {'window_s': OPEN_WINDOW_S, 'model': _summary(sim - measured), 'baseline_coast': _summary(coast - measured)}
 
 
-def simulate_closed(joint, s, starts, n, params, delay_ticks, *, scale=1., offset=0.):
+def simulate_closed(joint, s, starts, n, params, delay_ticks, *, scale=1.0, offset=0.0):
     """Each window's positions, simulated from its measured start under the recorded commands, d ticks late."""
     c, t = joint.commands, joint.t
     rows = s['index'][starts]
     # The step to row r applies the command of t_r - d, as the drive fit reads the torque reported at row r.
     late = t[rows[:, None] + 1 + np.arange(n)[None, :]] - delay_ticks * TICK_S
-    q_star, v_star, ff, kp, kd = (np.interp(late, t, x) for x in (joint.command, c['command_velocity'],
-                                                                  c['command_effort'], c['kp'], c['kd']))
+    q_star, v_star, ff, kp, kd = (
+        np.interp(late, t, x) for x in (joint.command, c['command_velocity'], c['command_effort'], c['kp'], c['kd'])
+    )
     q, v = s['q'][starts].copy(), s['v'][starts].copy()
-    static = max(params['friction'], 0.)
+    static = max(params['friction'], 0.0)
     sim = np.empty((len(starts), n))
     for k in range(n):
         for _ in range(SUBSTEPS):
@@ -372,56 +412,88 @@ def replay_closed(joint, s, mechanics, drive, holdout_rows, *, scale=None, offse
     starts, n = _windows(joint, s, holdout_rows & enabled(joint), CLOSED_WINDOW_S)
     if not len(starts):
         return {'unavailable': 'no held-out window with the drive enabled throughout'}
-    sim = simulate_closed(joint, s, starts, n, mechanics['params'], drive['delay_ticks'],
-                          scale=drive['scale'] if scale is None else scale,
-                          offset=drive['offset_nm'] if offset is None else offset)
+    sim = simulate_closed(
+        joint,
+        s,
+        starts,
+        n,
+        mechanics['params'],
+        drive['delay_ticks'],
+        scale=drive['scale'] if scale is None else scale,
+        offset=drive['offset_nm'] if offset is None else offset,
+    )
     measured = _measured(joint, s, starts, n)
-    return {'window_s': CLOSED_WINDOW_S, 'model': _summary(sim - measured),
-            'baseline_follows_command': _summary(_measured(joint, s, starts, n, joint.command) - measured)}
+    return {
+        'window_s': CLOSED_WINDOW_S,
+        'model': _summary(sim - measured),
+        'baseline_follows_command': _summary(_measured(joint, s, starts, n, joint.command) - measured),
+    }
 
 
 def fit_closed_loop(joint, s, mechanics, drive, fit_rows, holdout_rows):
     """Inertia, viscous and Coulomb friction, command delay and gravity scale from the measured positions alone
     (the drive applies its command law exactly: scale 1, no offset), then the held-out replay with them."""
     from scipy.optimize import least_squares
+
     if joint.commands is None or 'unavailable' in drive:
         return {'unavailable': drive.get('unavailable', 'no drive fit')}
     starts, n = _windows(joint, s, fit_rows & enabled(joint), CLOSED_WINDOW_S)
     if len(starts) < 10:
         return {'unavailable': f'{len(starts)} fit windows with the drive enabled throughout (10 needed)'}
     starts = starts[np.unique(np.linspace(0, len(starts) - 1, min(FIT_WINDOWS, len(starts))).astype(int))]
-    measured = _measured(joint, s, starts, n)[:, FIT_STRIDE - 1::FIT_STRIDE]
+    measured = _measured(joint, s, starts, n)[:, FIT_STRIDE - 1 :: FIT_STRIDE]
     seed = mechanics['params']
     gravity_keys = ('gravity_sin', 'gravity_cos', 'gravity_offset')
 
     def model(x):
-        params = dict(seed, inertia=math.exp(x[0]), viscous=x[1], friction=math.exp(x[2]),
-                      **{key: x[4] * seed[key] for key in gravity_keys})
+        params = dict(
+            seed,
+            inertia=math.exp(x[0]),
+            viscous=x[1],
+            friction=math.exp(x[2]),
+            **{key: x[4] * seed[key] for key in gravity_keys},
+        )
         return params, x[3]
 
     def residual(x):
         params, delay = model(x)
-        return (simulate_closed(joint, s, starts, n, params, delay)[:, FIT_STRIDE - 1::FIT_STRIDE] - measured).ravel()
-    x0 = [math.log(seed['inertia'] if seed['inertia'] > 0 else .5), seed['viscous'],
-          math.log(max(seed['friction'], .01)), float(np.clip(drive['delay_ticks'], 0., MAX_DELAY_TICKS)), 1.]
-    lower = [math.log(1e-3), -5., math.log(1e-3), 0., .5]
-    upper = [math.log(50.), 50., math.log(50.), float(MAX_DELAY_TICKS), 1.5]
+        return (simulate_closed(joint, s, starts, n, params, delay)[:, FIT_STRIDE - 1 :: FIT_STRIDE] - measured).ravel()
+
+    x0 = [
+        math.log(seed['inertia'] if seed['inertia'] > 0 else 0.5),
+        seed['viscous'],
+        math.log(max(seed['friction'], 0.01)),
+        float(np.clip(drive['delay_ticks'], 0.0, MAX_DELAY_TICKS)),
+        1.0,
+    ]
+    lower = [math.log(1e-3), -5.0, math.log(1e-3), 0.0, 0.5]
+    upper = [math.log(50.0), 50.0, math.log(50.0), float(MAX_DELAY_TICKS), 1.5]
     x0 = list(np.clip(x0, lower, upper))
     result = least_squares(residual, x0, bounds=(lower, upper), diff_step=1e-3, x_scale='jac', max_nfev=200)
     params, delay = model(result.x)
-    fitted = {'params': {key: params[key] for key in PARAMS}, 'delay_ticks': float(delay),
-              'delay_ms': float(delay * TICK_S * 1000), 'gravity_scale': float(result.x[4]),
-              'fit_windows': len(starts), 'fit_rms_mrad': float(np.sqrt(np.mean(result.fun ** 2)) * 1000),
-              'converged': bool(result.success), 'evaluations': int(result.nfev)}
-    fitted['replay_closed_loop'] = replay_closed(joint, s, {'params': params}, dict(drive, delay_ticks=delay),
-                                                 holdout_rows, scale=1., offset=0.)
+    fitted = {
+        'params': {key: params[key] for key in PARAMS},
+        'delay_ticks': float(delay),
+        'delay_ms': float(delay * TICK_S * 1000),
+        'gravity_scale': float(result.x[4]),
+        'fit_windows': len(starts),
+        'fit_rms_mrad': float(np.sqrt(np.mean(result.fun**2)) * 1000),
+        'converged': bool(result.success),
+        'evaluations': int(result.nfev),
+    }
+    fitted['replay_closed_loop'] = replay_closed(
+        joint, s, {'params': params}, dict(drive, delay_ticks=delay), holdout_rows, scale=1.0, offset=0.0
+    )
     return fitted
 
 
 def fit_joint(session, name, *, servo=None):
     joint = session['joints'][name]
-    others = {n: round(travel(j), 4) for n, j in session['joints'].items()
-              if n != name and n.split('_')[0] == name.split('_')[0] and 'gripper' not in n}
+    others = {
+        n: round(travel(j), 4)
+        for n, j in session['joints'].items()
+        if n != name and n.split('_')[0] == name.split('_')[0] and 'gripper' not in n
+    }
     s = smoothed(joint)
     fit = blocks(joint.t, s['index'])
     holdout_rows = np.zeros(len(joint.t), dtype=bool)
@@ -437,12 +509,16 @@ def fit_joint(session, name, *, servo=None):
     drive = fit_drive(joint)
     report = {
         'joint': name,
-        'excitation': {'travel_rad': travel(joint), 'speed_max': float(np.max(np.abs(s['v']))),
-                       'acceleration_p99': float(np.percentile(np.abs(s['a']), 99)),
-                       'effort_range_nm': [float(joint.effort.min()), float(joint.effort.max())],
-                       'others_travel_rad': others},
+        'excitation': {
+            'travel_rad': travel(joint),
+            'speed_max': float(np.max(np.abs(s['v']))),
+            'acceleration_p99': float(np.percentile(np.abs(s['a']), 99)),
+            'effort_range_nm': [float(joint.effort.min()), float(joint.effort.max())],
+            'others_travel_rad': others,
+        },
         'rows': {'smoothed': len(s['index']), 'fit': int(fit.sum()), 'holdout': int((~fit).sum())},
-        'mechanics': mechanics, 'drive': drive,
+        'mechanics': mechanics,
+        'drive': drive,
         'replay_open_loop': replay_open(joint, s, mechanics, holdout_rows),
         'replay_closed_loop': replay_closed(joint, s, mechanics, drive, holdout_rows),
     }
@@ -452,19 +528,30 @@ def fit_joint(session, name, *, servo=None):
     saved = (((servo or {}).get('joints') or {}).get(name) or {}).get('measured') or {}
     torque = saved.get('torque') or {}
     if torque:
-        report['servo_sweep_fit'] = {'inertia': torque.get('inertia'), 'friction': torque.get('friction'),
-                                     'gravity_fit': torque.get('gravity_fit')}
+        report['servo_sweep_fit'] = {
+            'inertia': torque.get('inertia'),
+            'friction': torque.get('friction'),
+            'gravity_fit': torque.get('gravity_fit'),
+        }
     return report
 
 
-def fit_session(path, joints=None, *, servo=None, min_travel_rad=.2):
+def fit_session(path, joints=None, *, servo=None, min_travel_rad=0.2):
     session = load_session(path)
     names = joints or [n for n, j in session['joints'].items() if travel(j) >= min_travel_rad]
-    return {'schema': 1, 'kind': 'joint_response_fit', 'provenance': session['provenance'],
-            'model': {'mechanics': 'I a = tau - (A sin q + B cos q + C) - b v - f sgn(v)',
-                      'drive': 'tau = k (kp (q* - q) + kd (v* - v) + tau_ff), command d late',
-                      'cutoff_hz': CUTOFF_HZ, 'block_s': BLOCK_S, 'v_eps': V_EPS},
-            'joints': {name: fit_joint(session, name, servo=servo) for name in names}}
+    return {
+        'schema': 1,
+        'kind': 'joint_response_fit',
+        'provenance': session['provenance'],
+        'model': {
+            'mechanics': 'I a = tau - (A sin q + B cos q + C) - b v - f sgn(v)',
+            'drive': 'tau = k (kp (q* - q) + kd (v* - v) + tau_ff), command d late',
+            'cutoff_hz': CUTOFF_HZ,
+            'block_s': BLOCK_S,
+            'v_eps': V_EPS,
+        },
+        'joints': {name: fit_joint(session, name, servo=servo) for name in names},
+    }
 
 
 def main():
@@ -483,9 +570,11 @@ def main():
             stream.write(text)
     for name, joint in report['joints'].items():
         p, h = joint['mechanics']['params'], joint['mechanics']['holdout']
-        print(f"{name}: I {p['inertia']:.4f} kg m2, b {p['viscous']:.3f}, f {p['friction']:.3f} Nm, "
-              f"gravity {p['gravity_sin']:.2f} sin q + {p['gravity_cos']:.2f} cos q + {p['gravity_offset']:.2f}; "
-              f"held-out torque rms {h['rms_nm']:.3f} Nm (R2 {h['r2']:.3f}); {', '.join(joint['mechanics']['flags'])}")
+        print(
+            f'{name}: I {p["inertia"]:.4f} kg m2, b {p["viscous"]:.3f}, f {p["friction"]:.3f} Nm, '
+            f'gravity {p["gravity_sin"]:.2f} sin q + {p["gravity_cos"]:.2f} cos q + {p["gravity_offset"]:.2f}; '
+            f'held-out torque rms {h["rms_nm"]:.3f} Nm (R2 {h["r2"]:.3f}); {", ".join(joint["mechanics"]["flags"])}'
+        )
     return 0
 
 

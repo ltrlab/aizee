@@ -64,12 +64,12 @@ class SIGReg(nn.Module):
         # We use a uniform grid in [t_min, t_max] for simplicity; the
         # Gaussian weighting is implicit via the target φ(t) = exp(-t²/2).
         t = torch.linspace(t_min, t_max, num_points)
-        self.register_buffer("t_grid", t)                       # [M]
-        self.register_buffer("phi_target", torch.exp(-0.5 * t.pow(2)))  # [M]
+        self.register_buffer('t_grid', t)  # [M]
+        self.register_buffer('phi_target', torch.exp(-0.5 * t.pow(2)))  # [M]
 
         if not resample_slices:
             v = torch.randn(1, num_slices)  # placeholder; correct D set lazily
-            self.register_buffer("_slices", v)
+            self.register_buffer('_slices', v)
         else:
             self._slices = None
 
@@ -96,25 +96,23 @@ class SIGReg(nn.Module):
 
         # Random unit projections — shape [D, S]
         V = self._get_slices(D, x.device, x.dtype)
-        proj = x @ V                                            # [N, S]
+        proj = x @ V  # [N, S]
 
         # Per-slice standardization → marginals have empirical mean 0, std 1
-        proj = (proj - proj.mean(dim=0, keepdim=True)) / (
-            proj.std(dim=0, unbiased=False, keepdim=True) + self.eps
-        )
+        proj = (proj - proj.mean(dim=0, keepdim=True)) / (proj.std(dim=0, unbiased=False, keepdim=True) + self.eps)
 
         # Empirical characteristic function at grid points t_grid
         # ECF(t) = (1/N) Σ exp(i t Y)  → cos + i sin parts
-        t = self.t_grid.to(x.dtype)                             # [M]
+        t = self.t_grid.to(x.dtype)  # [M]
         # angles: [N, S, M]
         angles = proj.unsqueeze(-1) * t.view(1, 1, -1)
-        ecf_re = angles.cos().mean(dim=0)                       # [S, M]
-        ecf_im = angles.sin().mean(dim=0)                       # [S, M]
+        ecf_re = angles.cos().mean(dim=0)  # [S, M]
+        ecf_im = angles.sin().mean(dim=0)  # [S, M]
 
         # Target ECF of N(0, 1) is real: exp(-t²/2). Imaginary part target = 0.
-        phi = self.phi_target.to(x.dtype).view(1, -1)           # [1, M]
-        loss = (ecf_re - phi).pow(2) + ecf_im.pow(2)            # [S, M]
+        phi = self.phi_target.to(x.dtype).view(1, -1)  # [1, M]
+        loss = (ecf_re - phi).pow(2) + ecf_im.pow(2)  # [S, M]
         return loss.mean()
 
 
-__all__ = ["SIGReg"]
+__all__ = ['SIGReg']

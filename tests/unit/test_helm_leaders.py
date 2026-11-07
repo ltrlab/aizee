@@ -1,4 +1,5 @@
 """Helm's Leaders workspace with scripted leader boards: sweep, confirm, save, reload."""
+
 import asyncio
 import json
 import math
@@ -18,7 +19,7 @@ DEVICES = ROOT / 'config/devices'
 
 class Sim:
     def __init__(self):
-        self.now = 1000.
+        self.now = 1000.0
 
     def __call__(self):
         return self.now
@@ -26,18 +27,23 @@ class Sim:
 
 class Boards:
     """Both leaders; each poll is 20 ms of simulated time."""
+
     def __init__(self, profile, clock):
         self.clock, self.sequence, self.closed, self.skip = clock, 0, False, 0
-        self.positions = {name: [1.] * len(item['joints']) for name, item in profile['leaders'].items()}
+        self.positions = {name: [1.0] * len(item['joints']) for name, item in profile['leaders'].items()}
 
     def poll(self):
         if self.skip:
             self.skip -= 1
             raise LeaderSampleSkipped('Leader pair age or skew exceeded the input profile')
         self.sequence += 1
-        self.clock.now += .02
-        return {name: LeaderSample(tuple(values), (0,) * len(values), self.sequence, self.clock.now,
-                                   self.clock.now, (0, 0, 1, 1), 1, 2) for name, values in self.positions.items()}
+        self.clock.now += 0.02
+        return {
+            name: LeaderSample(
+                tuple(values), (0,) * len(values), self.sequence, self.clock.now, self.clock.now, (0, 0, 1, 1), 1, 2
+            )
+            for name, values in self.positions.items()
+        }
 
     def close(self):
         self.closed = True
@@ -45,8 +51,9 @@ class Boards:
 
 def teleop_profile(tmp_path):
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'),
-                   leader_ranges=str(tmp_path / 'leader-ranges.json'))
+    profile.update(
+        leader_profile=str(DEVICES / 'gello-dual-viewer.json'), leader_ranges=str(tmp_path / 'leader-ranges.json')
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     return path
@@ -60,22 +67,28 @@ def workspace(tmp_path):
     def open_leaders(profile):
         boards['open'] = Boards(profile, clock)
         return boards['open']
-    leaders = LeaderWorkspace(teleop_profile(tmp_path), labels={'left_arm_j1': 'Left shoulder swivel (J1)'},
-                              evidence=tmp_path / 'evidence', open_leaders=open_leaders, clock=clock)
-    leaders.poll_s = .001
+
+    leaders = LeaderWorkspace(
+        teleop_profile(tmp_path),
+        labels={'left_arm_j1': 'Left shoulder swivel (J1)'},
+        evidence=tmp_path / 'evidence',
+        open_leaders=open_leaders,
+        clock=clock,
+    )
+    leaders.poll_s = 0.001
     leaders.boards, leaders.sim = boards, clock
     yield leaders
     leaders.disconnect()
 
 
-def wait_until(predicate, timeout=5.):
+def wait_until(predicate, timeout=5.0):
     deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, 'timed out'
-        time.sleep(.005)
+        time.sleep(0.005)
 
 
-def move(leaders, leader, index, value, step=.05):
+def move(leaders, leader, index, value, step=0.05):
     """Hand speed: one small step per reading (a 2 rad jump in 20 ms would be discarded)."""
     boards = leaders.boards['open']
     start = boards.positions[leader][index]
@@ -86,7 +99,7 @@ def move(leaders, leader, index, value, step=.05):
         wait_until(lambda: boards.sequence >= seen + 2)
 
 
-def hold(leaders, leader, index, value, seconds=.4):
+def hold(leaders, leader, index, value, seconds=0.4):
     leaders.boards['open'].positions[leader][index] = value
     until = leaders.sim.now + seconds
     wait_until(lambda: leaders.sim.now >= until)
@@ -110,13 +123,13 @@ def test_sweep_confirm_and_save_a_leader_range(workspace, tmp_path):
     wait_until(lambda: leaders.fresh())
     with pytest.raises(ValueError, match='already connected'):
         leaders.connect()
-    move(leaders, 'left', 0, .2)
-    hold(leaders, 'left', 0, .2)
+    move(leaders, 'left', 0, 0.2)
+    hold(leaders, 'left', 0, 0.2)
     move(leaders, 'left', 0, 2.2)
     hold(leaders, 'left', 0, 2.2)
     leaders.boards['open'].skip = 3  # Late pairs are skipped, not fatal.
-    hold(leaders, 'left', 6, 1.5, .1)
-    assert row(leaders, 'left.channel_1')['span_rad'] == pytest.approx(2.)
+    hold(leaders, 'left', 6, 1.5, 0.1)
+    assert row(leaders, 'left.channel_1')['span_rad'] == pytest.approx(2.0)
     leaders.act('confirm', 'left.channel_1')
     with pytest.raises(ValueError, match='both ends'):
         leaders.act('confirm', 'left.channel_5')  # Never moved.
@@ -125,30 +138,30 @@ def test_sweep_confirm_and_save_a_leader_range(workspace, tmp_path):
     assert result['channels'] == 1 and Path(result['path']) == tmp_path / 'leader-ranges.json'
     state = leaders.snapshot()
     assert state['pending'] == 0 and state['saved_channels'] == 1 and state['skipped'] >= 3
-    assert row(leaders, 'left.channel_1')['saved']['span_rad'] == pytest.approx(2.)
+    assert row(leaders, 'left.channel_1')['saved']['span_rad'] == pytest.approx(2.0)
     assert len(list((tmp_path / 'evidence').glob('saved-*-leader-ranges.json'))) == 1
     routes = json.loads((DEVICES / 'minerva-teleop.json').read_text())['routes']
     missing = leaders.missing(routes)
     assert len(missing) == 14 and 'left gripper trigger' in missing and 'left shoulder swivel' not in missing
     assert 'the leader zero' in missing
 
-    move(leaders, 'left', 0, 1.)  # The zero is every channel's reading now, saved at once.
+    move(leaders, 'left', 0, 1.0)  # The zero is every channel's reading now, saved at once.
     leaders.capture_reference()
     state = leaders.snapshot()
     assert state['pending'] == 0 and state['reference']['captured_at']
-    assert row(leaders, 'left.channel_1')['reference'] == pytest.approx(1.)
+    assert row(leaders, 'left.channel_1')['reference'] == pytest.approx(1.0)
     assert 'the leader zero' not in leaders.missing(routes)
     saved = json.loads((tmp_path / 'leader-ranges.json').read_text())
-    assert saved['reference']['leaders']['left']['channel_1'] == pytest.approx(1.)
-    assert saved['leaders']['left']['channel_1']['span_rad'] == pytest.approx(2.)  # Ranges kept.
-    zero = {name: {f'channel_{i}': .5 for i in range(1, 8)} for name in ('left', 'right')}
+    assert saved['reference']['leaders']['left']['channel_1'] == pytest.approx(1.0)
+    assert saved['leaders']['left']['channel_1']['span_rad'] == pytest.approx(2.0)  # Ranges kept.
+    zero = {name: {f'channel_{i}': 0.5 for i in range(1, 8)} for name in ('left', 'right')}
     leaders.store_reference(zero)  # As a running teleop session saves it.
     assert json.loads((tmp_path / 'leader-ranges.json').read_text())['reference']['leaders'] == zero
     leaders.disconnect()
     assert leaders.boards['open'].closed and leaders.snapshot()['state'] == 'disconnected'
 
     reloaded = LeaderWorkspace(teleop_profile(tmp_path))
-    assert reloaded.saved['leaders']['left']['channel_1']['span_rad'] == pytest.approx(2.)
+    assert reloaded.saved['leaders']['left']['channel_1']['span_rad'] == pytest.approx(2.0)
     assert reloaded.snapshot()['saved_channels'] == 1
     assert reloaded.snapshot()['reference']['captured_at'] == reloaded.saved['reference']['captured_at']
 
@@ -156,6 +169,7 @@ def test_sweep_confirm_and_save_a_leader_range(workspace, tmp_path):
 def test_a_board_that_will_not_open_is_reported(tmp_path):
     def refuse(_profile):
         raise ValueError('Leader left is missing or ambiguous')
+
     leaders = LeaderWorkspace(teleop_profile(tmp_path), open_leaders=refuse)
     leaders.connect()
     wait_until(lambda: not leaders.running)
@@ -170,10 +184,13 @@ class Session:
 def test_web_endpoints_drive_the_leaders_and_exclude_teleop(workspace, tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.session import HelmSession
-    helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                       limits=tmp_path / 'limits.json')
-    teleop = SimpleNamespace(active=False, snapshot=lambda: {'phase': 'stopped'}, guide=lambda: None,
-                             start=lambda: None, stop=lambda: None)
+
+    helm = HelmSession(
+        DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs', limits=tmp_path / 'limits.json'
+    )
+    teleop = SimpleNamespace(
+        active=False, snapshot=lambda: {'phase': 'stopped'}, guide=lambda: None, start=lambda: None, stop=lambda: None
+    )
     link = SimpleNamespace(running=False, disconnect=lambda: None)
     leaders = workspace
 
@@ -186,11 +203,13 @@ def test_web_endpoints_drive_the_leaders_and_exclude_teleop(workspace, tmp_path)
         wait_until(leaders.fresh)
         refused = await client.post('/api/helm/teleop/start', json={}, headers=headers)
         assert refused.status == 422 and 'Disconnect the leaders' in (await refused.json())['error']
-        rejected = await client.post('/api/helm/leaders/range', json={'action': 'confirm', 'key': 'left.channel_1'},
-                                     headers=headers)
+        rejected = await client.post(
+            '/api/helm/leaders/range', json={'action': 'confirm', 'key': 'left.channel_1'}, headers=headers
+        )
         assert rejected.status == 422 and 'both ends' in (await rejected.json())['error']
-        unknown = await client.post('/api/helm/leaders/range', json={'action': 'reset', 'key': 'left.channel_9'},
-                                    headers=headers)
+        unknown = await client.post(
+            '/api/helm/leaders/range', json={'action': 'reset', 'key': 'left.channel_9'}, headers=headers
+        )
         assert unknown.status == 422
         state = await (await client.post('/api/helm/leaders/reference', json={}, headers=headers)).json()
         assert state['leaders']['reference']['captured_at'] and state['leaders']['pending'] == 0
@@ -204,6 +223,7 @@ def test_web_endpoints_drive_the_leaders_and_exclude_teleop(workspace, tmp_path)
         app = create_app(helm, link, teleop=teleop, leaders=leaders, token='secret')
         async with TestClient(TestServer(app)) as client:
             await scenario(client)
+
     try:
         asyncio.run(run())
     finally:

@@ -11,6 +11,7 @@ or the operator disconnects. Every attempt repeats the full identity preflight;
 a different UID/firmware, unconfirmed CAN cleanup or a host/adapter problem
 stops instead. Nothing here can enable a motor.
 """
+
 import threading
 import uuid
 
@@ -22,22 +23,29 @@ RETRYABLE = frozenset({'incomplete_scans', 'motors_unresponsive'})
 def cleanup_confirmed(report, reference):
     """Both CAN links verified down, with no enable or write requested."""
     after = report.get('after', {})
-    return (report.get('asset_id') == reference['asset_id'] and report.get('enable_requested') is False
-            and report.get('parameter_writes_requested') is False and not report.get('cleanup_errors')
-            and set(after) == {m['bus'] for m in reference['motors']}
-            and all('UP' not in row.get('flags', ['UP']) for row in after.values()))
+    return (
+        report.get('asset_id') == reference['asset_id']
+        and report.get('enable_requested') is False
+        and report.get('parameter_writes_requested') is False
+        and not report.get('cleanup_errors')
+        and set(after) == {m['bus'] for m in reference['motors']}
+        and all('UP' not in row.get('flags', ['UP']) for row in after.values())
+    )
 
 
 def silent_motors(report, reference):
     """Motors that stopped answering after a clean shutdown; None if not a dropout."""
-    if (report.get('success') is not False or report.get('error_code') not in RETRYABLE
-            or not cleanup_confirmed(report, reference)):
+    if (
+        report.get('success') is not False
+        or report.get('error_code') not in RETRYABLE
+        or not cleanup_confirmed(report, reference)
+    ):
         return None
     return list(report.get('unresponsive') or []) or ['a motor (not identified)']
 
 
 class LiveLink:
-    def __init__(self, session, open_client, *, retry_delays=(2., 3., 5.)):
+    def __init__(self, session, open_client, *, retry_delays=(2.0, 3.0, 5.0)):
         if not retry_delays or any(delay <= 0 for delay in retry_delays):
             raise ValueError('Positive retry delays are required')
         self.session, self.open_client = session, open_client
@@ -58,12 +66,14 @@ class LiveLink:
             self._stop = threading.Event()
             self.reconnections = 0
             address = getattr(self.session, 'address', self.session.device['address'])
-            self._publish('connecting', f"Connecting to {address}: "
-                          'checking host, CAN adapters, services and all motor identities.')
+            self._publish(
+                'connecting',
+                f'Connecting to {address}: checking host, CAN adapters, services and all motor identities.',
+            )
             self._thread = threading.Thread(target=self._run, args=(self._stop,), daemon=True, name='helm-live-link')
             self._thread.start()
 
-    def disconnect(self, timeout=10.):
+    def disconnect(self, timeout=10.0):
         """Blocks until the reader confirms cleanup; call off the event loop."""
         with self._guard:
             thread, stop = self._thread, self._stop
@@ -88,11 +98,13 @@ class LiveLink:
                 def receive(frame):
                     received[0] += 1
                     self.session.on_frame(frame)
+
                 try:
                     final = client.stream(receive, stop)
                 except Exception as exc:
-                    raise RuntimeError(f'{exc}. Cleanup was not confirmed; the remote reader brings CAN down '
-                                       'when its heartbeat stops') from exc
+                    raise RuntimeError(
+                        f'{exc}. Cleanup was not confirmed; the remote reader brings CAN down when its heartbeat stops'
+                    ) from exc
                 self.last_report = final
                 save_json(self.session.evidence / f'link-{uuid.uuid4().hex[:8]}.json', final)
                 if received[0]:
@@ -112,8 +124,11 @@ class LiveLink:
                 delay = self.retry_delays[min(waits, len(self.retry_delays) - 1)]
                 waits += 1
                 names = ', '.join(silent)
-                self._publish('waiting', f'Not answering: {names}. Check its plug and power; power-cycling is '
-                              f'fine. Retrying in {delay:g} s (try {waits}). Sweep progress is kept.')
+                self._publish(
+                    'waiting',
+                    f'Not answering: {names}. Check its plug and power; power-cycling is '
+                    f'fine. Retrying in {delay:g} s (try {waits}). Sweep progress is kept.',
+                )
                 if stop.wait(delay):
                     self._publish('disconnected', 'Disconnected. CAN links are down.')
                     return

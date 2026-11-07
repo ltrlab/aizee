@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Reproduce the reviewed Linux gs_usb source; never build/install/load it."""
+
 import argparse
 import hashlib
 import json
@@ -38,14 +39,19 @@ def main():
     args.output.mkdir(parents=True)
     (args.output / 'gs_usb.c').write_bytes(data)
     for path in patches:
-        subprocess.run([patch, '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(path.resolve())],
-                       cwd=args.output, check=True, timeout=10)
+        subprocess.run(
+            [patch, '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(path.resolve())],
+            cwd=args.output,
+            check=True,
+            timeout=10,
+        )
     actual = hashlib.sha256((args.output / 'gs_usb.c').read_bytes()).hexdigest()
     if actual != manifest['files']['candidate-full/gs_usb.c']:
         parser.error('Patched source differs from reviewed candidate')
     (args.output / 'Makefile').write_text('obj-m += gs_usb.o\n')
-    print(json.dumps({'source_sha256': actual, 'output': str(args.output.resolve()),
-                      'built': False, 'installed': False}))
+    print(
+        json.dumps({'source_sha256': actual, 'output': str(args.output.resolve()), 'built': False, 'installed': False})
+    )
 
 
 if __name__ == '__main__':

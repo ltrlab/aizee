@@ -51,6 +51,7 @@ from python.training.sigreg import SIGReg
 # Predictor
 # ---------------------------------------------------------------------------
 
+
 class JEPAPredictor(nn.Module):
     """Transformer predictor: current image tokens → future image tokens.
 
@@ -99,6 +100,7 @@ class JEPAPredictor(nn.Module):
 # ---------------------------------------------------------------------------
 # Full ACT-JEPA policy
 # ---------------------------------------------------------------------------
+
 
 class ACTJEPAPolicy(ACTPolicy):
     """ACT + JEPA world-model objective.
@@ -209,7 +211,7 @@ class ACTJEPAPolicy(ACTPolicy):
         When future_images_gripper is None, falls back to the plain ACT loss
         with zero observation/sigreg losses (useful for warm-up / ablation).
         """
-        assert actions is not None, "actions required for training forward pass"
+        assert actions is not None, 'actions required for training forward pass'
 
         # === Image encoding (context) ===
         ctx_tokens = self._encode_images(images_gripper)  # [B, N, d_model]
@@ -231,9 +233,7 @@ class ACTJEPAPolicy(ACTPolicy):
         if future_images_gripper is not None:
             target_ctx = torch.no_grad() if self.target_no_grad else _NullCtx()
             with target_ctx:
-                future_tokens = self._encode_images(
-                    future_images_gripper
-                )  # [B, N, d_model]
+                future_tokens = self._encode_images(future_images_gripper)  # [B, N, d_model]
 
             pred_future = self.jepa_predictor(ctx_tokens)
             # Smooth-L1 in latent space; less sensitive to outlier tokens than L1
@@ -245,26 +245,25 @@ class ACTJEPAPolicy(ACTPolicy):
             obs_loss = ctx_tokens.sum() * 0.0
             reg_loss = ctx_tokens.sum() * 0.0
 
-        total = (
-            l1_loss
-            + self.kl_weight * kl_loss
-            + self.lambda_obs * obs_loss
-            + self.lambda_reg * reg_loss
-        )
+        total = l1_loss + self.kl_weight * kl_loss + self.lambda_obs * obs_loss + self.lambda_reg * reg_loss
 
         return {
-            "l1": l1_loss,
-            "kl": kl_loss,
-            "obs": obs_loss,
-            "reg": reg_loss,
-            "total": total,
+            'l1': l1_loss,
+            'kl': kl_loss,
+            'obs': obs_loss,
+            'reg': reg_loss,
+            'total': total,
         }
 
 
 class _NullCtx:
     """Trivial context manager used when target_no_grad is disabled."""
-    def __enter__(self): return self
-    def __exit__(self, *a): return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
-__all__ = ["ACTJEPAPolicy", "JEPAPredictor"]
+__all__ = ['ACTJEPAPolicy', 'JEPAPredictor']

@@ -20,6 +20,7 @@ labels.pdf (one exact-size page per label), and checks that every label decodes
 to its own ID with the stated corner geometry. Needs numpy, Pillow and
 OpenCV 4.7 or newer (cv2.aruco).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -101,7 +102,8 @@ def choose_geometry(media: Media, grid: int, cell: int | None) -> Geometry:
     if cell < 1 or (grid + 2) * cell > media.width_dots:
         raise SystemExit(
             f'{cell} dots per cell leaves no one-cell quiet zone across {media.width_dots} dots; '
-            f'the default is {largest}')
+            f'the default is {largest}'
+        )
     return Geometry(grid, cell, (media.width_dots - grid * cell) // 2)
 
 
@@ -112,7 +114,7 @@ def tag_image(family: str, tag_id: int, geo: Geometry) -> np.ndarray:
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for name in (('arialbd.ttf', 'DejaVuSans-Bold.ttf') if bold else ('arial.ttf', 'DejaVuSans.ttf')):
+    for name in ('arialbd.ttf', 'DejaVuSans-Bold.ttf') if bold else ('arial.ttf', 'DejaVuSans.ttf'):
         try:
             return ImageFont.truetype(name, size)
         except OSError:
@@ -134,9 +136,11 @@ def render_label(family: str, tag_id: int, media: Media, geo: Geometry) -> Image
     room = width - 2 * EDGE_DOTS
     title_size = max(18, min(40, round(width * 0.055)))
     body_size = max(16, min(30, round(width * 0.043)))
-    lines = [(f'ID {tag_id}  {FAMILIES[family]}', title_size, True),
-             (f'black square {geo.tag_mm:.2f} mm', body_size, False),
-             ('text end toward robot', body_size, False)]
+    lines = [
+        (f'ID {tag_id}  {FAMILIES[family]}', title_size, True),
+        (f'black square {geo.tag_mm:.2f} mm', body_size, False),
+        ('text end toward robot', body_size, False),
+    ]
     fonts = [fitted_font(text, size, room, bold) for text, size, bold in lines]
     advances = [round(size * 1.3) for _, size, _ in lines]
     text_w = math.ceil(max(f.getlength(text) for f, (text, _, _) in zip(fonts, lines)))
@@ -181,7 +185,7 @@ def check_label(label: Image.Image, family: str, tag_id: int, geo: Geometry) -> 
     if not np.array_equal(pixels[y0:y1, x0:x1], tag_image(family, tag_id, geo)):
         raise SystemExit(f'ID {tag_id}: the tag is not drawn dot for dot')
     q = geo.cell
-    ring = pixels[y0 - q:y1 + q, x0 - q:x1 + q].copy()
+    ring = pixels[y0 - q : y1 + q, x0 - q : x1 + q].copy()
     ring[q:-q, q:-q] = 255
     if ring.min() != 255:
         raise SystemExit(f'ID {tag_id}: the one-cell quiet zone is not white')
@@ -237,11 +241,15 @@ def main() -> int:
     print(f'media     {args.media}: {media.rolls}, {media.width_dots} printable dots across')
     print(f'family    {FAMILIES[args.family]}, {geo.grid} x {geo.grid} cells with the black border')
     print(f'cell      {geo.cell} dots = {geo.cell_mm:.3f} mm')
-    print(f'square    {geo.tag_dots} dots = {geo.tag_mm:.2f} mm black edge, quiet zone {geo.quiet} dots '
-          f'= {geo.quiet / geo.cell:.2f} cells at the sides')
+    print(
+        f'square    {geo.tag_dots} dots = {geo.tag_mm:.2f} mm black edge, quiet zone {geo.quiet} dots '
+        f'= {geo.quiet / geo.cell:.2f} cells at the sides'
+    )
     print(f'label     {w} x {h} dots = {w * MM_PER_DOT:.2f} x {h * MM_PER_DOT:.2f} mm')
-    print(f'head cam  fx {fx:.0f} px ({HEAD_CAMERA_HFOV_DEG:g} deg over {HEAD_CAMERA_WIDTH_PX} px), '
-          f'face-on px per cell: {per_cell}')
+    print(
+        f'head cam  fx {fx:.0f} px ({HEAD_CAMERA_HFOV_DEG:g} deg over {HEAD_CAMERA_WIDTH_PX} px), '
+        f'face-on px per cell: {per_cell}'
+    )
     print(f'wrote     {len(labels)} labels (IDs {", ".join(map(str, ids))}) to {out}')
     return 0
 

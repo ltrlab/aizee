@@ -82,59 +82,59 @@ using namespace ControlTableItem;
 
 // OpenRB-150 routes its on-board Dynamixel TTL transceiver to Serial1 and
 // drives the bus direction pin automatically when DXL_DIR_PIN = -1.
-#define DXL_SERIAL    Serial1
-#define DXL_DIR_PIN   -1
+#define DXL_SERIAL Serial1
+#define DXL_DIR_PIN -1
 
 #ifndef DXL_BAUD
-#define DXL_BAUD      1000000
+#define DXL_BAUD 1000000
 #endif
 
 #ifndef DXL_NUM_SERVOS
 #define DXL_NUM_SERVOS 7
 #endif
 
-static const float    DXL_PROTOCOL_VERSION = 2.0f;
-static const uint8_t  DXL_IDS[DXL_NUM_SERVOS] = {1, 2, 3, 4, 5, 6, 7};
+static const float DXL_PROTOCOL_VERSION = 2.0f;
+static const uint8_t DXL_IDS[DXL_NUM_SERVOS] = {1, 2, 3, 4, 5, 6, 7};
 
 // XL330 control-table addresses (Protocol 2.0).
 static const uint16_t ADDR_PRESENT_POSITION = 132;
-static const uint16_t LEN_PRESENT_POSITION  = 4;
-static const uint16_t ADDR_GOAL_CURRENT     = 102;
-static const uint16_t LEN_GOAL_CURRENT      = 2;
+static const uint16_t LEN_PRESENT_POSITION = 4;
+static const uint16_t ADDR_GOAL_CURRENT = 102;
+static const uint16_t LEN_GOAL_CURRENT = 2;
 
 // One-byte EEPROM/RAM items INFO and RETURN_DELAY read and write directly.
 static const uint16_t ADDR_FIRMWARE_VERSION = 6;
-static const uint16_t ADDR_RETURN_DELAY     = 9;
-static const uint16_t ADDR_TORQUE_ENABLE    = 64;
+static const uint16_t ADDR_RETURN_DELAY = 9;
+static const uint16_t ADDR_TORQUE_ENABLE = 64;
 
 // Reported by INFO. 2: continuous reads, cached replies, RETURN_DELAY, INFO.
 // 3: USB above the servo UART again, a watchdog, RESET_CAUSE.
-static const uint8_t  LEADER_FIRMWARE_VERSION = 3;
+static const uint8_t LEADER_FIRMWARE_VERSION = 3;
 // A poll with no newer sample is answered invalid once this many reads in a
 // row have failed (each failure costs at most SERVO_REPLY_TIMEOUT_MS).
-static const uint8_t  READ_FAIL_LIMIT       = 3;
+static const uint8_t READ_FAIL_LIMIT = 3;
 static const uint32_t SERVO_REPLY_TIMEOUT_MS = 3;
 // The joystick is read at most this often (it shares the loop with servo reads).
-static const uint32_t JOY_PERIOD_US         = 10000;
+static const uint32_t JOY_PERIOD_US = 10000;
 // An incomplete command payload is dropped after this long.
-static const uint32_t PAYLOAD_TIMEOUT_MS    = 100;   // as the old blocking waits
+static const uint32_t PAYLOAD_TIMEOUT_MS = 100; // as the old blocking waits
 
 // Wire protocol constants — must match python/teleop/openrb_leader.py.
-static const uint8_t  CMD_IDENT        = 0x50;
-static const uint8_t  CMD_POLL         = 0xA5;
-static const uint8_t  CMD_FRESH_POLL   = 0xA6;
-static const uint8_t  CMD_SCAN         = 0x53;
-static const uint8_t  CMD_REID         = 0x52;
-static const uint8_t  CMD_CENTER       = 0xC0;   // payload [id]; one servo to 2048
-static const uint8_t  CMD_FF_CURRENT   = 0xCC;   // payload [N][int16 LE * N][crc8]
-static const uint8_t  CMD_INFO         = 0x49;
-static const uint8_t  CMD_RETURN_DELAY = 0x44;   // payload [value][crc8]
-static const uint8_t  CMD_RESET_CAUSE  = 0x57;
-static const uint8_t  REPLY_POLL_HDR   = 0xA5;
-static const uint8_t  REPLY_SCAN_HDR   = 0x53;
-static const uint8_t  REPLY_REID_HDR   = 0x52;
-static const uint8_t  REPLY_CENTER_HDR = 0xC0;
-static const char     IDENT_STR[]      = "AIZEE-OPENRB-LEADER";
+static const uint8_t CMD_IDENT = 0x50;
+static const uint8_t CMD_POLL = 0xA5;
+static const uint8_t CMD_FRESH_POLL = 0xA6;
+static const uint8_t CMD_SCAN = 0x53;
+static const uint8_t CMD_REID = 0x52;
+static const uint8_t CMD_CENTER = 0xC0;     // payload [id]; one servo to 2048
+static const uint8_t CMD_FF_CURRENT = 0xCC; // payload [N][int16 LE * N][crc8]
+static const uint8_t CMD_INFO = 0x49;
+static const uint8_t CMD_RETURN_DELAY = 0x44; // payload [value][crc8]
+static const uint8_t CMD_RESET_CAUSE = 0x57;
+static const uint8_t REPLY_POLL_HDR = 0xA5;
+static const uint8_t REPLY_SCAN_HDR = 0x53;
+static const uint8_t REPLY_REID_HDR = 0x52;
+static const uint8_t REPLY_CENTER_HDR = 0xC0;
+static const char IDENT_STR[] = "AIZEE-OPENRB-LEADER";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Force-feedback (current-control) mode
@@ -153,55 +153,55 @@ static const char     IDENT_STR[]      = "AIZEE-OPENRB-LEADER";
 // external 5V supply on the OpenRB rail.
 //
 // XL330-M077-T Goal_Current unit is 1 mA / lsb.
-static const int16_t  MAX_FF_CURRENT_MA      = 200;   // hard cap per servo
-static const int16_t  FF_DISABLE_SENTINEL    = INT16_MIN; // "torque off this slot"
-static const uint32_t FF_WATCHDOG_ZERO_MS    = 200;   // stale -> goal=0 (still energised)
+static const int16_t MAX_FF_CURRENT_MA = 200;         // hard cap per servo
+static const int16_t FF_DISABLE_SENTINEL = INT16_MIN; // "torque off this slot"
+static const uint32_t FF_WATCHDOG_ZERO_MS = 200;      // stale -> goal=0 (still energised)
 static const uint32_t FF_WATCHDOG_DISABLE_MS = 1000;  // very stale -> torque off entirely
 
 // Per-slot FF state.
-static bool     ff_active[DXL_NUM_SERVOS] = {false};
-static uint32_t ff_last_update_ms         = 0;
-static bool     ff_zeroed                 = false;   // currents have been zeroed by watchdog stage 1
-static bool     ff_disabled               = true;    // post-boot state: no servo in current-control mode
+static bool ff_active[DXL_NUM_SERVOS] = {false};
+static uint32_t ff_last_update_ms = 0;
+static bool ff_zeroed = false;  // currents have been zeroed by watchdog stage 1
+static bool ff_disabled = true; // post-boot state: no servo in current-control mode
 // The latest CMD_FF_CURRENT, applied between servo reads (ff_apply).
-static int16_t  ff_target[DXL_NUM_SERVOS];
-static bool     ff_pending                = false;
+static int16_t ff_target[DXL_NUM_SERVOS];
+static bool ff_pending = false;
 // Goal currents go out in one Sync Write (no status replies) for the active slots.
-static uint8_t                         ff_current_le[DXL_NUM_SERVOS][LEN_GOAL_CURRENT];
-static uint8_t                         sw_pkt_buf[64];
-static DYNAMIXEL::InfoSyncWriteInst_t  sw_infos;
-static DYNAMIXEL::XELInfoSyncWrite_t   sw_xels[DXL_NUM_SERVOS];
+static uint8_t ff_current_le[DXL_NUM_SERVOS][LEN_GOAL_CURRENT];
+static uint8_t sw_pkt_buf[64];
+static DYNAMIXEL::InfoSyncWriteInst_t sw_infos;
+static DYNAMIXEL::XELInfoSyncWrite_t sw_xels[DXL_NUM_SERVOS];
 
 // REID status codes.
-static const uint8_t  STAT_OK            = 0x00;
-static const uint8_t  STAT_NOT_FOUND     = 0x01;
-static const uint8_t  STAT_AMBIGUOUS     = 0x02;
-static const uint8_t  STAT_WRITE_FAILED  = 0x03;   // setID failed
-static const uint8_t  STAT_BAUD_FAILED   = 0x04;   // setBaudrate failed
-static const uint8_t  STAT_VERIFY_FAILED = 0x05;   // post-write ping failed
+static const uint8_t STAT_OK = 0x00;
+static const uint8_t STAT_NOT_FOUND = 0x01;
+static const uint8_t STAT_AMBIGUOUS = 0x02;
+static const uint8_t STAT_WRITE_FAILED = 0x03;  // setID failed
+static const uint8_t STAT_BAUD_FAILED = 0x04;   // setBaudrate failed
+static const uint8_t STAT_VERIFY_FAILED = 0x05; // post-write ping failed
 
 // CENTER status codes.
-static const uint8_t  CENTER_OK        = 0x00;
-static const uint8_t  CENTER_NOT_FOUND = 0x01;
-static const uint8_t  CENTER_TIMEOUT   = 0x02;   // didn't reach target before deadline
-static const uint8_t  CENTER_FAILED    = 0x03;   // a write failed (mode/torque)
+static const uint8_t CENTER_OK = 0x00;
+static const uint8_t CENTER_NOT_FOUND = 0x01;
+static const uint8_t CENTER_TIMEOUT = 0x02; // didn't reach target before deadline
+static const uint8_t CENTER_FAILED = 0x03;  // a write failed (mode/torque)
 
 // Centering parameters.  Profile velocity in raw XL330 units (0.229 rpm/lsb)
 // — 60 ≈ 14 rpm ≈ 84°/s at the output shaft.  Profile acceleration in raw
 // units (214.577 rev/min² / lsb) — 10 gives smooth ramp without inrush.
-static const int32_t  CENTER_GOAL          = 2048;   // encoder centre
-static const int32_t  CENTER_TOLERANCE     = 20;     // ticks (~1.7°) considered "at centre"
-static const int32_t  CENTER_TOLERANCE_MAX = 60;     // ticks accepted as OK on timeout
-static const uint32_t CENTER_TIMEOUT_MS    = 4000;
-static const int32_t  CENTER_PROFILE_VEL   = 60;
-static const int32_t  CENTER_PROFILE_ACC   = 10;
+static const int32_t CENTER_GOAL = 2048;        // encoder centre
+static const int32_t CENTER_TOLERANCE = 20;     // ticks (~1.7°) considered "at centre"
+static const int32_t CENTER_TOLERANCE_MAX = 60; // ticks accepted as OK on timeout
+static const uint32_t CENTER_TIMEOUT_MS = 4000;
+static const int32_t CENTER_PROFILE_VEL = 60;
+static const int32_t CENTER_PROFILE_ACC = 10;
 
 // Baud rates we sweep during scan/reid, in priority order.  baud_code is the
 // index here.  Keep 1Mbps first so a freshly-configured bus is fastest.
-static const uint32_t BAUDS[]      = {1000000, 57600, 115200, 2000000};
-static const uint8_t  N_BAUDS      = sizeof(BAUDS) / sizeof(BAUDS[0]);
-static const uint32_t TARGET_BAUD  = 1000000;
-static const uint8_t  TARGET_BAUD_CODE = 0;
+static const uint32_t BAUDS[] = {1000000, 57600, 115200, 2000000};
+static const uint8_t N_BAUDS = sizeof(BAUDS) / sizeof(BAUDS[0]);
+static const uint32_t TARGET_BAUD = 1000000;
+static const uint8_t TARGET_BAUD_CODE = 0;
 
 Dynamixel2Arduino dxl(DXL_SERIAL, DXL_DIR_PIN);
 
@@ -225,9 +225,9 @@ Dynamixel2Arduino dxl(DXL_SERIAL, DXL_DIR_PIN);
 // blocks waiting for the I2C device — if it's not there, we just ship neutral
 // values forever.
 // ─────────────────────────────────────────────────────────────────────────────
-static const uint8_t  JOY_I2C_ADDR              = 0x63;
-static const uint8_t  JOY_REG_OFFSET_12B        = 0x50;
-static const uint8_t  JOY_REG_BUTTON            = 0x20;
+static const uint8_t JOY_I2C_ADDR = 0x63;
+static const uint8_t JOY_REG_OFFSET_12B = 0x50;
+static const uint8_t JOY_REG_BUTTON = 0x20;
 // 100 kHz (standard mode) instead of 400 kHz fast mode.  At 400 kHz the bus
 // was NACKing intermittently during heavy leader-arm motion — the DXL TTL
 // bus is on adjacent header pins and the backdriven XL330 servos couple
@@ -235,20 +235,20 @@ static const uint8_t  JOY_REG_BUTTON            = 0x20;
 // bit setup/hold times and is much more tolerant of that environment, at
 // a cost of ~340 µs more per joy_poll (still negligible vs the dominant
 // DXL sync-read time).
-static const uint32_t JOY_I2C_CLOCK             = 100000UL;
+static const uint32_t JOY_I2C_CLOCK = 100000UL;
 
 // joy_status byte (1 byte appended to POLL reply, after button):
 //   0x00  ok — values are live
 //   0x01  not present — Wire ping returned no ACK at startup
 //   0x02  read error — last I2C read failed
-static const uint8_t  JOY_STATUS_OK            = 0x00;
-static const uint8_t  JOY_STATUS_NOT_PRESENT   = 0x01;
-static const uint8_t  JOY_STATUS_READ_ERROR    = 0x02;
+static const uint8_t JOY_STATUS_OK = 0x00;
+static const uint8_t JOY_STATUS_NOT_PRESENT = 0x01;
+static const uint8_t JOY_STATUS_READ_ERROR = 0x02;
 
-static int16_t joy_x       = 0;
-static int16_t joy_y       = 0;
-static uint8_t joy_button  = 1;     // 1 = released (matches M5 register convention)
-static uint8_t joy_status  = JOY_STATUS_NOT_PRESENT;
+static int16_t joy_x = 0;
+static int16_t joy_y = 0;
+static uint8_t joy_button = 1; // 1 = released (matches M5 register convention)
+static uint8_t joy_status = JOY_STATUS_NOT_PRESENT;
 
 // Recovery state.  When the I2C controller gets wedged (NACK loop, stuck
 // slave, or clock-stretch hang) endTransmission keeps returning non-zero
@@ -257,8 +257,8 @@ static uint8_t joy_status  = JOY_STATUS_NOT_PRESENT;
 // down the SERCOM and re-init from scratch, which clears most stuck states.
 // Recovery itself is logged via joy_status_recoveries (firmware-internal
 // counter, not on the wire) so we can characterise frequency over time.
-static const uint8_t  JOY_RECOVERY_THRESHOLD = 10;
-static uint8_t        joy_fail_streak        = 0;
+static const uint8_t JOY_RECOVERY_THRESHOLD = 10;
+static uint8_t joy_fail_streak = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SyncRead user packet (sized at compile time)
@@ -270,35 +270,35 @@ typedef struct __attribute__((packed)) {
 // 128 bytes is the size used by the Dynamixel2Arduino reference example —
 // covers 7 servos * (status overhead + 4 data bytes) with comfortable slack.
 static const uint16_t SR_PKT_CAP = 128;
-static uint8_t        sr_pkt_buf[SR_PKT_CAP];
+static uint8_t sr_pkt_buf[SR_PKT_CAP];
 
-static sr_data_t                       sr_data[DXL_NUM_SERVOS];
-static DYNAMIXEL::InfoSyncReadInst_t   sr_infos;
-static DYNAMIXEL::XELInfoSyncRead_t    sr_xels[DXL_NUM_SERVOS];
+static sr_data_t sr_data[DXL_NUM_SERVOS];
+static DYNAMIXEL::InfoSyncReadInst_t sr_infos;
+static DYNAMIXEL::XELInfoSyncRead_t sr_xels[DXL_NUM_SERVOS];
 
 // Last successful Present_Position per slot.  Sent unchanged when sync-read
 // fails so the host always gets a well-formed frame and can retry.  Seeded
 // to encoder centre for sane output before the first read succeeds.
 static int32_t last_pos[DXL_NUM_SERVOS] = {2048, 2048, 2048, 2048, 2048, 2048, 2048};
 static uint32_t position_sequence = 0;
-static uint64_t position_sample_us = 0;   // start of the read that produced last_pos
+static uint64_t position_sample_us = 0; // start of the read that produced last_pos
 
 // Continuous-read statistics (INFO) and the failure streak that invalidates replies.
 static uint32_t reads = 0, failed_reads = 0, last_read_us = 0, max_read_us = 0;
-static uint8_t  read_fail_streak = 0;
+static uint8_t read_fail_streak = 0;
 
 // A poll waits here until a newer complete read (or a failing one) can answer it.
-static bool     poll_pending = false;
-static bool     poll_with_freshness = false;
+static bool poll_pending = false;
+static bool poll_with_freshness = false;
 static uint32_t replied_sequence = 0;
 
 // Commands with a payload collect it without blocking the read loop.
-static uint8_t  cmd_code = 0;            // 0: waiting for a command byte
-static uint8_t  cmd_buf[2 * DXL_NUM_SERVOS + 2];
-static uint8_t  cmd_len = 0, cmd_need = 0;
+static uint8_t cmd_code = 0; // 0: waiting for a command byte
+static uint8_t cmd_buf[2 * DXL_NUM_SERVOS + 2];
+static uint8_t cmd_len = 0, cmd_need = 0;
 static uint32_t cmd_started_ms = 0;
-static uint32_t drain_until_ms = 0;      // after a malformed FF frame, drop bytes until then
-static bool     draining = false;
+static uint32_t drain_until_ms = 0; // after a malformed FF frame, drop bytes until then
+static bool draining = false;
 
 static uint64_t joy_due_us = 0;
 
@@ -319,7 +319,7 @@ static uint32_t current_bus_baud = DXL_BAUD;
 // ─────────────────────────────────────────────────────────────────────────────
 // CRC-8 (Dallas/Maxim, poly 0x31, seed 0x00) — matches Python _crc8()
 // ─────────────────────────────────────────────────────────────────────────────
-static uint8_t crc8(const uint8_t* data, size_t len) {
+static uint8_t crc8(const uint8_t *data, size_t len) {
     uint8_t crc = 0;
     for (size_t i = 0; i < len; ++i) {
         crc ^= data[i];
@@ -355,7 +355,7 @@ static void joy_init() {
 // One I2C transaction: write the start register, then read N bytes.  Returns
 // true on full success; partial reads (Wire.available() < n) are flagged as
 // failures so the host sees joy_status == READ_ERROR rather than stale zeros.
-static bool joy_read_bytes_once(uint8_t reg, uint8_t* buf, uint8_t n) {
+static bool joy_read_bytes_once(uint8_t reg, uint8_t *buf, uint8_t n) {
     Wire.beginTransmission(JOY_I2C_ADDR);
     Wire.write(reg);
     if (Wire.endTransmission(false) != 0) return false;
@@ -374,7 +374,7 @@ static bool joy_read_bytes_once(uint8_t reg, uint8_t* buf, uint8_t n) {
 // succeeds, so the host never sees the transient as a READ_ERROR.  Two
 // hard failures in a row still flag the error and feed the fail-streak
 // counter that triggers full bus recovery further upstream.
-static bool joy_read_bytes(uint8_t reg, uint8_t* buf, uint8_t n) {
+static bool joy_read_bytes(uint8_t reg, uint8_t *buf, uint8_t n) {
     if (joy_read_bytes_once(reg, buf, n)) return true;
     return joy_read_bytes_once(reg, buf, n);
 }
@@ -406,8 +406,7 @@ static void joy_poll() {
     if (joy_status == JOY_STATUS_NOT_PRESENT) return;
     uint8_t axes[4];
     uint8_t btn;
-    if (!joy_read_bytes(JOY_REG_OFFSET_12B, axes, 4) ||
-        !joy_read_bytes(JOY_REG_BUTTON, &btn, 1)) {
+    if (!joy_read_bytes(JOY_REG_OFFSET_12B, axes, 4) || !joy_read_bytes(JOY_REG_BUTTON, &btn, 1)) {
         joy_status = JOY_STATUS_READ_ERROR;
         if (joy_fail_streak < 255) joy_fail_streak++;
         if (joy_fail_streak >= JOY_RECOVERY_THRESHOLD) {
@@ -416,8 +415,8 @@ static void joy_poll() {
         return;
     }
     // Registers are little-endian int16, matching SAMD21's native order.
-    joy_x      = (int16_t)(axes[0] | (axes[1] << 8));
-    joy_y      = (int16_t)(axes[2] | (axes[3] << 8));
+    joy_x = (int16_t)(axes[0] | (axes[1] << 8));
+    joy_y = (int16_t)(axes[2] | (axes[3] << 8));
     joy_button = btn;
     joy_status = JOY_STATUS_OK;
     joy_fail_streak = 0;
@@ -438,7 +437,7 @@ static void joy_poll() {
 // Again after every Serial1 begin, which resets the UART's priority.
 static void prioritise_servo_uart() {
     NVIC_SetPriority(USB_IRQn, 0);
-    NVIC_SetPriority(SERCOM2_IRQn, 1);   // Serial1 (variant.cpp: sercom2)
+    NVIC_SetPriority(SERCOM2_IRQn, 1); // Serial1 (variant.cpp: sercom2)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -450,18 +449,21 @@ static void prioritise_servo_uart() {
 // the USB interrupt), so this covers it. RESET_CAUSE reports afterwards whether
 // the watchdog fired (0x20) or the board browned out (0x02/0x04). Generator 2
 // is the core's for the WDT (startup.c): the 32 kHz ultra-low-power oscillator.
-static uint8_t reset_cause = 0;   // PM->RCAUSE, read before anything else at boot
+static uint8_t reset_cause = 0; // PM->RCAUSE, read before anything else at boot
 
 static void watchdog_start() {
-    GCLK->GENDIV.reg = GCLK_GENDIV_ID(2) | GCLK_GENDIV_DIV(4);   // 2^(4+1) = 32: 1.024 kHz
+    GCLK->GENDIV.reg = GCLK_GENDIV_ID(2) | GCLK_GENDIV_DIV(4); // 2^(4+1) = 32: 1.024 kHz
     GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(2) | GCLK_GENCTRL_GENEN | GCLK_GENCTRL_SRC_OSCULP32K | GCLK_GENCTRL_DIVSEL;
-    while (GCLK->STATUS.bit.SYNCBUSY) {}
+    while (GCLK->STATUS.bit.SYNCBUSY) {
+    }
     GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK2;
-    WDT->CTRL.reg = 0;                       // configured while disabled
-    while (WDT->STATUS.bit.SYNCBUSY) {}
-    WDT->CONFIG.reg = WDT_CONFIG_PER_1K;     // 1024 cycles: 1 s
+    WDT->CTRL.reg = 0; // configured while disabled
+    while (WDT->STATUS.bit.SYNCBUSY) {
+    }
+    WDT->CONFIG.reg = WDT_CONFIG_PER_1K; // 1024 cycles: 1 s
     WDT->CTRL.reg = WDT_CTRL_ENABLE;
-    while (WDT->STATUS.bit.SYNCBUSY) {}
+    while (WDT->STATUS.bit.SYNCBUSY) {
+    }
 }
 
 static void watchdog_feed() {
@@ -481,7 +483,7 @@ static void switch_bus_baud(uint32_t baud) {
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
     prioritise_servo_uart();
     current_bus_baud = baud;
-    delay(2);   // give the bus a beat to settle before next transaction
+    delay(2); // give the bus a beat to settle before next transaction
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -489,7 +491,7 @@ static void switch_bus_baud(uint32_t baud) {
 // ─────────────────────────────────────────────────────────────────────────────
 void setup() {
     reset_cause = PM->RCAUSE.reg;
-    Serial.begin(1000000);   // USB-CDC: baud is informational only
+    Serial.begin(1000000); // USB-CDC: baud is informational only
 
     // Bring up the Dynamixel bus at TARGET_BAUD.  Servos still on their
     // factory baud will simply not respond until openrb_setup_arm.py is run.
@@ -508,18 +510,18 @@ void setup() {
     }
 
     // Configure SyncRead packet: read Present_Position (4 bytes) from all IDs.
-    sr_infos.packet.p_buf        = sr_pkt_buf;
+    sr_infos.packet.p_buf = sr_pkt_buf;
     sr_infos.packet.buf_capacity = SR_PKT_CAP;
     sr_infos.packet.is_completed = false;
-    sr_infos.addr                = ADDR_PRESENT_POSITION;
-    sr_infos.addr_length         = LEN_PRESENT_POSITION;
-    sr_infos.p_xels              = sr_xels;
-    sr_infos.xel_count           = DXL_NUM_SERVOS;
-    sr_infos.is_info_changed     = true;
+    sr_infos.addr = ADDR_PRESENT_POSITION;
+    sr_infos.addr_length = LEN_PRESENT_POSITION;
+    sr_infos.p_xels = sr_xels;
+    sr_infos.xel_count = DXL_NUM_SERVOS;
+    sr_infos.is_info_changed = true;
 
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
-        sr_xels[i].id         = DXL_IDS[i];
-        sr_xels[i].p_recv_buf = (uint8_t*)&sr_data[i];
+        sr_xels[i].id = DXL_IDS[i];
+        sr_xels[i].p_recv_buf = (uint8_t *)&sr_data[i];
     }
 
     // Optional M5 Joystick2 on the I2C bus (see header comment for wiring).
@@ -529,14 +531,14 @@ void setup() {
     joy_init();
 
     // Goal-current Sync Write: rebuilt for the active slots on every write.
-    sw_infos.packet.p_buf        = sw_pkt_buf;
+    sw_infos.packet.p_buf = sw_pkt_buf;
     sw_infos.packet.buf_capacity = sizeof(sw_pkt_buf);
     sw_infos.packet.is_completed = false;
-    sw_infos.addr                = ADDR_GOAL_CURRENT;
-    sw_infos.addr_length         = LEN_GOAL_CURRENT;
-    sw_infos.p_xels              = sw_xels;
-    sw_infos.xel_count           = 0;
-    sw_infos.is_info_changed     = true;
+    sw_infos.addr = ADDR_GOAL_CURRENT;
+    sw_infos.addr_length = LEN_GOAL_CURRENT;
+    sw_infos.p_xels = sw_xels;
+    sw_infos.xel_count = 0;
+    sw_infos.is_info_changed = true;
 
     // Last: a setup that never finishes is not reset over and over.
     watchdog_start();
@@ -546,7 +548,7 @@ void setup() {
 // Frame handlers
 // ─────────────────────────────────────────────────────────────────────────────
 static void send_ident() {
-    Serial.write((const uint8_t*)IDENT_STR, sizeof(IDENT_STR) - 1);
+    Serial.write((const uint8_t *)IDENT_STR, sizeof(IDENT_STR) - 1);
     Serial.write('\n');
     Serial.flush();
 }
@@ -599,15 +601,15 @@ static void send_poll_reply(bool with_freshness, bool valid) {
     frame[1] = DXL_NUM_SERVOS;
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
         int32_t v = last_pos[i];
-        frame[2 + i * 4 + 0] = (uint8_t)(v       & 0xFF);
-        frame[2 + i * 4 + 1] = (uint8_t)((v >> 8)  & 0xFF);
+        frame[2 + i * 4 + 0] = (uint8_t)(v & 0xFF);
+        frame[2 + i * 4 + 1] = (uint8_t)((v >> 8) & 0xFF);
         frame[2 + i * 4 + 2] = (uint8_t)((v >> 16) & 0xFF);
         frame[2 + i * 4 + 3] = (uint8_t)((v >> 24) & 0xFF);
     }
     uint8_t off = 2 + DXL_NUM_SERVOS * 4;
-    frame[off + 0] = (uint8_t)( joy_x       & 0xFF);
+    frame[off + 0] = (uint8_t)(joy_x & 0xFF);
     frame[off + 1] = (uint8_t)((joy_x >> 8) & 0xFF);
-    frame[off + 2] = (uint8_t)( joy_y       & 0xFF);
+    frame[off + 2] = (uint8_t)(joy_y & 0xFF);
     frame[off + 3] = (uint8_t)((joy_y >> 8) & 0xFF);
     frame[off + 4] = joy_button;
     frame[off + 5] = joy_status;
@@ -704,8 +706,8 @@ static void handle_return_delay(uint8_t value) {
 //
 // Reply: [0x53][N][(id, baud_code) * N][crc8]
 static void send_scan_reply() {
-    uint8_t found_ids   [N_BAUDS * 16];
-    uint8_t found_codes [N_BAUDS * 16];
+    uint8_t found_ids[N_BAUDS * 16];
+    uint8_t found_codes[N_BAUDS * 16];
     uint8_t n_found = 0;
 
     for (uint8_t bi = 0; bi < N_BAUDS; ++bi) {
@@ -716,7 +718,7 @@ static void send_scan_reply() {
         // sequentially without making the scan feel sluggish.
         uint8_t count = dxl.ping(DXL_BROADCAST_ID, resp_ids, sizeof(resp_ids), 50);
         for (uint8_t i = 0; i < count && n_found < sizeof(found_ids); ++i) {
-            found_ids  [n_found] = resp_ids[i];
+            found_ids[n_found] = resp_ids[i];
             found_codes[n_found] = bi;
             n_found++;
         }
@@ -726,12 +728,12 @@ static void send_scan_reply() {
 
     uint8_t frame[2 + 32 * 2 + 1];
     if ((size_t)(2 + n_found * 2 + 1) > sizeof(frame)) {
-        n_found = (sizeof(frame) - 3) / 2;   // clamp; pathological case
+        n_found = (sizeof(frame) - 3) / 2; // clamp; pathological case
     }
     frame[0] = REPLY_SCAN_HDR;
     frame[1] = n_found;
     for (uint8_t i = 0; i < n_found; ++i) {
-        frame[2 + i * 2 + 0] = found_ids  [i];
+        frame[2 + i * 2 + 0] = found_ids[i];
         frame[2 + i * 2 + 1] = found_codes[i];
     }
     size_t len = 2 + n_found * 2;
@@ -757,9 +759,9 @@ static void send_reid_reply(uint8_t status, uint8_t found_id, uint8_t found_code
 // Payload : [target_id]
 // Reply   : [0x52][status][found_id][baud_code][crc8]
 static void handle_reid(uint8_t target_id) {
-    uint8_t found_id   = 0;
+    uint8_t found_id = 0;
     uint8_t found_code = 0xFF;
-    uint8_t status     = STAT_NOT_FOUND;
+    uint8_t status = STAT_NOT_FOUND;
 
     // Sweep baud rates looking for exactly one responder.  An ambiguous
     // result usually means the user forgot to unplug the previous servo.
@@ -771,7 +773,7 @@ static void handle_reid(uint8_t target_id) {
         uint8_t count = dxl.ping(DXL_BROADCAST_ID, resp_ids, sizeof(resp_ids), 50);
         for (uint8_t i = 0; i < count; ++i) {
             if (total_responders == 0) {
-                found_id   = resp_ids[i];
+                found_id = resp_ids[i];
                 found_code = bi;
             }
             total_responders++;
@@ -849,8 +851,8 @@ static void send_center_reply(uint8_t status, uint8_t id, int32_t pos) {
     frame[0] = REPLY_CENTER_HDR;
     frame[1] = status;
     frame[2] = id;
-    frame[3] = (uint8_t)( pos        & 0xFF);
-    frame[4] = (uint8_t)((pos >> 8)  & 0xFF);
+    frame[3] = (uint8_t)(pos & 0xFF);
+    frame[4] = (uint8_t)((pos >> 8) & 0xFF);
     frame[5] = (uint8_t)((pos >> 16) & 0xFF);
     frame[6] = (uint8_t)((pos >> 24) & 0xFF);
     frame[7] = crc8(frame, 7);
@@ -876,8 +878,8 @@ static void handle_center(uint8_t id) {
     // Operating mode + profile must be set with torque disabled.
     dxl.torqueOff(id);
     bool ok = true;
-    ok &= dxl.writeControlTableItem(OPERATING_MODE,     id, 3);   // position
-    ok &= dxl.writeControlTableItem(PROFILE_VELOCITY,   id, CENTER_PROFILE_VEL);
+    ok &= dxl.writeControlTableItem(OPERATING_MODE, id, 3); // position
+    ok &= dxl.writeControlTableItem(PROFILE_VELOCITY, id, CENTER_PROFILE_VEL);
     ok &= dxl.writeControlTableItem(PROFILE_ACCELERATION, id, CENTER_PROFILE_ACC);
     if (!ok) {
         send_center_reply(CENTER_FAILED, id, 0);
@@ -895,9 +897,9 @@ static void handle_center(uint8_t id) {
 
     // Poll position until at centre or timeout.
     uint32_t deadline = millis() + CENTER_TIMEOUT_MS;
-    int32_t  pos      = CENTER_GOAL;
+    int32_t pos = CENTER_GOAL;
     while ((int32_t)(millis() - deadline) < 0) {
-        watchdog_feed();   // Up to CENTER_TIMEOUT_MS here, longer than the watchdog's second.
+        watchdog_feed(); // Up to CENTER_TIMEOUT_MS here, longer than the watchdog's second.
         pos = dxl.readControlTableItem(PRESENT_POSITION, id);
         int32_t err = pos - CENTER_GOAL;
         if (err < 0) err = -err;
@@ -934,7 +936,7 @@ static bool ff_enable_slot(uint8_t i) {
     if (!dxl.ping(id)) return false;
     dxl.torqueOff(id);
     if (!dxl.writeControlTableItem(OPERATING_MODE, id, 0)) return false;
-    if (!dxl.writeControlTableItem(GOAL_CURRENT,   id, 0)) return false;
+    if (!dxl.writeControlTableItem(GOAL_CURRENT, id, 0)) return false;
     if (!dxl.torqueOn(id)) return false;
     ff_active[i] = true;
     return true;
@@ -955,7 +957,7 @@ static void ff_disable_slot(uint8_t i) {
 static void ff_disable_all() {
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) ff_disable_slot(i);
     ff_disabled = true;
-    ff_zeroed   = false;
+    ff_zeroed = false;
 }
 
 // Accept a complete CMD_FF_CURRENT payload, collected by the parser after the
@@ -966,7 +968,7 @@ static void ff_disable_all() {
 // A bad crc is dropped silently (the watchdog eventually disables FF);
 // out-of-range currents are clamped before anything reaches a servo. The
 // targets are applied between servo reads (ff_apply).
-static void accept_ff_current(const uint8_t* payload) {
+static void accept_ff_current(const uint8_t *payload) {
     uint8_t crc_in[2 + 2 * DXL_NUM_SERVOS];
     crc_in[0] = CMD_FF_CURRENT;
     for (uint8_t i = 0; i < 1 + 2 * DXL_NUM_SERVOS; ++i) crc_in[1 + i] = payload[i];
@@ -974,14 +976,14 @@ static void accept_ff_current(const uint8_t* payload) {
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
         int16_t v = (int16_t)(payload[1 + i * 2] | (payload[2 + i * 2] << 8));
         if (v != FF_DISABLE_SENTINEL) {
-            if (v >  MAX_FF_CURRENT_MA) v =  MAX_FF_CURRENT_MA;
+            if (v > MAX_FF_CURRENT_MA) v = MAX_FF_CURRENT_MA;
             if (v < -MAX_FF_CURRENT_MA) v = -MAX_FF_CURRENT_MA;
         }
         ff_target[i] = v;
     }
     ff_pending = true;
     ff_last_update_ms = millis();
-    ff_zeroed   = false;
+    ff_zeroed = false;
     ff_disabled = false;
 }
 
@@ -994,13 +996,13 @@ static void ff_write_currents(bool zero) {
         const int16_t v = zero ? 0 : ff_target[i];
         ff_current_le[i][0] = (uint8_t)(v & 0xFF);
         ff_current_le[i][1] = (uint8_t)((v >> 8) & 0xFF);
-        sw_xels[n].id     = DXL_IDS[i];
+        sw_xels[n].id = DXL_IDS[i];
         sw_xels[n].p_data = ff_current_le[i];
         ++n;
     }
     if (n == 0) return;
-    sw_infos.xel_count       = n;
-    sw_infos.is_info_changed = true;   // The packet holds a copy of the data: rebuild it every time.
+    sw_infos.xel_count = n;
+    sw_infos.is_info_changed = true; // The packet holds a copy of the data: rebuild it every time.
     dxl.syncWrite(&sw_infos);
 }
 
@@ -1010,8 +1012,10 @@ static void ff_apply() {
     if (!ff_pending) return;
     ff_pending = false;
     for (uint8_t i = 0; i < DXL_NUM_SERVOS; ++i) {
-        if (ff_target[i] == FF_DISABLE_SENTINEL) ff_disable_slot(i);
-        else ff_enable_slot(i);   // A servo that does not answer stays out of the write.
+        if (ff_target[i] == FF_DISABLE_SENTINEL)
+            ff_disable_slot(i);
+        else
+            ff_enable_slot(i); // A servo that does not answer stays out of the write.
     }
     ff_write_currents(false);
 }
@@ -1030,7 +1034,7 @@ static void ff_watchdog_tick() {
         return;
     }
     if (age >= FF_WATCHDOG_ZERO_MS && !ff_zeroed) {
-        ff_pending = false;   // Stale targets are never applied after the zeroing.
+        ff_pending = false; // Stale targets are never applied after the zeroing.
         ff_write_currents(true);
         ff_zeroed = true;
     }
@@ -1043,34 +1047,59 @@ static void ff_watchdog_tick() {
 // Payload bytes each command takes after its command byte.
 static uint8_t payload_length(uint8_t code) {
     switch (code) {
-        case CMD_REID:
-        case CMD_CENTER:       return 1;
-        case CMD_RETURN_DELAY: return 2;
-        case CMD_FF_CURRENT:   return 2 + 2 * DXL_NUM_SERVOS;
-        default:               return 0;
+    case CMD_REID:
+    case CMD_CENTER:
+        return 1;
+    case CMD_RETURN_DELAY:
+        return 2;
+    case CMD_FF_CURRENT:
+        return 2 + 2 * DXL_NUM_SERVOS;
+    default:
+        return 0;
     }
 }
 
-static void run_command(uint8_t code, const uint8_t* payload) {
+static void run_command(uint8_t code, const uint8_t *payload) {
     switch (code) {
-        case CMD_IDENT:      send_ident(); break;
-        case CMD_POLL:       poll_pending = true; poll_with_freshness = false; break;
-        case CMD_FRESH_POLL: poll_pending = true; poll_with_freshness = true;  break;
-        case CMD_SCAN:       send_scan_reply(); break;
-        case CMD_REID:       handle_reid(payload[0]); break;
-        case CMD_CENTER:     handle_center(payload[0]); break;
-        case CMD_INFO:       send_info(); break;
-        case CMD_RESET_CAUSE: send_reset_cause(); break;
-        case CMD_RETURN_DELAY: {
-            // A persistent servo write: only with a valid crc and no force feedback on.
-            const uint8_t check[] = {CMD_RETURN_DELAY, payload[0]};
-            if (payload[1] == crc8(check, sizeof(check)) && ff_disabled) handle_return_delay(payload[0]);
-            break;
-        }
-        // Fire-and-forget: no reply. The host owns the cadence; the watchdog the safe state.
-        case CMD_FF_CURRENT: accept_ff_current(payload); break;
-        // Unknown byte: dropped, so older firmware ignores newer commands instead of jamming.
-        default: break;
+    case CMD_IDENT:
+        send_ident();
+        break;
+    case CMD_POLL:
+        poll_pending = true;
+        poll_with_freshness = false;
+        break;
+    case CMD_FRESH_POLL:
+        poll_pending = true;
+        poll_with_freshness = true;
+        break;
+    case CMD_SCAN:
+        send_scan_reply();
+        break;
+    case CMD_REID:
+        handle_reid(payload[0]);
+        break;
+    case CMD_CENTER:
+        handle_center(payload[0]);
+        break;
+    case CMD_INFO:
+        send_info();
+        break;
+    case CMD_RESET_CAUSE:
+        send_reset_cause();
+        break;
+    case CMD_RETURN_DELAY: {
+        // A persistent servo write: only with a valid crc and no force feedback on.
+        const uint8_t check[] = {CMD_RETURN_DELAY, payload[0]};
+        if (payload[1] == crc8(check, sizeof(check)) && ff_disabled) handle_return_delay(payload[0]);
+        break;
+    }
+    // Fire-and-forget: no reply. The host owns the cadence; the watchdog the safe state.
+    case CMD_FF_CURRENT:
+        accept_ff_current(payload);
+        break;
+    // Unknown byte: dropped, so older firmware ignores newer commands instead of jamming.
+    default:
+        break;
     }
 }
 
@@ -1081,8 +1110,10 @@ static void service_host() {
     if (cmd_code != 0 && millis() - cmd_started_ms > PAYLOAD_TIMEOUT_MS) {
         // Its payload never came: setup tools get the same failure reply as
         // before, and nothing is written to a servo.
-        if (cmd_code == CMD_CENTER) send_center_reply(CENTER_NOT_FOUND, 0xFF, 0);
-        else if (cmd_code == CMD_REID) send_reid_reply(STAT_NOT_FOUND, 0, 0xFF);
+        if (cmd_code == CMD_CENTER)
+            send_center_reply(CENTER_NOT_FOUND, 0xFF, 0);
+        else if (cmd_code == CMD_REID)
+            send_reid_reply(STAT_NOT_FOUND, 0, 0xFF);
         cmd_code = 0;
     }
     while (Serial.available() > 0) {

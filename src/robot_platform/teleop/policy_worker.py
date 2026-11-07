@@ -16,6 +16,7 @@ its stdin and stdout: Helm's teleop loop on a PC runs in a daemonic process, whi
 Everything else the policy's libraries print goes to a log file, never to the frames or to an SSH stream nobody
 reads until the session ends.
 """
+
 import math
 import multiprocessing
 import os
@@ -29,11 +30,12 @@ import threading
 import time
 from types import SimpleNamespace
 
-LOAD_TIMEOUT_S = 180.  # Loading a checkpoint onto the Jetson's GPU takes tens of seconds the first time.
+LOAD_TIMEOUT_S = 180.0  # Loading a checkpoint onto the Jetson's GPU takes tens of seconds the first time.
 
 
 def _context(context):
     import numpy as np
+
     values = dict(context or {})
     for key in ('lower', 'upper', 'home'):
         if values.get(key) is not None:
@@ -46,10 +48,12 @@ def serve(conn, policy, names, context=None, cameras=None):
     answer ('observe', request, obs_time, state) messages until ('close',) or the pipe closes."""
     import numpy as np
     from robot_platform.control.scheduling import prefer_background
+
     prefer_background()
     try:
         if isinstance(policy, str):
             from robot_platform.evaluation.policies import load_policy
+
             policy = load_policy(policy)
         if hasattr(policy, 'reset'):
             policy.reset(_context(dict(context or {}, joint_names=tuple(names))))
@@ -65,8 +69,15 @@ def serve(conn, policy, names, context=None, cameras=None):
         conn.send({'error': f'{type(exc).__name__}: {exc}'})
         return
     name = getattr(policy, 'name', None) or type(policy).__name__
-    conn.send({'hello': 1, 'name': name, 'action_dt': action_dt, 'camera_roles': list(roles),
-               'describe': policy.describe() if hasattr(policy, 'describe') else None})
+    conn.send(
+        {
+            'hello': 1,
+            'name': name,
+            'action_dt': action_dt,
+            'camera_roles': list(roles),
+            'describe': policy.describe() if hasattr(policy, 'describe') else None,
+        }
+    )
     try:
         while True:
             try:
@@ -82,8 +93,7 @@ def serve(conn, policy, names, context=None, cameras=None):
                 if camera is not None:
                     observation['images'], observation['image_ages_s'] = camera.latest()
                 chunk = np.asarray(policy(observation), dtype=np.float64)
-                conn.send({'request': request, 'chunk': chunk,
-                           'inference_ms': (time.perf_counter() - started) * 1000})
+                conn.send({'request': request, 'chunk': chunk, 'inference_ms': (time.perf_counter() - started) * 1000})
             except Exception as exc:  # noqa: BLE001 - one failed answer; the loop asks again or holds.
                 conn.send({'request': request, 'error': f'{type(exc).__name__}: {exc}'})
     finally:
@@ -100,6 +110,7 @@ class CaptureCameras:
 
     def __init__(self, config, *, context_factory=None, clock=time.monotonic, wall_clock=time.time):
         from robot_platform.helm.task_capture import validate_config
+
         self.config = validate_config(config)
         self.context_factory, self.clock, self.wall_clock = context_factory, clock, wall_clock
 
@@ -114,6 +125,7 @@ class _CameraReader:
     def __init__(self, cameras, roles):
         import zmq
         from robot_platform.helm.task_capture import CameraCache
+
         self.cameras, self.roles = cameras, roles
         self._cache, self._lock, self._stop = CameraCache(cameras.config), threading.Lock(), threading.Event()
         self._context = (cameras.context_factory or zmq.Context)()
@@ -131,6 +143,7 @@ class _CameraReader:
 
     def _run(self):
         import zmq
+
         poller = zmq.Poller()
         for socket in self._sockets.values():
             poller.register(socket, zmq.POLLIN)
@@ -146,22 +159,30 @@ class _CameraReader:
                         break
                     received = self.cameras.clock()
                     with self._lock:
-                        self._cache.ingest(name, parts, received_at=received, wall_time=self.cameras.wall_clock(),
-                                           mapped_at=self.cameras.clock())
+                        self._cache.ingest(
+                            name,
+                            parts,
+                            received_at=received,
+                            wall_time=self.cameras.wall_clock(),
+                            mapped_at=self.cameras.clock(),
+                        )
 
     def latest(self):
         """({role: (H, W, 3) uint8 as recorded}, {role: age in s}); a ValueError without a fresh coherent set."""
         from robot_platform.helm.task_capture import recording_images
+
         now = self.cameras.clock()
         with self._lock:
             frames = self._cache.select(now)
         images, _ = recording_images(frames, self.cameras.config.get('recording_image_size'))
-        return ({role: images[role] for role in self.roles},
-                {role: round(now - frames[role]['sampled_at'], 4) for role in self.roles})
+        return (
+            {role: images[role] for role in self.roles},
+            {role: round(now - frames[role]['sampled_at'], 4) for role in self.roles},
+        )
 
     def close(self):
         self._stop.set()
-        self._thread.join(2.)
+        self._thread.join(2.0)
         for socket in self._sockets.values():
             socket.close(0)
         self._context.term()
@@ -218,7 +239,7 @@ class _ProcessEnd:
         with self._lock:
             _write_frame(self.process.stdin, message)
 
-    def poll(self, timeout=0.):
+    def poll(self, timeout=0.0):
         if not self._inbox.empty():
             return True
         if timeout <= 0:
@@ -260,8 +281,12 @@ class PolicyWorker:
             return
         self.log_path = Path(tempfile.gettempdir()) / f'minerva-policy-{os.getpid()}-{time.time_ns()}.log'
         self._log = open(self.log_path, 'wb')
-        self.process = subprocess.Popen([python or sys.executable, '-u', '-m', 'robot_platform.teleop.policy_worker'],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log)
+        self.process = subprocess.Popen(
+            [python or sys.executable, '-u', '-m', 'robot_platform.teleop.policy_worker'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._log,
+        )
         self._conn = _ProcessEnd(self.process)
         self._conn.send(args)
 
@@ -279,7 +304,7 @@ class PolicyWorker:
             except EOFError:
                 raise RuntimeError(f'The policy process ended while loading{self._log_tail()}') from None
             if 'error' in hello:
-                raise RuntimeError(f"The policy could not start: {hello['error']}")
+                raise RuntimeError(f'The policy could not start: {hello["error"]}')
             self.info = hello
         return self.info
 
@@ -305,7 +330,7 @@ class PolicyWorker:
             replies.append({'request': None, 'error': 'The policy process ended'})
         return replies
 
-    def close(self, timeout=5.):
+    def close(self, timeout=5.0):
         try:
             self._conn.send(('close',))
         except (OSError, ValueError, BrokenPipeError):

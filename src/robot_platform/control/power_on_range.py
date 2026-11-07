@@ -10,6 +10,7 @@ power-up, so a power cycle and a stopped scan (Minerva Check) verify it.
 
     python3 -m robot_platform.control.power_on_range --confirm   (on the robot, from the active release)
 """
+
 import argparse
 import json
 import math
@@ -25,12 +26,14 @@ POSITION = 0x7019
 
 def power_on_exchange(exchange):
     """The session's exchange, limited to stopped reads, the fixed power-on range write and the save."""
+
     def call(bus, frame, kind, parameter):
         if kind not in {'identity', 'stop', 'version', 'read', 'power_on_range', 'save'}:
             raise ValueError('The power-on range permits its one write and the save only')
         if kind == 'read' and parameter not in {0x7005, POSITION, POWER_ON_RANGE}:
             raise ValueError('Parameter is not allowlisted')
         return exchange(bus, frame, kind, parameter)
+
     return call
 
 
@@ -39,15 +42,20 @@ def set_power_on_range(reader, motors, result, *, checkpoint=lambda: None, sleep
     rows = result['motors'] = []
     try:
         for motor in motors:  # Every drive answers before any is written.
-            rows.append({'name': motor['name'], 'zero_sta_before': reader.request(motor, 'read', POWER_ON_RANGE),
-                         'position_before_rad': reader.request(motor, 'read', POSITION)})
+            rows.append(
+                {
+                    'name': motor['name'],
+                    'zero_sta_before': reader.request(motor, 'read', POWER_ON_RANGE),
+                    'position_before_rad': reader.request(motor, 'read', POSITION),
+                }
+            )
         checkpoint()
         for motor, row in zip(motors, rows):
             if row['zero_sta_before'] == 1:
                 row['already_set'] = True
                 continue
             if row['zero_sta_before'] != 0:
-                raise RuntimeError(f"{motor['name']}: zero_sta reads {row['zero_sta_before']}, neither 0 nor 1")
+                raise RuntimeError(f'{motor["name"]}: zero_sta reads {row["zero_sta_before"]}, neither 0 nor 1')
             row['write_requested'] = True
             checkpoint()
             try:
@@ -56,8 +64,9 @@ def set_power_on_range(reader, motors, result, *, checkpoint=lambda: None, sleep
                 row['write_response_missing'] = True  # Its readback decides.
             row['zero_sta_written'] = reader.request(motor, 'read', POWER_ON_RANGE)
             if row['zero_sta_written'] != 1:
-                raise RuntimeError(f"{motor['name']}: zero_sta reads {row['zero_sta_written']} after the write; "
-                                   'nothing was saved')
+                raise RuntimeError(
+                    f'{motor["name"]}: zero_sta reads {row["zero_sta_written"]} after the write; nothing was saved'
+                )
             row['save_requested'] = True
             checkpoint()
             try:
@@ -65,15 +74,15 @@ def set_power_on_range(reader, motors, result, *, checkpoint=lambda: None, sleep
             except TimeoutError:
                 row['save_response_missing'] = True  # The power cycle shows whether it was kept.
             checkpoint()
-            sleep(.25)
+            sleep(0.25)
             row['zero_sta_after'] = reader.request(motor, 'read', POWER_ON_RANGE)
             row['position_after_rad'] = reader.request(motor, 'read', POSITION)
             change = row['position_after_rad'] - row['position_before_rad']
             # The drive may re-express its angle in the new window at once: a whole turn, and nothing else.
-            if min(abs(change), abs(abs(change) - 2 * math.pi)) > .01:
-                raise RuntimeError(f"{motor['name']}: its position changed by {change:+.4f} rad across the write")
+            if min(abs(change), abs(abs(change) - 2 * math.pi)) > 0.01:
+                raise RuntimeError(f'{motor["name"]}: its position changed by {change:+.4f} rad across the write')
             if row['zero_sta_after'] != 1:
-                raise RuntimeError(f"{motor['name']}: zero_sta reads {row['zero_sta_after']} after the save")
+                raise RuntimeError(f'{motor["name"]}: zero_sta reads {row["zero_sta_after"]} after the save')
         result['written'] = [row['name'] for row in rows if row.get('write_requested')]
         result['power_cycle_verified'] = False
     finally:
@@ -94,15 +103,17 @@ def main(argv=None):
     parser.add_argument('--confirm', action='store_true', help='write and save zero_sta 1 on every drive')
     args = parser.parse_args(argv)
     if not args.confirm:
-        parser.error('Writes each drive\'s flash: confirm with --confirm')
+        parser.error("Writes each drive's flash: confirm with --confirm")
     from robot_platform.ops.probe import EVIDENCE, identity
     from .joint_capture import run_capture
+
     # A dropped SSH session must not kill the run between CAN up and CAN down.
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     device, reference = identity()
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    path = EVIDENCE / f"power-on-range-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
+    path = EVIDENCE / f'power-on-range-{time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())}.json'
     with path.open('x', encoding='utf-8') as output:
+
         def save(result):
             output.seek(0)
             output.write(json.dumps(result, indent=1, allow_nan=False) + '\n')
@@ -111,17 +122,39 @@ def main(argv=None):
             os.fsync(output.fileno())
 
         def maintain(exchange, motors, result):
-            set_power_on_range(StoppedMaintenance(power_on_exchange(exchange)), motors, result,
-                               checkpoint=lambda: save(result))
+            set_power_on_range(
+                StoppedMaintenance(power_on_exchange(exchange)), motors, result, checkpoint=lambda: save(result)
+            )
 
         report = run_capture(device, reference, maintain=maintain)
         save(report)
-    print(json.dumps({'success': report.get('success'), 'error': report.get('error'), 'evidence': str(path),
-                      'written': report.get('written'),
-                      'motors': [{k: row.get(k) for k in ('name', 'zero_sta_before', 'zero_sta_after', 'already_set',
-                                                          'write_response_missing', 'save_response_missing',
-                                                          'position_before_rad', 'position_after_rad')}
-                                 for row in report.get('motors') or []]}, allow_nan=False))
+    print(
+        json.dumps(
+            {
+                'success': report.get('success'),
+                'error': report.get('error'),
+                'evidence': str(path),
+                'written': report.get('written'),
+                'motors': [
+                    {
+                        k: row.get(k)
+                        for k in (
+                            'name',
+                            'zero_sta_before',
+                            'zero_sta_after',
+                            'already_set',
+                            'write_response_missing',
+                            'save_response_missing',
+                            'position_before_rad',
+                            'position_after_rad',
+                        )
+                    }
+                    for row in report.get('motors') or []
+                ],
+            },
+            allow_nan=False,
+        )
+    )
     return 0 if report.get('success') else 1
 
 

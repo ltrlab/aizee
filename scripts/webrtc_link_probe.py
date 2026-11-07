@@ -12,6 +12,7 @@ A fixed rate is a tiny real H.264 stream padded with filler the decoder skips, s
 the rate is exact. What came through at each rate shows a cap: above it, more sent brings no more received. A pose gap
 over 100 ms is what would let an arm go (teleop/vr_arms.py), one over 250 ms what stops the head counting as tracked.
 """
+
 import argparse
 import asyncio
 import fractions
@@ -34,7 +35,7 @@ from webrtc_video import LinkEncoder, follow_loss, limit_resends, peer_connectio
 FPS = 10
 WIDTH, HEIGHT = 640, 480
 PAD_BPS = 100_000  # What the real picture gets; the filler makes up the stage's rate.
-GAP_LIMITS_S = {'over_100_ms': .1, 'over_250_ms': .25}
+GAP_LIMITS_S = {'over_100_ms': 0.1, 'over_250_ms': 0.25}
 
 PAGE = r"""<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Link probe</title>
@@ -153,6 +154,7 @@ $('start').onclick = async () => {
 
 class Picture(VideoStreamTrack):
     """A moving bar, `FPS` frames a second, none while the stage sends no video."""
+
     kind = 'video'
 
     def __init__(self, probe):
@@ -163,11 +165,11 @@ class Picture(VideoStreamTrack):
 
     async def recv(self):
         while not self.probe.sending:
-            await asyncio.sleep(.05)
+            await asyncio.sleep(0.05)
             self.at = None
         now = time.monotonic()
         self.at = now if self.at is None else self.at + 1 / FPS
-        await asyncio.sleep(max(0., self.at - now))
+        await asyncio.sleep(max(0.0, self.at - now))
         self.count += 1
         frame = av.VideoFrame(WIDTH, HEIGHT, 'yuv420p')
         at = self.count * 8 % WIDTH
@@ -183,9 +185,13 @@ class Picture(VideoStreamTrack):
 def gaps(arrivals, sequences, sent):
     """The poses that came, and the waits between them."""
     waits = [b - a for a, b in zip(arrivals, arrivals[1:])]
-    out = {'sent': sent, 'received': len(arrivals), 'out_of_order': sum(b < a for a, b in zip(sequences, sequences[1:])),
-           'median_ms': statistics.median(waits) * 1000 if waits else None,
-           'worst_ms': max(waits) * 1000 if waits else None}
+    out = {
+        'sent': sent,
+        'received': len(arrivals),
+        'out_of_order': sum(b < a for a, b in zip(sequences, sequences[1:])),
+        'median_ms': statistics.median(waits) * 1000 if waits else None,
+        'worst_ms': max(waits) * 1000 if waits else None,
+    }
     out.update({key: sum(wait > limit for wait in waits) for key, limit in GAP_LIMITS_S.items()})
     return out
 
@@ -267,7 +273,7 @@ class Probe:
         if adaptive:
             self.fixed, self.rate.minimum, self.rate.maximum = None, 120_000, 8_000_000
             if self.rate.allowed > 500_000:
-                self.rate.allowed = 500_000.
+                self.rate.allowed = 500_000.0
             self.rate.estimated = None
         elif rate:
             self.fixed = rate
@@ -280,9 +286,13 @@ class Probe:
 
     async def stage_end(self, request):
         data = await request.json()
-        return web.json_response({'poses': gaps(self.arrivals, self.sequences, data.get('sent', 0)),
-                                  'sent_bytes': await self.sent_bytes() - self.sent_at_start,
-                                  'target_bps': self.rate.target if self.sending else 0})
+        return web.json_response(
+            {
+                'poses': gaps(self.arrivals, self.sequences, data.get('sent', 0)),
+                'sent_bytes': await self.sent_bytes() - self.sent_at_start,
+                'target_bps': self.rate.target if self.sending else 0,
+            }
+        )
 
     async def poses(self, request):
         socket = web.WebSocketResponse(max_msg_size=4096, compress=False)

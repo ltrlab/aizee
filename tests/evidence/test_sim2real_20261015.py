@@ -8,6 +8,7 @@ the repository, so this is not part of the development gate. Run it by name:
 
 MINERVA_EVIDENCE and MINERVA_OPERATOR_RUNS locate them; without both it skips.
 """
+
 import hashlib
 import json
 import os
@@ -25,8 +26,9 @@ RUNS = Path(os.environ.get('MINERVA_OPERATOR_RUNS', 'operator-runs-not-set'))
 REPORT = EVIDENCE / 'analysis/sim2real-20261015/report.json'
 ARM = [f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)]
 
-pytestmark = pytest.mark.skipif(not REPORT.is_file() or not RUNS.is_dir(),
-                                reason='needs the 2026-10-15 evidence and the operator runs folder')
+pytestmark = pytest.mark.skipif(
+    not REPORT.is_file() or not RUNS.is_dir(), reason='needs the 2026-10-15 evidence and the operator runs folder'
+)
 
 
 @pytest.fixture(scope='module')
@@ -40,12 +42,18 @@ def replayed():
     assert built['identity']['servo_sha256'] == document['source']['servo']['sha256']
     assert built['identity']['directions'] == document['source']['directions']
     assert built['identity']['actuators']['used'] == ARM and set(built['identity']['actuators']) == {
-        'path', 'sha256', 'used'}
-    recordings = [EVIDENCE / 'jetson/evidence' / Path(r['session'].replace('\\', '/')).name
-                  for r in document['source']['recordings']]
+        'path',
+        'sha256',
+        'used',
+    }
+    recordings = [
+        EVIDENCE / 'jetson/evidence' / Path(r['session'].replace('\\', '/')).name
+        for r in document['source']['recordings']
+    ]
     comparison = sim2real.compare(recordings, built, ARM, calibrate_joints=False)
     assert [r['samples_sha256'] for r in comparison['recordings']] == [
-        r['samples_sha256'] for r in document['source']['recordings']]
+        r['samples_sha256'] for r in document['source']['recordings']
+    ]
     return document, report, comparison
 
 

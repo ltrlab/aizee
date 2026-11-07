@@ -1,5 +1,6 @@
 """The wrist camera rig file (config/devices/minerva-wrist-cameras.json): the URDF and board, which link each camera
 is fixed to and its image size, and how Helm takes a still."""
+
 import json
 from pathlib import Path
 

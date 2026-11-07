@@ -14,6 +14,7 @@ off; it does not replace a check on the real head camera.
 
     python scripts/fiducials/check_tag_range.py [--trials 20] [--seed 20261017]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,8 +45,16 @@ VIEWS = (
 )
 
 
-def render_view(label: np.ndarray, geo: labels.Geometry, fx: float, width: int, height: int,
-                distance: float, tilt_deg: float, rng: np.random.Generator) -> np.ndarray:
+def render_view(
+    label: np.ndarray,
+    geo: labels.Geometry,
+    fx: float,
+    width: int,
+    height: int,
+    distance: float,
+    tilt_deg: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
     ss = 4 if width <= 640 else 2
     tilt = math.radians(tilt_deg)
     camera = np.array([distance * math.sin(tilt), 0.0, distance * math.cos(tilt)])
@@ -64,16 +73,26 @@ def render_view(label: np.ndarray, geo: labels.Geometry, fx: float, width: int, 
     yaw = rng.uniform(0, 2 * math.pi)
     # Label rows run down the printed image, which is world -y seen from above; without the
     # flip the view would be a mirror image, which ArUco does not decode.
-    to_plane = np.array([[scale * math.cos(yaw), scale * math.sin(yaw), 0],
-                         [scale * math.sin(yaw), -scale * math.cos(yaw), 0],
-                         [0, 0, 1]])
+    to_plane = np.array(
+        [
+            [scale * math.cos(yaw), scale * math.sin(yaw), 0],
+            [scale * math.sin(yaw), -scale * math.cos(yaw), 0],
+            [0, 0, 1],
+        ]
+    )
     centre_px = (geo.quiet + geo.tag_dots / 2 - 0.5) * shrink
     offset = rng.uniform(-0.5, 0.5, 2) * distance / fx
     to_plane[:2, 2] = offset - (to_plane @ [centre_px, centre_px, 1])[:2]
 
     reflectance = 30 + 190 * (small.astype(np.float32) / 255)  # ink 30, paper 220
-    big = cv2.warpPerspective(reflectance, plane_to_image @ to_plane, (width * ss, height * ss),
-                              flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=20)
+    big = cv2.warpPerspective(
+        reflectance,
+        plane_to_image @ to_plane,
+        (width * ss, height * ss),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=20,
+    )
     image = cv2.resize(big, (width, height), interpolation=cv2.INTER_AREA)
     image = cv2.GaussianBlur(image, (0, 0), 0.7)
     image = np.clip(image + rng.normal(0, 2.5, image.shape), 0, 255).astype(np.uint8)
@@ -81,8 +100,9 @@ def render_view(label: np.ndarray, geo: labels.Geometry, fx: float, width: int, 
     return cv2.imdecode(jpeg, cv2.IMREAD_GRAYSCALE)
 
 
-def decode_count(family: str, view: tuple, distance: float, tilt: float, trials: int,
-                 rng: np.random.Generator) -> tuple[int, labels.Geometry]:
+def decode_count(
+    family: str, view: tuple, distance: float, tilt: float, trials: int, rng: np.random.Generator
+) -> tuple[int, labels.Geometry]:
     _, width, height, fx, _ = view
     media = labels.MEDIA['62']
     geo = labels.choose_geometry(media, labels.dictionary(family).markerSize + 2, None)
@@ -92,7 +112,7 @@ def decode_count(family: str, view: tuple, distance: float, tilt: float, trials:
         tag_id = trial % 8
         label = np.asarray(labels.render_label(family, tag_id, media, geo).convert('L'))
         _, ids, _ = detector.detectMarkers(render_view(label, geo, fx, width, height, distance, tilt, rng))
-        hits += (ids is not None and ids.ravel().tolist() == [tag_id])
+        hits += ids is not None and ids.ravel().tolist() == [tag_id]
     return hits, geo
 
 
@@ -103,8 +123,10 @@ def main() -> int:
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
 
-    print(f'decoded / {args.trials} at {", ".join(f"{d} m" for d in DISTANCES_M)}; '
-          f'tilt from the table normal; seed {args.seed}')
+    print(
+        f'decoded / {args.trials} at {", ".join(f"{d} m" for d in DISTANCES_M)}; '
+        f'tilt from the table normal; seed {args.seed}'
+    )
     for view in VIEWS:
         name, width, height, fx, families = view
         print(f'\n{name} (fx {fx:.0f} px)')
@@ -115,8 +137,10 @@ def main() -> int:
                     hits, geo = decode_count(family, view, distance, tilt, args.trials, rng)
                     counts.append(f'{hits:3d}')
                 cells_at = fx * geo.cell_mm / 1000 / 1.2
-                print(f'  {family:20s} {geo.tag_mm:4.1f} mm  tilt {tilt:2d}:{"".join(counts)}'
-                      f'   ({cells_at:.1f} px per cell face-on at 1.2 m)')
+                print(
+                    f'  {family:20s} {geo.tag_mm:4.1f} mm  tilt {tilt:2d}:{"".join(counts)}'
+                    f'   ({cells_at:.1f} px per cell face-on at 1.2 m)'
+                )
     return 0
 
 

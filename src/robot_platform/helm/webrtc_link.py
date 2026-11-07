@@ -2,6 +2,7 @@
 process of its own), and the pose channel's messages back. Only asked for by a page opened with ?remote: the local path,
 and Helm's own views, stay on their WebSockets. Asyncio, on Helm's loop.
 """
+
 import asyncio
 import importlib.util
 import json
@@ -16,11 +17,13 @@ from .webrtc_worker import write_message
 log = logging.getLogger(__name__)
 
 ROLE = 'head'
-FRAME_POLL_S = .02
-ANSWER_TIMEOUT_S = 10.
+FRAME_POLL_S = 0.02
+ANSWER_TIMEOUT_S = 10.0
 BACKLOG_BYTES = 256 * 1024  # More than this waiting for the worker: it is behind, and this frame is not sent.
 SOURCE = Path(__file__).resolve().parents[2]
-DEPS = 'HELM_WEBRTC_DEPS'  # Helm on Minerva: the worker's own dependencies (requirements/helm-webrtc.lock), if installed.
+DEPS = (
+    'HELM_WEBRTC_DEPS'  # Helm on Minerva: the worker's own dependencies (requirements/helm-webrtc.lock), if installed.
+)
 COMPLETE = '.complete'  # As ops.helm_service: the folder finished installing.
 
 
@@ -51,7 +54,8 @@ class WebRTCLink:
         paths = [deps, str(SOURCE)] if deps else [path for path in sys.path if path]
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(paths), PYTHONUNBUFFERED='1')
         self.process = await asyncio.create_subprocess_exec(
-            *self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, limit=1024 * 1024)
+            *self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, limit=1024 * 1024
+        )
         self.reader = asyncio.create_task(self._read(self.process))
 
     async def _read(self, process):
@@ -151,7 +155,7 @@ class WebRTCLink:
         if process is not None:
             process.stdin.close()
             try:
-                await asyncio.wait_for(process.wait(), 3.)
+                await asyncio.wait_for(process.wait(), 3.0)
             except asyncio.TimeoutError:
                 process.kill()
         if reader is not None:

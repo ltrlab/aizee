@@ -1,6 +1,7 @@
 """Helm's head camera alignment without hardware: capturing stills in a session with the live head, the solve and
 saving the mount where the head's pose feed reads it, the robot helper's neck window over a still's frames, and the
 API."""
+
 import asyncio
 import json
 import math
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # -- Helm's flow ----------------------------------------------------------------------------------------------------
 
+
 class Session:
     """A teleop snapshot with the head as a live session reports it."""
 
@@ -35,25 +37,40 @@ class Session:
         self.phase, self.mode, self.state, self.recording = phase, mode, state, recording
 
     def __call__(self):
-        return dict(phase=self.phase, receiver_choice={'mode': self.mode, 'arm': 'head'},
-                    head={'state': self.state, 'joints': {'neck_z': 0., 'neck_y': -.5}},
-                    task={'recording': {'state': self.recording, 'active': self.recording == 'recording'}})
+        return dict(
+            phase=self.phase,
+            receiver_choice={'mode': self.mode, 'arm': 'head'},
+            head={'state': self.state, 'joints': {'neck_z': 0.0, 'neck_y': -0.5}},
+            task={'recording': {'state': self.recording, 'active': self.recording == 'recording'}},
+        )
 
 
 class Robot:
     """The robot helper's replies: the next synthetic still each time, its neck as the feed read it."""
 
-    def __init__(self, stills, moved=.001):
+    def __init__(self, stills, moved=0.001):
         self.stills, self.moved, self.requests = list(stills), moved, []
 
     def __call__(self, request):
         self.requests.append(request)
         still = self.stills.pop(0)
-        return dict(role='head', frames=request['frames'], first_stamp=1., last_stamp=1.5, size=[640, 480],
-                    image=request['path'], tags={str(t): q.tolist() for t, q in still.corners.items()}, others=[],
-                    duplicates=[], photometry={}, noise={'luma_sigma_median': .8, 'frames': 8}, thumbnail='anBn',
-                    intrinsics=INTRINSICS, image_rotation_deg=0,
-                    head={'joints': still.joints, 'moved_rad': self.moved, 'samples': 60})
+        return dict(
+            role='head',
+            frames=request['frames'],
+            first_stamp=1.0,
+            last_stamp=1.5,
+            size=[640, 480],
+            image=request['path'],
+            tags={str(t): q.tolist() for t, q in still.corners.items()},
+            others=[],
+            duplicates=[],
+            photometry={},
+            noise={'luma_sigma_median': 0.8, 'frames': 8},
+            thumbnail='anBn',
+            intrinsics=INTRINSICS,
+            image_rotation_deg=0,
+            head={'joints': still.joints, 'moved_rad': self.moved, 'samples': 60},
+        )
 
 
 def flow(tmp_path, session, robot, **options):
@@ -61,15 +78,24 @@ def flow(tmp_path, session, robot, **options):
     files['reference'].parent.mkdir(parents=True, exist_ok=True)
     files['reference'].write_text(json.dumps(REFERENCE), encoding='utf-8')
     times = iter(range(1793000000, 1793999999, 7))
-    return HeadAlignment(teleop=session, root=tmp_path / 'calibration' / 'head', files=lambda: files, remote=robot,
-                         solver=lambda folder: ha.solve_run(folder, wrists=options.get('wrists')),
-                         clock=lambda: float(next(times)), **options), files
+    return HeadAlignment(
+        teleop=session,
+        root=tmp_path / 'calibration' / 'head',
+        files=lambda: files,
+        remote=robot,
+        solver=lambda folder: ha.solve_run(folder, wrists=options.get('wrists')),
+        clock=lambda: float(next(times)),
+        **options,
+    ), files
 
 
 def test_a_head_still_needs_the_live_head_held_or_following(rig, tmp_path):
-    for session, message in ((Session(phase='stopped'), 'running session'), (Session(mode='virtual'), 'real head'),
-                             (Session(state='IDLE'), r'Enable the head \(E\)'),
-                             (Session(recording='finishing'), 'Stop the recording')):
+    for session, message in (
+        (Session(phase='stopped'), 'running session'),
+        (Session(mode='virtual'), 'real head'),
+        (Session(state='IDLE'), r'Enable the head \(E\)'),
+        (Session(recording='finishing'), 'Stop the recording'),
+    ):
         alignment, _ = flow(tmp_path, session, Robot(synthetic(rig, count=5)))
         with pytest.raises(ValueError, match=message):
             alignment.capture()
@@ -84,18 +110,25 @@ def test_a_head_still_records_the_neck_from_the_feed_and_refuses_a_moving_head(r
     robot = Robot(stills)
     alignment, _ = flow(tmp_path, Session(state='TELEOP'), robot)
     state = alignment.capture()
-    assert robot.requests[0]['head_pose'] == {'margin_s': .05} and robot.requests[0]['role'] == 'head'
+    assert robot.requests[0]['head_pose'] == {'margin_s': 0.05} and robot.requests[0]['role'] == 'head'
     record = json.loads((alignment.run / 'stills.jsonl').read_text(encoding='utf-8'))
     assert record['joints'] == stills[0].joints and record['reference_sha256'] == reference_digest(REFERENCE)
     assert record['intrinsics'] == INTRINSICS and record['link'] == 'awg_rgb_camera_5' and 'thumbnail' not in record
     assert state['stills'] == state['tagged'] == 1 and state['last']['joints_deg']['neck_z'] == pytest.approx(
-        math.degrees(stills[0].joints['neck_z']), abs=.01)
+        math.degrees(stills[0].joints['neck_z']), abs=0.01
+    )
     # The page's guide: each still taken, with how the head was turned and tilted for it.
-    assert state['taken'] == [{'name': '001-head', 'tags': len(stills[0].corners), 'at': record['captured_at'],
-                               'pan_deg': pytest.approx(math.degrees(stills[0].joints['neck_z']), abs=.01),
-                               'tilt_deg': pytest.approx(math.degrees(stills[0].joints['neck_y']), abs=.01)}]
+    assert state['taken'] == [
+        {
+            'name': '001-head',
+            'tags': len(stills[0].corners),
+            'at': record['captured_at'],
+            'pan_deg': pytest.approx(math.degrees(stills[0].joints['neck_z']), abs=0.01),
+            'tilt_deg': pytest.approx(math.degrees(stills[0].joints['neck_y']), abs=0.01),
+        }
+    ]
     assert alignment.thumbnail() == b'jpg'
-    robot.moved = .004
+    robot.moved = 0.004
     with pytest.raises(ValueError, match=r'moved 4\.0 mrad'):
         alignment.capture()
     assert len(alignment.stills) == 1 and 'hold it still' in alignment.snapshot()['error']
@@ -106,19 +139,23 @@ def test_a_head_still_records_the_neck_from_the_feed_and_refuses_a_moving_head(r
 
 
 def test_capture_solve_and_save_put_the_mount_where_the_heads_feed_reads_it(rig, tmp_path):
-    alignment, files = flow(tmp_path, Session(), Robot(synthetic(rig, count=10) + synthetic(rig, count=10, seed=9)),
-                            wrists=write_wrists(tmp_path / 'wrists', SIM_PLACEMENT))
+    alignment, files = flow(
+        tmp_path,
+        Session(),
+        Robot(synthetic(rig, count=10) + synthetic(rig, count=10, seed=9)),
+        wrists=write_wrists(tmp_path / 'wrists', SIM_PLACEMENT),
+    )
     with pytest.raises(ValueError, match='Solve the run first'):
         alignment.save()
     for _ in range(10):
         alignment.capture()
     state = alignment.solve()
-    assert state['result']['rms_px'] < .35 and state['result']['arms']['run'] == '20261031T000000Z'
+    assert state['result']['rms_px'] < 0.35 and state['result']['arms']['run'] == '20261031T000000Z'
     assert state['saved'] is None
     state = alignment.save()
     document = json.loads(files['camera'].read_text(encoding='utf-8'))
     mm, deg = apart(rig['truth'], aligned_mount(document, 'awg_rgb_camera_5', REFERENCE))
-    assert mm < 1.5 and deg < .15
+    assert mm < 1.5 and deg < 0.15
     assert state['saved']['current'] and state['saved']['run'] == alignment.run.name
     assert document['fit']['stills'] == 10 and document['board_in_robot']['matrix']
     # A second run saved over it keeps the first beside its own stills.
@@ -142,10 +179,11 @@ def test_capture_solve_and_save_put_the_mount_where_the_heads_feed_reads_it(rig,
 
 # -- the robot helper's neck window ---------------------------------------------------------------------------------
 
+
 def test_the_neck_window_covers_the_frames_or_refuses():
-    samples = [[10. + k * .01, .2 + (.001 if k % 2 else 0.), -.5] for k in range(100)]
-    window = cs.head_window(samples, ['neck_z', 'neck_y'], 10.3, 10.5, lag_s=.02, margin_s=.05)
-    assert window['joints']['neck_z'] == pytest.approx(.2005, abs=1e-4) and window['moved_rad'] == pytest.approx(.001)
+    samples = [[10.0 + k * 0.01, 0.2 + (0.001 if k % 2 else 0.0), -0.5] for k in range(100)]
+    window = cs.head_window(samples, ['neck_z', 'neck_y'], 10.3, 10.5, lag_s=0.02, margin_s=0.05)
+    assert window['joints']['neck_z'] == pytest.approx(0.2005, abs=1e-4) and window['moved_rad'] == pytest.approx(0.001)
     assert window['samples'] == 31  # 10.23 .. 10.53.
     with pytest.raises(ValueError, match='did not cover'):
         cs.head_window(samples[:40], ['neck_z', 'neck_y'], 10.3, 10.5)  # The feed stops at 10.39.
@@ -167,14 +205,26 @@ def test_a_head_still_reads_the_feed_over_its_frames(monkeypatch):
             k = 0
             while not stop.is_set():
                 now = time.time()
-                poses.send_string(json.dumps({'joints': ['neck_z', 'neck_y'], 'zero': [0.] * 7,
-                                              'samples': [[now, .25, -.6, *([0.] * 7)]]}))
+                poses.send_string(
+                    json.dumps(
+                        {
+                            'joints': ['neck_z', 'neck_y'],
+                            'zero': [0.0] * 7,
+                            'samples': [[now, 0.25, -0.6, *([0.0] * 7)]],
+                        }
+                    )
+                )
                 if k % 3 == 0:
-                    header = {'camera_id': 'scene_cam', 'timestamp': now, 'parts': ['color'], 'image_rotation_deg': 0,
-                              'color': {'format': 'jpeg', 'intrinsics': INTRINSICS}}
+                    header = {
+                        'camera_id': 'scene_cam',
+                        'timestamp': now,
+                        'parts': ['color'],
+                        'image_rotation_deg': 0,
+                        'color': {'format': 'jpeg', 'intrinsics': INTRINSICS},
+                    }
                     frames.send_multipart([msgpack.packb(header, use_bin_type=True), b'jpeg'])
                 k += 1
-                time.sleep(.01)
+                time.sleep(0.01)
         finally:
             frames.close(0)
             poses.close(0)
@@ -183,16 +233,17 @@ def test_a_head_still_reads_the_feed_over_its_frames(monkeypatch):
     thread = threading.Thread(target=publish, daemon=True)
     thread.start()
     try:
-        frames, meta, pose = cs.frames_and_head('head', 4, {'margin_s': .05}, endpoint=feed)
+        frames, meta, pose = cs.frames_and_head('head', 4, {'margin_s': 0.05}, endpoint=feed)
     finally:
         stop.set()
         thread.join(2)
     assert len(frames) == 4 and meta[0] == {'intrinsics': INTRINSICS, 'image_rotation_deg': 0}
-    assert pose['joints'] == {'neck_z': pytest.approx(.25), 'neck_y': pytest.approx(-.6)}
-    assert pose['moved_rad'] == 0. and pose['samples'] >= 8
+    assert pose['joints'] == {'neck_z': pytest.approx(0.25), 'neck_y': pytest.approx(-0.6)}
+    assert pose['moved_rad'] == 0.0 and pose['samples'] >= 8
 
 
 # -- the API --------------------------------------------------------------------------------------------------------
+
 
 class FakeAlignment:
     def __init__(self):
@@ -212,15 +263,19 @@ class FakeAlignment:
 
 @pytest.fixture
 def helm(tmp_path):
-    session = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                          limits=tmp_path / 'limits.json',
-                          seed=ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json')
+    session = HelmSession(
+        ROOT / 'config/devices/minerva-joint-calibration.json',
+        runs=tmp_path / 'runs',
+        limits=tmp_path / 'limits.json',
+        seed=ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json',
+    )
     yield session
     session.close()
 
 
 def test_the_head_alignment_api_is_token_gated_and_runs_off_the_event_loop(helm):
     from aiohttp.test_utils import TestClient, TestServer
+
     fake, loop_thread = FakeAlignment(), threading.get_ident()
 
     async def run():
@@ -233,11 +288,13 @@ def test_the_head_alignment_api_is_token_gated_and_runs_off_the_event_loop(helm)
                 response = await client.post(f'/api/helm/head-alignment/{action}', json={}, headers=secret)
                 assert response.status == 200, await response.text()
                 assert (await response.json())['head_alignment']['busy'] is False
-            assert (await client.post('/api/helm/head-alignment/capture', json={'role': 'head'},
-                                      headers=secret)).status >= 400
+            assert (
+                await client.post('/api/helm/head-alignment/capture', json={'role': 'head'}, headers=secret)
+            ).status >= 400
             assert (await client.post('/api/helm/head-alignment/move', json={}, headers=secret)).status == 404
             response = await client.get('/api/helm/head-alignment/thumbnail')
             assert response.content_type == 'image/jpeg' and await response.read() == b'jpeg'
+
     asyncio.run(run())
     assert [name for name, _ in fake.calls] == ['capture', 'undo', 'new_run', 'solve', 'save']
     assert all(thread != loop_thread for _, thread in fake.calls)
@@ -251,4 +308,5 @@ def test_without_head_alignment_the_api_says_why(helm):
             response = await client.post('/api/helm/head-alignment/new', json={}, headers={'X-Helm-Token': 'secret'})
             assert response.status >= 400 and 'Helm on Minerva' in (await response.json())['error']
             assert (await (await client.get('/api/helm/state')).json())['head_alignment'] is None
+
     asyncio.run(run())

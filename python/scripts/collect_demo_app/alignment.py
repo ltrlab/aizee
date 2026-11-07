@@ -1,4 +1,5 @@
 """Motor <-> URDF frame alignment (from collect_demo.py)."""
+
 from __future__ import annotations
 
 import json
@@ -31,9 +32,10 @@ from .runtime import NUM_JOINTS
 #
 # Loaded from config/joint_align.json at startup; hot-reloaded via mtime.
 _ALIGN_OFFSETS = np.zeros(NUM_JOINTS, dtype=np.float32)
-_ALIGN_SIGNS   = np.ones(NUM_JOINTS,  dtype=np.float32)
-_ALIGN_PATH    = Path(__file__).resolve().parents[3] / "config" / "joint_align.json"
-_ALIGN_MTIME   = 0.0   # last mtime we loaded; reload-if-changed gate
+_ALIGN_SIGNS = np.ones(NUM_JOINTS, dtype=np.float32)
+_ALIGN_PATH = Path(__file__).resolve().parents[3] / 'config' / 'joint_align.json'
+_ALIGN_MTIME = 0.0  # last mtime we loaded; reload-if-changed gate
+
 
 def _load_joint_align() -> None:
     """Populate the module-level _ALIGN_* arrays from joint_align.json."""
@@ -44,17 +46,18 @@ def _load_joint_align() -> None:
         _ALIGN_MTIME = _ALIGN_PATH.stat().st_mtime
         data = json.loads(_ALIGN_PATH.read_text())
     except Exception as e:
-        print(f"WARNING: joint_align.json parse failed: {e}", flush=True)
+        print(f'WARNING: joint_align.json parse failed: {e}', flush=True)
         return
-    o = data.get("offsets")
+    o = data.get('offsets')
     if isinstance(o, list) and len(o) >= NUM_JOINTS:
         _ALIGN_OFFSETS = np.asarray(o[:NUM_JOINTS], dtype=np.float32)
-    s = data.get("signs")
+    s = data.get('signs')
     if isinstance(s, list) and len(s) >= NUM_JOINTS:
         _ALIGN_SIGNS = np.asarray(
             [1.0 if float(x) >= 0 else -1.0 for x in s[:NUM_JOINTS]],
             dtype=np.float32,
         )
+
 
 def _maybe_reload_joint_align() -> bool:
     """Reload joint_align.json if its mtime has changed since last load.
@@ -69,55 +72,63 @@ def _maybe_reload_joint_align() -> bool:
     if m == _ALIGN_MTIME:
         return False
     _load_joint_align()
-    print(f"[joint_align] reloaded: signs={_ALIGN_SIGNS.tolist()} "
-          f"offsets={[round(float(x), 3) for x in _ALIGN_OFFSETS]}", flush=True)
+    print(
+        f'[joint_align] reloaded: signs={_ALIGN_SIGNS.tolist()} offsets={[round(float(x), 3) for x in _ALIGN_OFFSETS]}',
+        flush=True,
+    )
     return True
+
 
 def _push_visual_offsets_to_leader(leader) -> None:
     """If the active leader exposes set_visual_offsets (QuestLeader does),
     hand it the current _ALIGN_OFFSETS so its IK/FK operate in visual
     frame (= mesh frame).  Physical leaders ignore this."""
-    fn = getattr(leader, "set_visual_offsets", None)
+    fn = getattr(leader, 'set_visual_offsets', None)
     if fn is not None:
         try:
             fn(_ALIGN_OFFSETS)
         except Exception as e:
-            print(f"[joint_align] leader.set_visual_offsets failed: {e}", flush=True)
+            print(f'[joint_align] leader.set_visual_offsets failed: {e}', flush=True)
+
 
 def _motor_to_urdf_pos(q_motor: np.ndarray) -> np.ndarray:
     return np.asarray(q_motor, dtype=np.float32) * _ALIGN_SIGNS
+
 
 def _urdf_to_motor_pos(q_urdf: np.ndarray) -> np.ndarray:
     # signs are ±1 → 1/sign == sign
     return np.asarray(q_urdf, dtype=np.float32) * _ALIGN_SIGNS
 
+
 def _flip_sign_vec(v: np.ndarray) -> np.ndarray:
     return np.asarray(v, dtype=np.float32) * _ALIGN_SIGNS
+
 
 def _urdf_to_motor_arm_payload(arm: dict) -> dict:
     """Transform an arm_joints dict from URDF frame to motor frame.
 
     Returns a new dict — the input is not mutated (other callers may
     still hold a reference to it, e.g. holder['last_q_cmd'])."""
-    if not arm or "positions" not in arm:
+    if not arm or 'positions' not in arm:
         return arm
     out = dict(arm)
-    pos = np.asarray(arm["positions"], dtype=np.float32)
-    out["positions"] = _urdf_to_motor_pos(pos).tolist()
-    if "velocities" in arm and arm["velocities"] is not None:
-        vel = np.asarray(arm["velocities"], dtype=np.float32)
-        out["velocities"] = _flip_sign_vec(vel).tolist()
-    if "torques" in arm and arm["torques"] is not None:
-        tq = np.asarray(arm["torques"], dtype=np.float32)
-        out["torques"] = _flip_sign_vec(tq).tolist()
+    pos = np.asarray(arm['positions'], dtype=np.float32)
+    out['positions'] = _urdf_to_motor_pos(pos).tolist()
+    if 'velocities' in arm and arm['velocities'] is not None:
+        vel = np.asarray(arm['velocities'], dtype=np.float32)
+        out['velocities'] = _flip_sign_vec(vel).tolist()
+    if 'torques' in arm and arm['torques'] is not None:
+        tq = np.asarray(arm['torques'], dtype=np.float32)
+        out['torques'] = _flip_sign_vec(tq).tolist()
     return out
 
+
 _SAT_TORQUE = {
-    "swivel":      12.0,   # RS03 nominal
-    "gantry_base": 24.0,   # RS04 nominal
-    "gantry_mid":  12.0,   # RS03 nominal
-    "gantry_end":   5.0,   # RS02 nominal
-    "wrist_pitch":  5.0,   # RS02 nominal
-    "wrist_roll":   0.5,   # RS00 nominal
-    "gripper":      0.5,   # RS00 nominal
+    'swivel': 12.0,  # RS03 nominal
+    'gantry_base': 24.0,  # RS04 nominal
+    'gantry_mid': 12.0,  # RS03 nominal
+    'gantry_end': 5.0,  # RS02 nominal
+    'wrist_pitch': 5.0,  # RS02 nominal
+    'wrist_roll': 0.5,  # RS00 nominal
+    'gripper': 0.5,  # RS00 nominal
 }

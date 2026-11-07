@@ -1,5 +1,6 @@
 """A live head's cycles on a thread of their own (helm.head_teleop.HeadLoop), beside the arms' loop: the arms'
 actions in order, its own grid between them, a fault ending it, and a prompt stop."""
+
 import threading
 import time
 
@@ -19,7 +20,7 @@ class Head:
         self.busy.set()
 
     def cycle(self, action, started):
-        self.busy.wait(2.)
+        self.busy.wait(2.0)
         self.cycles += 1
         if action is not None:
             self.actions.append(action)
@@ -30,10 +31,10 @@ class Head:
             self.due = started + PERIOD_S
 
 
-def wait_for(condition, timeout=2.):
+def wait_for(condition, timeout=2.0):
     deadline = time.perf_counter() + timeout
     while not condition() and time.perf_counter() < deadline:
-        time.sleep(.005)
+        time.sleep(0.005)
     return condition()
 
 
@@ -81,7 +82,7 @@ def test_stop_ends_the_heads_cycles_at_once():
     assert wait_for(lambda: head.cycles >= 2)
     started = time.perf_counter()
     loop.stop()
-    assert time.perf_counter() - started < .5 and not loop._thread.is_alive()
+    assert time.perf_counter() - started < 0.5 and not loop._thread.is_alive()
     cycles = head.cycles
     time.sleep(3 * PERIOD_S)
     assert head.cycles == cycles
@@ -95,6 +96,7 @@ def test_the_heads_thread_moves_off_the_arms_cpus_before_its_first_cycle():
     def placement():
         seen.append((threading.get_ident(), head.cycles))
         return ['background_cpus']
+
     loop = HeadLoop(head, placement=placement).start()
     try:
         assert wait_for(lambda: head.cycles >= 2)
@@ -104,6 +106,7 @@ def test_the_heads_thread_moves_off_the_arms_cpus_before_its_first_cycle():
 
     def refused():
         raise OSError('refused')
+
     head = Head()
     loop = HeadLoop(head, placement=refused).start()  # A hint, not a condition: it cycles where it is.
     try:

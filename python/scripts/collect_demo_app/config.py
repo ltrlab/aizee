@@ -1,4 +1,5 @@
 """AIZEE teleop config loading, with shared endpoint discovery compatibility."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,8 +17,8 @@ from robot_platform.transport.discovery import (
 def _load_teleop_yaml() -> dict:
     here = Path(__file__).parent
     for candidate in [
-        here / ".." / ".." / ".." / "config" / "teleop.yaml",
-        Path("config") / "teleop.yaml",
+        here / '..' / '..' / '..' / 'config' / 'teleop.yaml',
+        Path('config') / 'teleop.yaml',
     ]:
         p = candidate.resolve()
         if p.exists():
@@ -26,4 +27,4 @@ def _load_teleop_yaml() -> dict:
 
 
 def _load_endpoints() -> dict:
-    return _load_teleop_yaml().get("endpoints", {})
+    return _load_teleop_yaml().get('endpoints', {})

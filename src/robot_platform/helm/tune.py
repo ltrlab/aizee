@@ -13,6 +13,7 @@ TuneSession is Helm's handle: it starts and stops the loop, caches its views and
 results, and saves the joints the operator confirms as the servo calibration,
 from which the receiver then takes its gains, speeds and tracking bounds.
 """
+
 from copy import deepcopy
 import gc
 import json
@@ -27,15 +28,23 @@ from robot_platform.control.scheduling import prefer_responsive
 from .limits import utc_now
 from robot_platform.control.guarded import GuardRejected
 from robot_platform.control.live_receiver import trip_text
-from .teleop import (HELD, LOWERING_ATTEMPTS, WAIT_TO_REARM, AdvisoryCompiler, calibration_reference, edge_reference,
-                     load_profile, loop_period_s)
+from .teleop import (
+    HELD,
+    LOWERING_ATTEMPTS,
+    WAIT_TO_REARM,
+    AdvisoryCompiler,
+    calibration_reference,
+    edge_reference,
+    load_profile,
+    loop_period_s,
+)
 from .session import WIRED
 
-PERIOD_S = .04
-RESULTS_EVERY_S = 1.
+PERIOD_S = 0.04
+RESULTS_EVERY_S = 1.0
 # A cycle this late or this long is logged with where its time went: the receiver brakes the arm when no fresh
 # command reaches it within its 80 ms verdict (left J3 at 1.2 rad/s, 2026-10-09, with nothing else to show why).
-SLOW_CYCLE_S = .04
+SLOW_CYCLE_S = 0.04
 
 
 def tune_profile(teleop):
@@ -43,6 +52,7 @@ def tune_profile(teleop):
     collision checks, so with a direct (collision-disabled) teleop profile they run on the guarded one Minerva Check
     defaults to. Helm on the direct tuning profile refused them all (2026-10-17)."""
     from robot_platform.ops.check import DEFAULT_TELEOP
+
     teleop = Path(teleop)
     return DEFAULT_TELEOP if load_profile(teleop)['receiver'].get('collision_mode') == 'disabled' else teleop
 
@@ -50,8 +60,16 @@ def tune_profile(teleop):
 class TuneCore:
     """The sweep's loop body. Openers are injectable for tests."""
 
-    def __init__(self, bundle, *, open_backend=None, open_harness=None, open_receiver=None, clock=time.perf_counter,
-                 evidence_root=None):
+    def __init__(
+        self,
+        bundle,
+        *,
+        open_backend=None,
+        open_harness=None,
+        open_receiver=None,
+        clock=time.perf_counter,
+        evidence_root=None,
+    ):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.evidence_root = Path(evidence_root) if evidence_root else Path.home() / 'minerva' / 'evidence'
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
@@ -60,11 +78,14 @@ class TuneCore:
         self.head = (receiver.get('arm') or bundle.get('arm')) == 'head'
         if self.head:
             from robot_platform.neck.head import load_profile as load_head_profile
+
             self.profile = load_head_profile(bundle['teleop_profile'])
         else:
             self.profile = load_profile(bundle['teleop_profile'])
             if self.profile['receiver'].get('collision_mode') == 'disabled':
-                raise ValueError('Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode')
+                raise ValueError(
+                    'Servo tuning requires its collision-enabled calibration profile; direct teleop is a separate mode'
+                )
         self.period_s = loop_period_s(self.profile)  # As teleop's: Minerva Check verifies at teleop's rate.
         # 'verify': Minerva Check's live joint sweep. 'return': the arm from a pose the operator confirmed
         # (bundle['start_pose'], {motor: raw rad}) back to its reference, then disabled. 'jog': the head's test.
@@ -87,9 +108,13 @@ class TuneCore:
         self.open_harness = open_harness or self._open_harness
         self.open_receiver = open_receiver or (self._open_head_receiver if self.head else self._open_receiver)
         self.phase, self.stage = 'starting', 'starting'
-        self.message = ("Starting the head's receiver…" if self.head else
-                        'Checking the arm, then starting the live receiver…' if self.live_arm
-                        else 'Loading the collision model and virtual receiver…')
+        self.message = (
+            "Starting the head's receiver…"
+            if self.head
+            else 'Checking the arm, then starting the live receiver…'
+            if self.live_arm
+            else 'Loading the collision model and virtual receiver…'
+        )
         self.fault = None
         self.stopped_by = None  # Why the receiver stopped the arm, when it did.
         self._lowerings = 0
@@ -100,52 +125,71 @@ class TuneCore:
         self._closers = []
         self._frozen = False  # The garbage collector's long-lived objects are frozen while the loop runs.
         self._stage_since = None
-        self._results_at = 0.
+        self._results_at = 0.0
         self.scheduling = {}
         self.evidence = None
         self.sink = None
         self.slow = []  # Slow cycles: where their time went (also appended to the evidence's slow-cycles.jsonl).
         self._slow_log = None
         self._last_started = None
-        self._gc_s, self._gc_started, self._gc_generation = 0., None, None
+        self._gc_s, self._gc_started, self._gc_generation = 0.0, None, None
 
     # -- resources -------------------------------------------------------------------------
 
     def _open_backend(self, model):
         from robot_platform.simulation.native_collision import NativeCollisionBackend
         from robot_platform.simulation.runtime_model import RuntimeCollisionModel
+
         return NativeCollisionBackend(RuntimeCollisionModel(model.profile), geometry_mode='keepout')
 
     def _open_harness(self, config, initial):
         from robot_platform.simulation.control_harness import NativeControlHarness
+
         harness = NativeControlHarness(config, initial)
         self.scheduling['receiver'] = prefer_responsive(harness.process.pid)
         harness.step(0)
-        harness.timeout_s = .035
+        harness.timeout_s = 0.035
         return harness
 
     def _open_receiver(self, config, device, reference):
         from robot_platform.control.live_receiver import LiveReceiver, service_config
         from robot_platform.ops.release import ROOT
+
         live = self.profile['live']
         buses = {motor['bus'] for motor in reference['motors']}
         returning = self.mode == 'return'
-        service = service_config(config, device, reference, self.bundle['receiver']['motor_models'],
-                                 bus=buses.pop(), tolerance_rad=live['reference_tolerance_rad'],
-                                 period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'],
-                                 start_pose=self.bundle['start_pose'] if returning else None)
-        return LiveReceiver(service, device=device, reference=reference, binary=ROOT / 'bin' / 'guarded_controller',
-                            directory=self.evidence, labels=self.labels, confirmed_pose=returning).start()
+        service = service_config(
+            config,
+            device,
+            reference,
+            self.bundle['receiver']['motor_models'],
+            bus=buses.pop(),
+            tolerance_rad=live['reference_tolerance_rad'],
+            period_us=live['period_us'],
+            maximum_lateness_us=live['maximum_lateness_us'],
+            start_pose=self.bundle['start_pose'] if returning else None,
+        )
+        return LiveReceiver(
+            service,
+            device=device,
+            reference=reference,
+            binary=ROOT / 'bin' / 'guarded_controller',
+            directory=self.evidence,
+            labels=self.labels,
+            confirmed_pose=returning,
+        ).start()
 
     def _open_head_receiver(self, config, device, reference):
         """bin/head_controller for the head's jog: its own configuration from the derived one (neck.head), checking
         the head is still where it was read resting (it droops: it cannot wait at its reference)."""
         from robot_platform.neck.head import HeadReceiver, read_rest, service_config
         from robot_platform.ops.release import ROOT
+
         rest = read_rest(self.profile, self.bundle['limits'])
         service = service_config(self.profile, reference, self.derived, mode='teleop_direct', start=rest)
-        return HeadReceiver(service, binary=ROOT / 'bin' / 'head_controller', directory=self.evidence,
-                            labels=self.labels).start()
+        return HeadReceiver(
+            service, binary=ROOT / 'bin' / 'head_controller', directory=self.evidence, labels=self.labels
+        ).start()
 
     # -- build -------------------------------------------------------------------------------
 
@@ -155,12 +199,15 @@ class TuneCore:
         from robot_platform.control.guarded import GuardedControllerClient
         from robot_platform.control.joint_calibration import load_plan, validate_preview_transmissions
         from robot_platform.control.servo_sweep import PathChecker, SweepEngine, sweep_profile, sweep_settings
+
         plan, _paths, device, reference, model, pose, bindings = load_plan(
-            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference'))
+            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference')
+        )
         if bindings != self.bundle['bindings']:
             raise ValueError('Calibration files changed since Helm started; restart Helm')
-        transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
-                                                       reference, model)
+        transmissions = validate_preview_transmissions(
+            plan.get('preview_transmissions', []), plan['steps'], reference, model
+        )
         self.labels = {s['motor']: s['label'] for s in plan['steps']}
         self.labels.update({t['motor']: t['motor'].replace('_', ' ').capitalize() for t in transmissions})
         self.model = model  # Names the model's joint telemetry (view()).
@@ -177,42 +224,69 @@ class TuneCore:
             transmissions = [entry for entry in transmissions if entry['motor'] not in absent]
         self.absent = sorted(absent)
         motors = [motor['name'] for motor in reference['motors']]
-        sweep = [] if self.mode == 'return' else [motor for motor in (self.bundle.get('joints') or motors)
-                                                  if motor in motors]
+        sweep = (
+            []
+            if self.mode == 'return'
+            else [motor for motor in (self.bundle.get('joints') or motors) if motor in motors]
+        )
         if self.mode == 'tune':
             # A gripper is not tuned: it squeezes what it holds. Minerva Check opens and closes it instead.
             sweep = [motor for motor in sweep if not motion_settings(self.profile['motion'], motor).get('gripper')]
         if not sweep and self.mode != 'return':
-            raise ValueError('Choose at least one arm joint to sweep (grippers are not swept: Minerva Check opens '
-                             'and closes them)')
+            raise ValueError(
+                'Choose at least one arm joint to sweep (grippers are not swept: Minerva Check opens and closes them)'
+            )
         if self.mode == 'return' and set(self.bundle['start_pose']) != set(motors):
             raise ValueError(f'The confirmed pose must cover every motor of the {self.arm} arm')
         backend = self.open_backend(model)
         self._closers.append(backend.close)
         # The profile's gains as derived (and any saved servo calibration), with the sweep's ceilings raised.
-        base = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
-                               transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                               profile=self.profile, backend=backend, servo=self.bundle.get('servo'))
+        base = derive_receiver(
+            reference=reference,
+            steps=steps,
+            directions=self.bundle['directions'],
+            transmissions=transmissions,
+            model=model,
+            limits=self.bundle['limits'],
+            profile=self.profile,
+            backend=backend,
+            servo=self.bundle.get('servo'),
+        )
         gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
         if self.mode in ('verify', 'return'):
             derived = base  # The settings teleop would use: what the check verifies, and what holds a return.
         else:
             # The session's own settings, with the saved gravity feed-forward (a new torque map refits it).
-            derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
-                                      transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                      profile=sweep_profile(self.profile, motors, gains, sweep=sweep),
-                                      backend=backend, gravity=(self.bundle.get('servo') or {}).get('gravity'))
+            derived = derive_receiver(
+                reference=reference,
+                steps=steps,
+                directions=self.bundle['directions'],
+                transmissions=transmissions,
+                model=model,
+                limits=self.bundle['limits'],
+                profile=sweep_profile(self.profile, motors, gains, sweep=sweep),
+                backend=backend,
+                gravity=(self.bundle.get('servo') or {}).get('gravity'),
+            )
         # The sweep's raised ceilings stay within what each motor's wire protocol carries.
         fit_motor_ranges(derived['config']['joints'], (self.bundle.get('receiver') or {}).get('motor_models') or {})
         # Each joint's derived row today, with the settings teleop uses today (the session may loosen them).
         # The receiver's speed cap is the commanded one times OVERSPEED_HEADROOM; the card compares commanded caps.
         from robot_platform.control.approach import OVERSPEED_HEADROOM
+
         today = {joint['name']: joint for joint in base['config']['joints']}
-        self.travel = {row['motor']: dict(row, today={
-            'max_tracking_error': today[row['motor']]['max_tracking_error'],
-            'stop_acceleration': today[row['motor']]['stop_acceleration'],
-            'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM})
-            for row in base['report'] if row['motor'] in today}
+        self.travel = {
+            row['motor']: dict(
+                row,
+                today={
+                    'max_tracking_error': today[row['motor']]['max_tracking_error'],
+                    'stop_acceleration': today[row['motor']]['stop_acceleration'],
+                    'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM,
+                },
+            )
+            for row in base['report']
+            if row['motor'] in today
+        }
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
         kind = {'verify': 'check-sweep', 'return': 'return'}.get(self.mode, 'sweep')
@@ -239,15 +313,22 @@ class TuneCore:
                 result = harness.step(now_ms, request)
                 self.pending.append(result)
                 return result['reply']
+
             self.receiver = harness
             latest = lambda: harness.last  # noqa: E731
         self.latest = latest
-        self.controller = GuardedControllerClient(exchange, group=derived['config']['group'],
-                                                  identity=derived['config']['identity'], joint_names=names)
+        self.controller = GuardedControllerClient(
+            exchange, group=derived['config']['group'], identity=derived['config']['identity'], joint_names=names
+        )
         fixed = {name: pose[name] for name in pose if name not in derived['joint_map']}
-        self.compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'], fixed=fixed,
-                                         cad_limits=derived['cad_limits'],
-                                         compute_budget_s=self.profile['receiver']['compute_budget_s'])
+        self.compiler = AdvisoryCompiler(
+            backend,
+            derived['config'],
+            derived['joint_map'],
+            fixed=fixed,
+            cad_limits=derived['cad_limits'],
+            compute_budget_s=self.profile['receiver']['compute_budget_s'],
+        )
         tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
         settings = {name: dict(sweep_settings(self.profile, name), tolerance=tolerance[name]) for name in names}
         home = {motor['name']: motor['raw_reference_rad'] for motor in reference['motors']}
@@ -255,24 +336,39 @@ class TuneCore:
         # against the body, the CAD's assembly interfaces (bearings at the joints) read as contacts that are not
         # (docs/architecture/COLLISION_RUNTIME_IMPLEMENTATION.md), and each joint moves alone from the reference
         # pose within its hand-swept range. The right J1 sweep of 2026-09-28 stopped at +-0.2 rad on bearing/0.
-        checker = PathChecker(backend, derived['joint_map'], home=home, fixed=fixed, cad_limits=derived['cad_limits'],
-                              clearance_m=settings[(sweep or names)[0]]['clearance_m'],
-                              step_rad=settings[(sweep or names)[0]]['path_step_rad'],
-                              scope=derived['config']['collision']['scope'])
+        checker = PathChecker(
+            backend,
+            derived['joint_map'],
+            home=home,
+            fixed=fixed,
+            cad_limits=derived['cad_limits'],
+            clearance_m=settings[(sweep or names)[0]]['clearance_m'],
+            step_rad=settings[(sweep or names)[0]]['path_step_rad'],
+            scope=derived['config']['collision']['scope'],
+        )
         policy = derived['config']['collision']
         window_s = (policy['max_verdict_ms'] + derived['config']['feedback_timeout_ms'] + policy['reaction_ms']) / 1000
-        calibration = ((self.bundle.get('servo') or {}).get('joints') or {})
-        self.engine = SweepEngine(derived['config']['joints'], home=home, gains=gains, settings=settings, sweep=sweep,
-                                  checker=checker, window_s=window_s, verdict_s=policy['max_verdict_ms'] / 1000,
-                                  labels=self.labels, mode=self.mode, period_s=self.period_s,
-                                  calibration={m: calibration[m] for m in sweep if m in calibration},
-                                  travel=self.travel, receiver=self.profile['receiver'],
-                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
-                                  gravity={row['name']: row['gravity'] for row in derived['lifecycle']
-                                           if row.get('gravity')},
-                                  # A saved sweep's inertia, fed forward as teleop does (this sweep refits it).
-                                  inertia={row['name']: row['inertia'] for row in base['lifecycle']
-                                           if row.get('inertia')})
+        calibration = (self.bundle.get('servo') or {}).get('joints') or {}
+        self.engine = SweepEngine(
+            derived['config']['joints'],
+            home=home,
+            gains=gains,
+            settings=settings,
+            sweep=sweep,
+            checker=checker,
+            window_s=window_s,
+            verdict_s=policy['max_verdict_ms'] / 1000,
+            labels=self.labels,
+            mode=self.mode,
+            period_s=self.period_s,
+            calibration={m: calibration[m] for m in sweep if m in calibration},
+            travel=self.travel,
+            receiver=self.profile['receiver'],
+            interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
+            gravity={row['name']: row['gravity'] for row in derived['lifecycle'] if row.get('gravity')},
+            # A saved sweep's inertia, fed forward as teleop does (this sweep refits it).
+            inertia={row['name']: row['inertia'] for row in base['lifecycle'] if row.get('inertia')},
+        )
         self._start(names)
 
     def _build_head(self):
@@ -284,6 +380,7 @@ class TuneCore:
         from robot_platform.models import ModelProfile, UrdfModel
         from robot_platform.neck import head
         from robot_platform.ops.release import ROOT
+
         reference, limits = self.bundle['head_reference'], self.bundle['limits']
         self.model = model = UrdfModel(ModelProfile.load(ROOT / self.profile['model_profile']))
         self.labels = {motor['name']: motor['label'] for motor in self.profile['motors']}
@@ -296,10 +393,17 @@ class TuneCore:
         gains = {joint['name']: (joint['hold_kp'], joint['hold_kd']) for joint in base['config']['joints']}
         derived = base  # The jog runs at the head's own settings: nothing is raised to try.
         today = {joint['name']: joint for joint in base['config']['joints']}
-        self.travel = {row['motor']: dict(row, today={
-            'max_tracking_error': today[row['motor']]['max_tracking_error'],
-            'stop_acceleration': today[row['motor']]['stop_acceleration'],
-            'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM}) for row in base['report']}
+        self.travel = {
+            row['motor']: dict(
+                row,
+                today={
+                    'max_tracking_error': today[row['motor']]['max_tracking_error'],
+                    'stop_acceleration': today[row['motor']]['stop_acceleration'],
+                    'max_velocity': today[row['motor']]['max_velocity'] / OVERSPEED_HEADROOM,
+                },
+            )
+            for row in base['report']
+        }
         self.derived = derived
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
         self.evidence = self.evidence_root / f'jog-head-{stamp}' if self.live_arm else None
@@ -324,23 +428,34 @@ class TuneCore:
                 result = harness.step(now_ms, request)
                 self.pending.append(result)
                 return result['reply']
+
             self.receiver = harness
             self.latest = lambda: harness.last  # noqa: E731
-        self.controller = GuardedControllerClient(exchange, group=derived['config']['group'],
-                                                  identity=derived['config']['identity'], joint_names=names)
+        self.controller = GuardedControllerClient(
+            exchange, group=derived['config']['group'], identity=derived['config']['identity'], joint_names=names
+        )
         tolerance = {row['name']: row['tolerance'] for row in derived['lifecycle']}
         settings = {name: dict(sweep_settings(self.profile, name), tolerance=tolerance[name]) for name in names}
-        calibration = ((servo or {}).get('joints') or {})
-        self.engine = SweepEngine(derived['config']['joints'], home={m['name']: m['raw_reference_rad']
-                                                                     for m in reference['motors']},
-                                  gains=gains, settings=settings, sweep=sweep, checker=None,
-                                  # No collision verdict to wait for: the receiver's reaction at a limit is all.
-                                  window_s=limit_reaction_s(self.profile['receiver']), verdict_s=0.,
-                                  labels=self.labels, mode=self.mode, period_s=self.period_s,
-                                  calibration={m: calibration[m] for m in sweep if m in calibration},
-                                  travel=self.travel, receiver=self.profile['receiver'],
-                                  interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
-                                  inertia={row['name']: row['inertia'] for row in base['lifecycle'] if row.get('inertia')})
+        calibration = (servo or {}).get('joints') or {}
+        self.engine = SweepEngine(
+            derived['config']['joints'],
+            home={m['name']: m['raw_reference_rad'] for m in reference['motors']},
+            gains=gains,
+            settings=settings,
+            sweep=sweep,
+            checker=None,
+            # No collision verdict to wait for: the receiver's reaction at a limit is all.
+            window_s=limit_reaction_s(self.profile['receiver']),
+            verdict_s=0.0,
+            labels=self.labels,
+            mode=self.mode,
+            period_s=self.period_s,
+            calibration={m: calibration[m] for m in sweep if m in calibration},
+            travel=self.travel,
+            receiver=self.profile['receiver'],
+            interpolation_s=derived['config'].get('interpolation_ms', 0) / 1000,
+            inertia={row['name']: row['inertia'] for row in base['lifecycle'] if row.get('inertia')},
+        )
         self._start(names)
 
     def _start(self, names):
@@ -349,8 +464,10 @@ class TuneCore:
             self.sink = (self.evidence / 'samples.f32').open('ab')
             self.engine.recording.sink = self.sink
             from robot_platform.control.servo_sweep import recorder_columns
-            (self.evidence / 'columns.json').write_text(json.dumps(
-                {'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8')
+
+            (self.evidence / 'columns.json').write_text(
+                json.dumps({'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8'
+            )
         # As teleop does (helm.teleop.TeleopCore.build): a full garbage-collector pass over the collision model's
         # object graphs took 46 ms on the Jetson, and one in the middle of a right J1 sweep (2026-09-29) let the
         # receiver's 80 ms collision verdict expire. Freeze everything long-lived; later passes walk only new objects.
@@ -362,23 +479,31 @@ class TuneCore:
             self._slow_log = (self.evidence / 'slow-cycles.jsonl').open('a', encoding='utf-8')
         self.phase, self.stage = 'running', 'arming'
         self._stage_since = self.clock()
-        what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE',
-                'jog': 'JOG'}.get(self.mode, 'SERVO SWEEP')
-        moves = ('each joint returns alone to the reference' if self.mode == 'return'
-                 else 'one joint at a time goes slowly to each end and back' if self.mode == 'jog'
-                 else 'the sweep moves the arm')
+        what = {'verify': 'LIVE JOINT SWEEP (MINERVA CHECK)', 'return': 'RETURN TO REFERENCE', 'jog': 'JOG'}.get(
+            self.mode, 'SERVO SWEEP'
+        )
+        moves = (
+            'each joint returns alone to the reference'
+            if self.mode == 'return'
+            else 'one joint at a time goes slowly to each end and back'
+            if self.mode == 'jog'
+            else 'the sweep moves the arm'
+        )
         if self.absent:
             what += ' · WITHOUT ' + ', '.join(self.labels.get(name, name).upper() for name in self.absent)
         part = 'HEAD' if self.head else f'{self.arm.upper()} ARM'
-        self.message = (f'{what} · LIVE {part} · enabling, then {moves}. '
-                        'Keep the foot switch in reach.' if self.live_arm else
-                        f'{what} · VIRTUAL RECEIVER · no motors move.')
+        self.message = (
+            f'{what} · LIVE {part} · enabling, then {moves}. Keep the foot switch in reach.'
+            if self.live_arm
+            else f'{what} · VIRTUAL RECEIVER · no motors move.'
+        )
 
     # -- the cycle -----------------------------------------------------------------------------
 
     def _feed(self):
         """Hand the engine every receiver row since the last cycle."""
         from robot_platform.control.servo_sweep import result_rows
+
         names = self.engine.names
         for result in self.pending:
             rows, dropped = result_rows(result, names)
@@ -392,14 +517,22 @@ class TuneCore:
     def _move(self, command, offered, offer_started):
         feedback = (self.latest() or {}).get('feedback') or []
         count = len(command['targets'])
-        joints = [{'position': target, 'velocity': velocity, 'effort': effort, 'kp': kp, 'kd': kd}
-                  for target, velocity, effort, (kp, kd) in zip(command['targets'],
-                                                                 command.get('velocities') or [0.] * count,
-                                                                 command.get('efforts') or [0.] * count,
-                                                                 command['gains'])]
+        joints = [
+            {'position': target, 'velocity': velocity, 'effort': effort, 'kp': kp, 'kd': kd}
+            for target, velocity, effort, (kp, kd) in zip(
+                command['targets'],
+                command.get('velocities') or [0.0] * count,
+                command.get('efforts') or [0.0] * count,
+                command['gains'],
+            )
+        ]
         if self.compiler is None:  # The head: the offer bounds the update's age, no envelope.
-            self.controller.direct_update(joints, offered, valid_for_ms=self.profile['receiver']['direct']['command_ms'],
-                                          ramp_efforts=command.get('ramp_efforts'))
+            self.controller.direct_update(
+                joints,
+                offered,
+                valid_for_ms=self.profile['receiver']['direct']['command_ms'],
+                ramp_efforts=command.get('ramp_efforts'),
+            )
             return
         envelope = self.compiler.compile(offered, feedback, joints, started_at=offer_started)
         self.controller.move(joints, collision=envelope, ramp_efforts=command.get('ramp_efforts'))
@@ -431,23 +564,33 @@ class TuneCore:
                 if command is None:
                     if self.mode == 'return':
                         why = next((e['text'] for e in reversed(self.engine.events)), 'stopped')
-                        self._disable('Returned: the arm is at its reference and disabled.'
-                                      if self.engine.task == 'finished' else
-                                      f'Return stopped ({why}): the arm was disabled where it is, and rests there.')
+                        self._disable(
+                            'Returned: the arm is at its reference and disabled.'
+                            if self.engine.task == 'finished'
+                            else f'Return stopped ({why}): the arm was disabled where it is, and rests there.'
+                        )
                     elif self.mode == 'jog':
-                        self._disable('Jog finished: the head is back where it rested, and limp.'
-                                      if self.engine.task == 'finished' else
-                                      'Jog stopped: the head is back where it rested, and limp.')
+                        self._disable(
+                            'Jog finished: the head is back where it rested, and limp.'
+                            if self.engine.task == 'finished'
+                            else 'Jog stopped: the head is back where it rested, and limp.'
+                        )
                     else:
-                        self._disable('Sweep finished: the arm is back at the reference and disabled. Review the '
-                                      'results, then save the joints you accept.' if self.engine.task == 'finished'
-                                      else 'Sweep stopped: the arm is back at the reference and disabled.')
+                        self._disable(
+                            'Sweep finished: the arm is back at the reference and disabled. Review the '
+                            'results, then save the joints you accept.'
+                            if self.engine.task == 'finished'
+                            else 'Sweep stopped: the arm is back at the reference and disabled.'
+                        )
                     self.stage = 'finished'
                 else:
                     self._move(command, offered, offer_started)
                     progress = self.engine.progress()
-                    self.message = (progress['task'] if self.mode == 'return' else
-                                    f"{progress['task']} ({progress['joints_done']}/{progress['joints']} joints done)")
+                    self.message = (
+                        progress['task']
+                        if self.mode == 'return'
+                        else f'{progress["task"]} ({progress["joints_done"]}/{progress["joints"]} joints done)'
+                    )
             elif self.stage == 'lowering':
                 self._lower(started)
         except Exception as exc:
@@ -469,7 +612,7 @@ class TuneCore:
                     # authority. Take it back there and lower the arm; never let it drop.
                     self._held(why)
                     return
-            self.fail(f"Receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok') else str(exc))
+            self.fail(f'Receiver {status.get("state")}: {reason} · {exc}' if reason not in (None, 'ok') else str(exc))
         finally:
             record['completed_at'] = self.clock()
             self.cycles.append(record)
@@ -490,16 +633,26 @@ class TuneCore:
         gap = None if self._last_started is None else started - self._last_started
         self._last_started = started
         gc_s, generation = self._gc_s, self._gc_generation
-        self._gc_s, self._gc_generation = 0., None
+        self._gc_s, self._gc_generation = 0.0, None
         if (gap is None or gap <= SLOW_CYCLE_S) and sent - started <= SLOW_CYCLE_S:
             return
         record = self.cycles[-1] if self.cycles and self.cycles[-1].get('started_at') == started else {}
-        marks = {key: round((record[key] - started) * 1000, 1) for key in ('fed', 'offered', 'planned', 'completed_at')
-                 if record.get(key) is not None}
-        entry = {'at_s': round(started, 3), 'gap_ms': None if gap is None else round(gap * 1000, 1),
-                 'tick_ms': round((ticked - started) * 1000, 1), 'view_ms': round((sent - ticked) * 1000, 1),
-                 'gc_ms': round(gc_s * 1000, 1), 'gc_generation': generation, 'marks_ms': marks,
-                 'stage': self.stage, 'task': (self.engine.progress() or {}).get('task') if self.engine else None}
+        marks = {
+            key: round((record[key] - started) * 1000, 1)
+            for key in ('fed', 'offered', 'planned', 'completed_at')
+            if record.get(key) is not None
+        }
+        entry = {
+            'at_s': round(started, 3),
+            'gap_ms': None if gap is None else round(gap * 1000, 1),
+            'tick_ms': round((ticked - started) * 1000, 1),
+            'view_ms': round((sent - ticked) * 1000, 1),
+            'gc_ms': round(gc_s * 1000, 1),
+            'gc_generation': generation,
+            'marks_ms': marks,
+            'stage': self.stage,
+            'task': (self.engine.progress() or {}).get('task') if self.engine else None,
+        }
         self.slow.append(entry)
         del self.slow[:-200]
         if self._slow_log is not None:
@@ -518,25 +671,32 @@ class TuneCore:
             self.message = 'Motors on at zero torque; holding in a moment…'
             return
         self.controller.renew()
-        if elapsed < .5:
+        if elapsed < 0.5:
             self.controller.idle()  # A command is only good for its lease: repeat it every cycle.
             return
         offer_started = self.clock()
         offered = self.controller.collision_offer()
         feedback = (self.latest() or {}).get('feedback') or []
-        self.controller.arm(collision=None if self.compiler is None else
-                            self.compiler.compile(offered, feedback, None, started_at=offer_started))
+        self.controller.arm(
+            collision=None
+            if self.compiler is None
+            else self.compiler.compile(offered, feedback, None, started_at=offer_started)
+        )
         self.engine.begin({name: sample['position'] for name, sample in zip(self.engine.names, feedback)})
         self.stage = 'sweeping'
-        self.message = ('Holding where it rests. Each joint returns alone to the reference.' if self.mode == 'return'
-                        else 'Holding. The sweep moves the arm joint by joint.')
+        self.message = (
+            'Holding where it rests. Each joint returns alone to the reference.'
+            if self.mode == 'return'
+            else 'Holding. The sweep moves the arm joint by joint.'
+        )
 
     def _held(self, reason):
         """The receiver stopped the arm and holds it: lower it from where it is held."""
         if self.stage != 'lowering':
             self.stage, self.stopped_by, self._lowerings = 'lowering', reason, 0
-        self.message = (f'The receiver stopped the arm ({reason}) and holds it; taking it back to lower it to the '
-                        'reference…')
+        self.message = (
+            f'The receiver stopped the arm ({reason}) and holds it; taking it back to lower it to the reference…'
+        )
 
     def land(self):
         """Before the session closes (closing the receiver cuts torque): lower an arm the sweep holds up, then
@@ -560,9 +720,11 @@ class TuneCore:
         if state == 'stopped':
             if self._lowerings >= LOWERING_ATTEMPTS:
                 self.stage = 'held'
-                self.message = (f'The receiver stopped the arm {LOWERING_ATTEMPTS} times while it was lowered '
-                                f'({status.get("reason")}): it holds the arm where it stopped. Support the arm, '
-                                'then press H to disable it (it goes limp), or stop the session.')
+                self.message = (
+                    f'The receiver stopped the arm {LOWERING_ATTEMPTS} times while it was lowered '
+                    f'({status.get("reason")}): it holds the arm where it stopped. Support the arm, '
+                    'then press H to disable it (it goes limp), or stop the session.'
+                )
                 return
             if not self.controller.owned:
                 self.controller.acquire()
@@ -571,8 +733,11 @@ class TuneCore:
             feedback = (self.latest() or {}).get('feedback') or []
             held = status['joints']  # The stop's hold: re-armed there, with its feed-forward.
             try:
-                status = self.controller.arm(collision=None if self.compiler is None else
-                                             self.compiler.compile(offered, feedback, held, started_at=offer_started))
+                status = self.controller.arm(
+                    collision=None
+                    if self.compiler is None
+                    else self.compiler.compile(offered, feedback, held, started_at=offer_started)
+                )
             except GuardRejected as exc:
                 if exc.reason not in WAIT_TO_REARM:
                     raise
@@ -580,23 +745,33 @@ class TuneCore:
                 if dropped:
                     # Out of Run mode, that drive never answers again this session: nothing can re-arm the arm.
                     self.stage = 'held'
-                    self.message = (f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm '
-                                    'it this session. Support the arm, then press H to disable it (it goes limp).')
+                    self.message = (
+                        f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm '
+                        'it this session. Support the arm, then press H to disable it (it goes limp).'
+                    )
                     return
                 # A drive not answering, or a joint not yet settled: the receiver holds the arm meanwhile.
-                self.message = (f'The receiver stopped the arm ({self.stopped_by}) and holds it; waiting to re-arm '
-                                f'it ({exc.reason}). If it stays held, support the arm, then press H to disable it '
-                                '(it goes limp).')
+                self.message = (
+                    f'The receiver stopped the arm ({self.stopped_by}) and holds it; waiting to re-arm '
+                    f'it ({exc.reason}). If it stays held, support the arm, then press H to disable it '
+                    '(it goes limp).'
+                )
                 return
             self._lowerings += 1
             # A gripper that stopped answering is set aside by the receiver: it keeps its last command.
             aside = status.get('set_aside') or []
-            self.engine.lower({name: joint['position'] for name, joint in zip(self.engine.names, status['joints'])},
-                              f'the receiver stopped the arm ({self.stopped_by})' if self.stopped_by
-                              else 'the receiver stopped the arm', aside=aside)
-            self.message = ((f'{" and ".join(aside)} stopped answering and {"is" if len(aside) == 1 else "are"} set '
-                             'aside. ' if aside else '')
-                            + 'Re-armed where the receiver held it; lowering the arm to the reference…')
+            self.engine.lower(
+                {name: joint['position'] for name, joint in zip(self.engine.names, status['joints'])},
+                f'the receiver stopped the arm ({self.stopped_by})'
+                if self.stopped_by
+                else 'the receiver stopped the arm',
+                aside=aside,
+            )
+            self.message = (
+                f'{" and ".join(aside)} stopped answering and {"is" if len(aside) == 1 else "are"} set aside. '
+                if aside
+                else ''
+            ) + 'Re-armed where the receiver held it; lowering the arm to the reference…'
             return
         if state not in ('holding', 'executing') or not self.controller.owned:
             raise RuntimeError(f"the receiver is {state} ({status.get('reason')}): the arm's torque is off")
@@ -606,8 +781,10 @@ class TuneCore:
         command = self.engine.command(started)
         if command is None:
             why = f'the receiver stopped it ({self.stopped_by})' if self.stopped_by else 'the session closed'
-            self._disable(f'Sweep ended: {why}. The arm was lowered to the reference and disabled. Review the '
-                          'results; the joint under test was not finished.')
+            self._disable(
+                f'Sweep ended: {why}. The arm was lowered to the reference and disabled. Review the '
+                'results; the joint under test was not finished.'
+            )
         else:
             self._move(command, offered, offer_started)
             self.message = 'Lowering the arm to the reference…'
@@ -656,9 +833,21 @@ class TuneCore:
             self.sink.close()
             self.sink = None
         if self.engine is not None and self.evidence is not None:
-            (self.evidence / 'results.json').write_text(json.dumps(
-                {'arm': self.arm, 'finished_at': utc_now(), 'task': self.engine.task, 'events': self.engine.events,
-                 'joints': self.engine.summary()}, indent=1, default=float) + '\n', encoding='utf-8')
+            (self.evidence / 'results.json').write_text(
+                json.dumps(
+                    {
+                        'arm': self.arm,
+                        'finished_at': utc_now(),
+                        'task': self.engine.task,
+                        'events': self.engine.events,
+                        'joints': self.engine.summary(),
+                    },
+                    indent=1,
+                    default=float,
+                )
+                + '\n',
+                encoding='utf-8',
+            )
         if self.phase != 'fault':
             self.phase = 'stopped'
             if self.stage not in ('finished',):
@@ -671,43 +860,70 @@ class TuneCore:
     def guide(self):
         """Its arm as its receiver reads it, as CAD joint positions, for Helm's 3D view (None before it runs)."""
         from robot_platform.control.guarded_config import to_cad
+
         last = self.latest() if self.engine is not None else None
         feedback = (last or {}).get('feedback') or []
         if not feedback:
             return None
         measured = {name: sample['position'] for name, sample in zip(self.engine.names, feedback)}
-        return {'positions': to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']),
-                'enabled': last.get('hardware_enabled'), 'receiver': (last.get('status') or {}).get('state')}
+        return {
+            'positions': to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']),
+            'enabled': last.get('hardware_enabled'),
+            'receiver': (last.get('status') or {}).get('state'),
+        }
 
     def view(self, *, results=None):
         now = self.clock()
         if results is None:
             results = self.stage == 'finished' or self.phase != 'running' or now - self._results_at >= RESULTS_EVERY_S
         last = self.latest() if self.engine is not None else None
-        durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles[-100:]
-                           if c.get('completed_at') is not None)
-        view = {'phase': self.phase, 'stage': self.stage, 'message': self.message, 'fault': self.fault,
-                'arm': self.arm, 'live': self.live_arm is not None, 'mode': self.mode, 'absent': self.absent,
-                'receiver': ((last or {}).get('status') or {}).get('state'),
-                'motors_enabled': (last or {}).get('hardware_enabled'),
-                'progress': self.engine.progress() if self.engine else None,
-                'cycle_ms': {'p50': durations[(len(durations) - 1) // 2],
-                             'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1]}
-                if durations else None,
-                'evidence': str(self.evidence) if self.evidence else None, 'guide': self.guide(),
-                'slow_cycles': len(self.slow), 'slowest': max(self.slow, key=lambda e: max(e['gap_ms'] or 0,
-                                                                                          e['tick_ms'] + e['view_ms']))
-                if self.slow else None}
+        durations = sorted(
+            (c['completed_at'] - c['started_at']) * 1000
+            for c in self.cycles[-100:]
+            if c.get('completed_at') is not None
+        )
+        view = {
+            'phase': self.phase,
+            'stage': self.stage,
+            'message': self.message,
+            'fault': self.fault,
+            'arm': self.arm,
+            'live': self.live_arm is not None,
+            'mode': self.mode,
+            'absent': self.absent,
+            'receiver': ((last or {}).get('status') or {}).get('state'),
+            'motors_enabled': (last or {}).get('hardware_enabled'),
+            'progress': self.engine.progress() if self.engine else None,
+            'cycle_ms': {
+                'p50': durations[(len(durations) - 1) // 2],
+                'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
+            }
+            if durations
+            else None,
+            'evidence': str(self.evidence) if self.evidence else None,
+            'guide': self.guide(),
+            'slow_cycles': len(self.slow),
+            'slowest': max(self.slow, key=lambda e: max(e['gap_ms'] or 0, e['tick_ms'] + e['view_ms']))
+            if self.slow
+            else None,
+        }
         if results and self.engine is not None:
             view['results'] = self.engine.summary()
             self._results_at = now
         if last is not None and self.derived is not None and getattr(self, 'model', None) is not None:
             # The model's joint telemetry: the receiver's last feedback as it reported it.
             from .telemetry import native_packet
-            view['telemetry'] = native_packet(last, self.derived, model=self.model.profile.id,
-                                              urdf_sha256=self.model.sha256, joint_types=self.model.by_name,
-                                              labels=self.labels, stream='tune',
-                                              source='measured' if self.live_arm else 'simulated')
+
+            view['telemetry'] = native_packet(
+                last,
+                self.derived,
+                model=self.model.profile.id,
+                urdf_sha256=self.model.sha256,
+                joint_types=self.model.by_name,
+                labels=self.labels,
+                stream='tune',
+                source='measured' if self.live_arm else 'simulated',
+            )
         return view
 
 
@@ -784,8 +1000,7 @@ class TuneSession:
 
     TARGETS = ('jetson', 'pc')
 
-    def __init__(self, helm, profile_path, *, target='jetson', core_factory=None, edge_factory=None,
-                 on_finished=None):
+    def __init__(self, helm, profile_path, *, target='jetson', core_factory=None, edge_factory=None, on_finished=None):
         self.helm = helm
         self.on_finished = on_finished  # (mode, arm, results, fault) once a sweep's loop ends.
         self.mode = 'tune'
@@ -800,13 +1015,20 @@ class TuneSession:
         # The head's files sit beside the arms' servo calibration, in the arms' formats (neck.head).
         from robot_platform.neck.head import PROFILE, files
         from robot_platform.ops.release import ROOT
+
         self.head_profile_path = ROOT / PROFILE
         self.head_paths = files(self.path.parent, helm.asset_id)
         self.head_saved, self.head_saved_error = None, None
         self._lock = threading.Lock()
         self._conn = self._views = self._worker = self._reader = None
-        self._view = {'phase': 'stopped', 'stage': None, 'message': 'The servo sweep is not running.',
-                      'fault': None, 'progress': None, 'results': None}
+        self._view = {
+            'phase': 'stopped',
+            'stage': None,
+            'message': 'The servo sweep is not running.',
+            'fault': None,
+            'progress': None,
+            'results': None,
+        }
         self.results = None
         self.saved = self._load()
         self.saved_error = None
@@ -846,7 +1068,9 @@ class TuneSession:
                 if target not in self.TARGETS:
                     raise ValueError('The loop runs on jetson or pc')
                 if target == 'pc' and getattr(self.helm, 'on_robot', False):
-                    raise ValueError("Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm")
+                    raise ValueError(
+                        "Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm"
+                    )
                 self.target = target
             if mode == 'live' and self.target != 'jetson':
                 raise ValueError("A live sweep runs its loop on Minerva's Jetson")
@@ -861,15 +1085,18 @@ class TuneSession:
         reading, its offset from the reference and whether it moves. The operator confirms it against the arm
         (the 3D view shows those readings). Refused unless every reading is fresh and inside its swept range."""
         from robot_platform.control.servo_sweep import RETURNED_RAD, sweep_settings
+
         helm = self.helm
         if arm not in ('left', 'right'):
             raise ValueError('Return the left or right arm')
         # A resting arm's reading up to 2 s old: the stopped reader's 0.3 s scans plus their round trip sometimes
         # pass the 0.75 s live-edit limit, which refused a return between two fresh frames (2026-09-30). The
         # confirm, the live start's stopped scan and the receiver's start gate each check the pose again.
-        if not helm.fresh(limit=2.):
-            raise ValueError('Connect to the motors first (Connect, top right): the 3D view then shows the arm '
-                             'as its drives read it, to compare with the real arm')
+        if not helm.fresh(limit=2.0):
+            raise ValueError(
+                'Connect to the motors first (Connect, top right): the 3D view then shows the arm '
+                'as its drives read it, to compare with the real arm'
+            )
         limits = (helm.saved_limits or {}).get('joints') or {}
         motors = [motor for motor in helm.reference['motors'] if motor['name'].startswith(f'{arm}_')]
         if any(motor['name'] not in limits for motor in motors):
@@ -882,20 +1109,36 @@ class TuneSession:
             if q is None:
                 raise ValueError(f'No live reading for {helm.labels.get(name, name)}')
             low, high = limits[name]['min_rad'], limits[name]['max_rad']
-            if not low - .05 <= q <= high + .05:
-                outside.append(f'{helm.labels.get(name, name)} reads {q:+.2f} rad, outside its swept '
-                               f'{low:+.2f} to {high:+.2f}')
+            if not low - 0.05 <= q <= high + 0.05:
+                outside.append(
+                    f'{helm.labels.get(name, name)} reads {q:+.2f} rad, outside its swept {low:+.2f} to {high:+.2f}'
+                )
             settings = sweep_settings(self.profile, name)
-            joints.append({'motor': name, 'label': helm.labels.get(name, name), 'position': q, 'offset': q - home,
-                           'moves': abs(q - home) > RETURNED_RAD, 'speed': settings['characterize_speed'],
-                           'rest_s': settings['rest_s']})
+            joints.append(
+                {
+                    'motor': name,
+                    'label': helm.labels.get(name, name),
+                    'position': q,
+                    'offset': q - home,
+                    'moves': abs(q - home) > RETURNED_RAD,
+                    'speed': settings['characterize_speed'],
+                    'rest_s': settings['rest_s'],
+                }
+            )
         if outside:
-            raise ValueError('A reading outside its swept range cannot be trusted to move from: ' + '; '.join(outside)
-                             + '. Turn that joint back by hand.')
+            raise ValueError(
+                'A reading outside its swept range cannot be trusted to move from: '
+                + '; '.join(outside)
+                + '. Turn that joint back by hand.'
+            )
         moving = [j for j in joints if j['moves']]
         # The joints move together along one line: the slowest to arrive at its own speed sets the time.
-        return {'arm': arm, 'joints': joints, 'speed': max(j['speed'] for j in joints),
-                'seconds': round(max((abs(j['offset']) / j['speed'] + j['rest_s'] for j in moving), default=0.), 1)}
+        return {
+            'arm': arm,
+            'joints': joints,
+            'speed': max(j['speed'] for j in joints),
+            'seconds': round(max((abs(j['offset']) / j['speed'] + j['rest_s'] for j in moving), default=0.0), 1),
+        }
 
     def start_return(self, arm, pose):
         """Return `arm` from `pose` ({motor: raw rad}, confirmed by the operator) to its reference, then disable."""
@@ -916,30 +1159,52 @@ class TuneSession:
         """The head's sweep: its profile, saved reference, limits and servo calibration; the virtual receiver
         falls back to a nominal reference and provisional limits until the head is set up."""
         from robot_platform.neck import head
-        reference, limits = head.load_document(self.head_paths['reference']), head.load_document(
-            self.head_paths['limits'])
+
+        reference, limits = (
+            head.load_document(self.head_paths['reference']),
+            head.load_document(self.head_paths['limits']),
+        )
         if self.receiver['mode'] == 'live' and (reference is None or limits is None):
-            raise ValueError("Set up the head first: centre each servo at the head's reference pose and save its "
-                             'reference, then sweep its limits (docs/robots/minerva/NECK_FEETECH.md)')
+            raise ValueError(
+                "Set up the head first: centre each servo at the head's reference pose and save its "
+                'reference, then sweep its limits (docs/robots/minerva/NECK_FEETECH.md)'
+            )
         profile = head.load_profile(self.head_profile_path)
         reference = reference or head.virtual_reference(profile)
-        return {'kind': 'tune', 'mode': self.mode, 'teleop_profile': str(self.head_profile_path),
-                'asset_id': self.helm.asset_id, 'receiver': dict(self.receiver), 'arm': 'head', 'joints': self.joints,
-                'servo': deepcopy(self.head_saved), 'head_reference': reference,
-                'limits': limits or head.virtual_limits(reference)}
+        return {
+            'kind': 'tune',
+            'mode': self.mode,
+            'teleop_profile': str(self.head_profile_path),
+            'asset_id': self.helm.asset_id,
+            'receiver': dict(self.receiver),
+            'arm': 'head',
+            'joints': self.joints,
+            'servo': deepcopy(self.head_saved),
+            'head_reference': reference,
+            'limits': limits or head.virtual_limits(reference),
+        }
 
     def _bundle(self):
         helm = self.helm
         if self.receiver['arm'] == 'head':
             return self._head_bundle()
-        return {'kind': 'tune', 'mode': self.mode, 'calibration_profile': str(helm.profile_path),
-                'bindings': deepcopy(helm.bindings), **calibration_reference(helm),
-                'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
-                'teleop_profile': str(self.profile_path), 'asset_id': helm.asset_id,
-                'receiver': dict(self.receiver), 'arm': self.receiver['arm'], 'joints': self.joints,
-                'servo': deepcopy(self.saved),
-                **({'absent': list(self.absent)} if self.absent and self.mode == 'tune' else {}),
-                **({'start_pose': dict(self._start_pose)} if self.mode == 'return' else {})}
+        return {
+            'kind': 'tune',
+            'mode': self.mode,
+            'calibration_profile': str(helm.profile_path),
+            'bindings': deepcopy(helm.bindings),
+            **calibration_reference(helm),
+            'directions': deepcopy(helm.mapping),
+            'limits': deepcopy(helm.saved_limits),
+            'teleop_profile': str(self.profile_path),
+            'asset_id': helm.asset_id,
+            'receiver': dict(self.receiver),
+            'arm': self.receiver['arm'],
+            'joints': self.joints,
+            'servo': deepcopy(self.saved),
+            **({'absent': list(self.absent)} if self.absent and self.mode == 'tune' else {}),
+            **({'start_pose': dict(self._start_pose)} if self.mode == 'return' else {}),
+        }
 
     def start(self, *, confirm=False):
         with self._lock:
@@ -948,10 +1213,13 @@ class TuneSession:
             live = self.receiver['mode'] == 'live'
             head = self.receiver['arm'] == 'head'
             if live and confirm is not True:
-                raise ValueError("Confirm the jog: the head's servos move on their own, one joint at a time, from "
-                                 "where it rests and back there, and nothing is in the head's way" if head else
-                                 f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
-                                 'the foot switch is in reach and the arm hangs in its reference pose')
+                raise ValueError(
+                    "Confirm the jog: the head's servos move on their own, one joint at a time, from "
+                    "where it rests and back there, and nothing is in the head's way"
+                    if head
+                    else f"Confirm the sweep: the {self.receiver['arm']} arm's motors move on their own, "
+                    'the foot switch is in reach and the arm hangs in its reference pose'
+                )
             if live and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('A live sweep runs over the wired tether: choose Tether at the top first')
             if not head and self.helm.saved_limits is None:
@@ -964,15 +1232,21 @@ class TuneSession:
                 command_reader, command_writer = context.Pipe(duplex=False)
                 view_reader, view_writer = context.Pipe(duplex=False)
                 if self.core_factory is None:
-                    worker = context.Process(target=_process_main, args=(command_reader, view_writer, bundle),
-                                             daemon=True, name='helm-tune')
+                    worker = context.Process(
+                        target=_process_main, args=(command_reader, view_writer, bundle), daemon=True, name='helm-tune'
+                    )
                 else:
-                    worker = threading.Thread(target=run_tune_loop, daemon=True, name='helm-tune',
-                                              args=(command_reader, view_writer, self.core_factory(bundle)))
+                    worker = threading.Thread(
+                        target=run_tune_loop,
+                        daemon=True,
+                        name='helm-tune',
+                        args=(command_reader, view_writer, self.core_factory(bundle)),
+                    )
             else:
                 from robot_platform.control.commissioning import motor_models
                 from robot_platform.ops.release import ROOT
                 from .edge import EdgeWorker
+
                 for key in [key for key in ('calibration_profile', 'teleop_profile') if key in bundle]:
                     path = Path(bundle[key]).resolve()
                     if not path.is_relative_to(ROOT):
@@ -982,24 +1256,39 @@ class TuneSession:
                     bundle['calibration_reference'] = edge_reference(bundle['calibration_reference'], self.helm)
                 if live and not head:
                     bundle['receiver'] = dict(bundle['receiver'], motor_models=motor_models(self.helm.device, ROOT))
-                worker = (self.edge_factory or EdgeWorker)(bundle, None, base_view=dict(self._view),
-                                                           real_leaders=False, name='The servo sweep',
-                                                           address=getattr(self.helm, 'address', None))
+                worker = (self.edge_factory or EdgeWorker)(
+                    bundle,
+                    None,
+                    base_view=dict(self._view),
+                    real_leaders=False,
+                    name='The servo sweep',
+                    address=getattr(self.helm, 'address', None),
+                )
                 command_writer, view_reader = worker.commands, worker.views
-            self._view = dict(self._view, phase='starting', fault=None, results=None, mode=self.mode,
-                              message=("Starting the head's jog: its receiver checks each servo and that the head "
-                                       'is still where it rests…' if head else
-                                       f"Returning the {self.receiver['arm']} arm: checking it is still where you "
-                                       'confirmed it, then starting the receiver…' if self.mode == 'return' else
-                                       f"Starting the sweep on the {self.receiver['arm']} arm: checking it is still and "
-                                       'in its reference pose, then starting the receiver…'))
+            self._view = dict(
+                self._view,
+                phase='starting',
+                fault=None,
+                results=None,
+                mode=self.mode,
+                message=(
+                    "Starting the head's jog: its receiver checks each servo and that the head is still where it rests…"
+                    if head
+                    else f'Returning the {self.receiver["arm"]} arm: checking it is still where you '
+                    'confirmed it, then starting the receiver…'
+                    if self.mode == 'return'
+                    else f'Starting the sweep on the {self.receiver["arm"]} arm: checking it is still and '
+                    'in its reference pose, then starting the receiver…'
+                ),
+            )
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()
             if local and self.core_factory is None:
                 command_reader.close()
                 view_writer.close()
-            self._reader = threading.Thread(target=self._read, args=(view_reader,), daemon=True,
-                                            name='helm-tune-reader')
+            self._reader = threading.Thread(
+                target=self._read, args=(view_reader,), daemon=True, name='helm-tune-reader'
+            )
             self._reader.start()
 
     def _read(self, conn):
@@ -1019,8 +1308,12 @@ class TuneSession:
         except (EOFError, OSError):
             with self._lock:
                 if self._view.get('phase') in ('starting', 'running'):
-                    self._view = dict(self._view, phase='fault', fault='The sweep loop ended unexpectedly',
-                                      message='Sweep stopped: the loop process ended unexpectedly.')
+                    self._view = dict(
+                        self._view,
+                        phase='fault',
+                        fault='The sweep loop ended unexpectedly',
+                        message='Sweep stopped: the loop process ended unexpectedly.',
+                    )
                 finished = (self.mode, self.receiver['arm'], deepcopy(self.results), self._view.get('fault'))
             if self.on_finished is not None:
                 try:
@@ -1040,7 +1333,7 @@ class TuneSession:
         except (OSError, ValueError) as exc:
             raise ValueError(f'The sweep is not reachable: {exc}') from exc
 
-    def stop(self, timeout=45.):
+    def stop(self, timeout=45.0):
         # The loop lowers a raised arm before it closes the receiver: about 11 s for J2 from horizontal.
         with self._lock:
             conn, views, worker, reader = self._conn, self._views, self._worker, self._reader
@@ -1077,17 +1370,25 @@ class TuneSession:
             raise ValueError('No sweep results to save')
         if self._swept_without:
             # The arm runs with every drive: a wrist swept without its gripper's load is not what teleop drives.
-            raise ValueError('This sweep left out ' + ', '.join(self._swept_without) + ' to check the wiring; '
-                             'sweep again with every drive plugged in to save settings')
+            raise ValueError(
+                'This sweep left out ' + ', '.join(self._swept_without) + ' to check the wiring; '
+                'sweep again with every drive plugged in to save settings'
+            )
         if not motors:
             raise ValueError('Choose the joints to save')
         if any(motor.startswith('head_') for motor in motors):
             # The head is only jogged (the user, 2026-10-29), and a jog measures no settings to save: the head
             # keeps its profile's.
             raise ValueError("The head's jog saves nothing: it checks each joint reaches its ends slowly")
-        document = save_servo(self.path, asset_id=self.helm.asset_id, reference=self.helm.reference,
-                              results=results, motors=motors, session=self._view.get('evidence') or utc_now(),
-                              existing=self.saved)
+        document = save_servo(
+            self.path,
+            asset_id=self.helm.asset_id,
+            reference=self.helm.reference,
+            results=results,
+            motors=motors,
+            session=self._view.get('evidence') or utc_now(),
+            existing=self.saved,
+        )
         with self._lock:
             self.saved, self.saved_error = document, None
         return document
@@ -1108,10 +1409,21 @@ class TuneSession:
         arm = view.get('arm') or ''
         other = 'right' if arm == 'left' else 'left'
         held = 'ENABLED' if live.get('enabled') else 'DISABLED'
-        return {**base, 'positions': positions, 'live': True, 'rows': [], 'stream_id': 'helm-tune',
-                'sequence': sequence, 'updated_at': time.time(), 'source_age_seconds': 0., 'feed_state': 'reading',
-                'reconnections': 0, 'view': 'fit', 'message': view.get('message'),
-                'badge': f"{what} · {arm.upper()} ARM {held} ({live.get('receiver')}) · {other} arm as last read"}
+        return {
+            **base,
+            'positions': positions,
+            'live': True,
+            'rows': [],
+            'stream_id': 'helm-tune',
+            'sequence': sequence,
+            'updated_at': time.time(),
+            'source_age_seconds': 0.0,
+            'feed_state': 'reading',
+            'reconnections': 0,
+            'view': 'fit',
+            'message': view.get('message'),
+            'badge': f'{what} · {arm.upper()} ARM {held} ({live.get("receiver")}) · {other} arm as last read',
+        }
 
     def snapshot(self):
         with self._lock:
@@ -1121,23 +1433,38 @@ class TuneSession:
             if view.get('telemetry') is not None:
                 # Aged since it arrived; a cached packet never looks fresher than its source.
                 from .telemetry import age_packet
+
                 received = getattr(self, '_view_received_at', None)
-                view['telemetry'] = age_packet(view['telemetry'],
-                                               time.perf_counter() - received if received is not None else None)
+                view['telemetry'] = age_packet(
+                    view['telemetry'], time.perf_counter() - received if received is not None else None
+                )
             running = view.get('phase') in ('starting', 'running')
-            return dict(view, receiver_choice=dict(self.receiver), joints_choice=self.joints, target=self.target,
-                        absent_choice=self.absent,
-                        mode=view.get('mode', self.mode) if running else self.mode,
-                        results=deepcopy(self.results), saved=deepcopy(self.saved), saved_error=self.saved_error,
-                        return_offer=deepcopy(self.offer),
-                        path=str(self.path), head=self._head_state())
+            return dict(
+                view,
+                receiver_choice=dict(self.receiver),
+                joints_choice=self.joints,
+                target=self.target,
+                absent_choice=self.absent,
+                mode=view.get('mode', self.mode) if running else self.mode,
+                results=deepcopy(self.results),
+                saved=deepcopy(self.saved),
+                saved_error=self.saved_error,
+                return_offer=deepcopy(self.offer),
+                path=str(self.path),
+                head=self._head_state(),
+            )
 
     def _head_state(self):
         """The head's servos for the Tune tab, its saved calibration and which of its files exist."""
         from robot_platform.neck.head import load_profile
+
         try:
             motors = [{'name': m['name'], 'label': m['label']} for m in load_profile(self.head_profile_path)['motors']]
         except (OSError, ValueError, KeyError):
             motors = []
-        return {'motors': motors, 'saved': deepcopy(self.head_saved), 'saved_error': self.head_saved_error,
-                'files': {kind: path.is_file() for kind, path in self.head_paths.items()}}
+        return {
+            'motors': motors,
+            'saved': deepcopy(self.head_saved),
+            'saved_error': self.head_saved_error,
+            'files': {kind: path.is_file() for kind, path in self.head_paths.items()},
+        }

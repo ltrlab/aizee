@@ -16,6 +16,7 @@ head camera sees, for the workcell file's own layout and every accepted draw.
 An attempt keeps its first accepted draw, so a generated set's layouts are the drawn layouts weighted by their chance of
 acceptance: a quartile accepted at half the overall rate is half as dense in the episodes as in the draws.
 """
+
 import argparse
 import collections
 from concurrent.futures import ProcessPoolExecutor
@@ -41,22 +42,38 @@ def _init(randomization):
     from robot_platform.evaluation.generate import BucketInView, HeadCameraClearance
     from robot_platform.evaluation.plants import _Stack, derive_stack
     from robot_platform.simulation.layouts import LayoutSampler
+
     stack = derive_stack()
     sampler = LayoutSampler(WORKCELL, randomization)
     view = sampler.randomization.bucket_view
-    _state.update(stack=stack, limits=_Stack(stack), demo=HandoffDemonstrator(), clearance=HeadCameraClearance(stack),
-                  view=BucketInView(**view) if view else None,
-                  slack=BucketInView(view['image'] if view else (320, 240), 0).slack, sampler=sampler)
+    _state.update(
+        stack=stack,
+        limits=_Stack(stack),
+        demo=HandoffDemonstrator(),
+        clearance=HeadCameraClearance(stack),
+        view=BucketInView(**view) if view else None,
+        slack=BucketInView(view['image'] if view else (320, 240), 0).slack,
+        sampler=sampler,
+    )
 
 
 def _plan(layout):
     """The demonstrator's verdict on a layout: (verdict, reason, drop, grasp)."""
     from robot_platform.evaluation.demonstrator import PlanningError
+
     stack, limits = _state['stack'], _state['limits']
     # The context TrialRunner.plan gives the demonstrator, without opening a plant.
-    context = SimpleNamespace(joint_names=stack['names'], joint_map=stack['derived']['joint_map'], lower=limits.lower,
-                              upper=limits.upper, home=limits.home, workcell=layout.workcell,
-                              period_s=limits.period_s, lead=limits.lead, cube_start=dict(layout.cube_start))
+    context = SimpleNamespace(
+        joint_names=stack['names'],
+        joint_map=stack['derived']['joint_map'],
+        lower=limits.lower,
+        upper=limits.upper,
+        home=limits.home,
+        workcell=layout.workcell,
+        period_s=limits.period_s,
+        lead=limits.lead,
+        cube_start=dict(layout.cube_start),
+    )
     try:
         _state['demo'].reset(context)
     except PlanningError as exc:
@@ -77,8 +94,12 @@ def _one(task):
     slack = _state['slack'](layout.workcell)
     clearance = _state['clearance'](layout.workcell)
     view = _state['view'](layout.workcell) if _state['view'] else None
-    entry = {'seed': key, 'values': layout.describe(), 'camera': clearance,
-             'opening_slack_px': None if slack == -math.inf else slack}
+    entry = {
+        'seed': key,
+        'values': layout.describe(),
+        'camera': clearance,
+        'opening_slack_px': None if slack == -math.inf else slack,
+    }
     refused = ('head camera', clearance) if clearance else ('bucket out of view', view) if view else None
     if refused and not plan_all:
         return dict(entry, verdict=refused[0], reason=refused[1])
@@ -91,8 +112,10 @@ def _one(task):
 
 def run_map(args):
     tasks = [([args.seed, k], args.plan_all) for k in range(args.draws)]
-    with ProcessPoolExecutor(max_workers=args.workers, initializer=_init, initargs=(args.randomize,)) as pool, \
-            open(args.out, 'w', encoding='utf-8') as out:
+    with (
+        ProcessPoolExecutor(max_workers=args.workers, initializer=_init, initargs=(args.randomize,)) as pool,
+        open(args.out, 'w', encoding='utf-8') as out,
+    ):
         for result in pool.map(_one, tasks, chunksize=1):
             out.write(json.dumps(result) + '\n')
             out.flush()
@@ -100,7 +123,7 @@ def run_map(args):
 
 def wilson(k, n, z=1.959963984540054):
     if not n:
-        return 0., 1.
+        return 0.0, 1.0
     p = k / n
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
@@ -157,8 +180,10 @@ def report(path):
     print(f'accepted {planned}/{n_all} = {planned / n_all:.0%} (Wilson 95% {low:.2f}-{high:.2f})')
     tried = [r for r in rows if r.get('values') and r['verdict'] not in CHECKS]
     low, high = wilson(planned, len(tried))
-    print(f'planned of those past the head-camera checks: {planned}/{len(tried)} = {planned / len(tried):.0%} '
-          f'(Wilson 95% {low:.2f}-{high:.2f})')
+    print(
+        f'planned of those past the head-camera checks: {planned}/{len(tried)} = {planned / len(tried):.0%} '
+        f'(Wilson 95% {low:.2f}-{high:.2f})'
+    )
 
     per_refusal, moves = collections.Counter(), collections.Counter()
     for r in rows:
@@ -166,7 +191,7 @@ def report(path):
             continue
         text = r['reason']
         kinds = set()
-        for part in text[text.find('(') + 1:text.rfind(')')].split('; '):
+        for part in text[text.find('(') + 1 : text.rfind(')')].split('; '):
             entry = ENTRY.match(part)
             if entry:
                 kind = met(entry.group(3))
@@ -182,8 +207,10 @@ def report(path):
 
     valued = [r for r in rows if r.get('values')]
     overall = planned / n_all
-    print('\nby quartile: accepted (density in the episodes against the draws); head-camera and bucket-view refusals '
-          'of all; planning refusals of those planned')
+    print(
+        '\nby quartile: accepted (density in the episodes against the draws); head-camera and bucket-view refusals '
+        'of all; planning refusals of those planned'
+    )
     for name, value in VALUES.items():
         values = sorted(value(r['values']) for r in valued)
         edges = [values[int(len(values) * q / 4)] for q in range(4)] + [values[-1] + 1e-9]
@@ -193,9 +220,11 @@ def report(path):
             counts = collections.Counter(r['verdict'] for r in group)
             n, past = len(group), len(group) - sum(counts[k] for k in CHECKS)
             refused = sum(counts[k] for k in PLANNING)
-            cells.append(f"{low:6.2f}..{high:6.2f}: {counts['planned'] / n:4.0%} "
-                         f"({counts['planned'] / n / overall:3.1f}x) cam {counts['head camera'] / n:3.0%} "
-                         f"view {counts['bucket out of view'] / n:3.0%} plan {refused / past if past else 0:3.0%}")
+            cells.append(
+                f'{low:6.2f}..{high:6.2f}: {counts["planned"] / n:4.0%} '
+                f'({counts["planned"] / n / overall:3.1f}x) cam {counts["head camera"] / n:3.0%} '
+                f'view {counts["bucket out of view"] / n:3.0%} plan {refused / past if past else 0:3.0%}'
+            )
         print(f'{name:22s} | ' + ' | '.join(cells))
 
     xs = sorted(VALUES['bucket x m'](r['values']) for r in tried)
@@ -207,8 +236,12 @@ def report(path):
     for j in reversed(range(3)):
         line = f'y {ye[j]:+.2f}..{ye[j + 1]:+.2f}  '
         for i in range(3):
-            cell = [r for r in tried if xe[i] <= VALUES['bucket x m'](r['values']) < xe[i + 1]
-                    and ye[j] <= VALUES['bucket y m'](r['values']) < ye[j + 1]]
+            cell = [
+                r
+                for r in tried
+                if xe[i] <= VALUES['bucket x m'](r['values']) < xe[i + 1]
+                and ye[j] <= VALUES['bucket y m'](r['values']) < ye[j + 1]
+            ]
             ok = sum(r['verdict'] == 'planned' for r in cell)
             line += f'  {ok:2d}/{len(cell):2d} ({ok / len(cell) if cell else 0:4.0%})  '
         print(line)
@@ -232,6 +265,7 @@ def view(path, width=320, height=240):
     from robot_platform.simulation.layouts import LayoutSampler
     from robot_platform.simulation.task_scene import MinervaTaskScene
     from robot_platform.simulation.workcell import head_pinhole, load_workcell
+
     stack = derive_stack()
     sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
 
@@ -244,7 +278,7 @@ def view(path, width=320, height=240):
             if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or '').startswith('task/bucket/wall'):
                 centre, turn, size = data.geom_xpos[geom], data.geom_xmat[geom].reshape(3, 3), model.geom_size[geom]
                 corners += [centre + turn @ (np.array(signs) * size[:3]) for signs in product((-1, 1), repeat=3)]
-                tops.append(centre + turn @ np.array([0., 0., size[2]]))
+                tops.append(centre + turn @ np.array([0.0, 0.0, size[2]]))
         block = data.geom_xpos[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, 'task/cube/geom')]
         camera = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, 'head')
         origin, axes = data.cam_xpos[camera], data.cam_xmat[camera].reshape(3, 3)
@@ -252,21 +286,27 @@ def view(path, width=320, height=240):
         inside = []
         for point in [*corners, np.mean(tops, axis=0), block]:
             x, y, z = axes.T @ (point - origin)  # MuJoCo cameras look along their -z, y up
-            inside.append(bool(z < 0 and -.5 <= cx + fx * x / -z <= width - .5 and
-                               -.5 <= cy - fy * y / -z <= height - .5))
+            inside.append(
+                bool(z < 0 and -0.5 <= cx + fx * x / -z <= width - 0.5 and -0.5 <= cy - fy * y / -z <= height - 0.5)
+            )
         return sum(inside[:-2]) / len(corners), inside[-2], inside[-1]
 
     own = seen(load_workcell(WORKCELL))
     print(f'the workcell file: bucket corners in view {own[0]:.0%}, its opening {own[1]}, the block {own[2]}')
     rows = [json.loads(line) for line in open(path, encoding='utf-8') if line.strip()]
-    results = [seen(sampler.draw(np.random.default_rng(r['seed']), seed=r['seed']).workcell)
-               for r in rows if r['verdict'] == 'planned']
+    results = [
+        seen(sampler.draw(np.random.default_rng(r['seed']), seed=r['seed']).workcell)
+        for r in rows
+        if r['verdict'] == 'planned'
+    ]
     shares = np.array([share for share, _, _ in results])
     n = len(results)
-    print(f'{n} accepted draws at {width} x {height}: the whole bucket in view {np.mean(shares == 1):.0%}, at least '
-          f'half its corners {np.mean(shares >= .5):.0%}, none {np.mean(shares == 0):.0%} '
-          f'(median {np.median(shares):.0%}); its opening {sum(r[1] for r in results)} of {n}; '
-          f'the block {sum(r[2] for r in results)} of {n}')
+    print(
+        f'{n} accepted draws at {width} x {height}: the whole bucket in view {np.mean(shares == 1):.0%}, at least '
+        f'half its corners {np.mean(shares >= 0.5):.0%}, none {np.mean(shares == 0):.0%} '
+        f'(median {np.median(shares):.0%}); its opening {sum(r[1] for r in results)} of {n}; '
+        f'the block {sum(r[2] for r in results)} of {n}'
+    )
 
 
 def main():
@@ -278,8 +318,11 @@ def main():
     mapping.add_argument('--workers', type=int, default=6)
     mapping.add_argument('--seed', type=int, default=5000)
     mapping.add_argument('--randomize', default=str(RANDOMIZATION), help='the randomization file to draw from')
-    mapping.add_argument('--plan-all', action='store_true',
-                         help='plan every draw, the refused ones too, so that other checks can be tried on the map')
+    mapping.add_argument(
+        '--plan-all',
+        action='store_true',
+        help='plan every draw, the refused ones too, so that other checks can be tried on the map',
+    )
     for name in ('report', 'view'):
         commands.add_parser(name).add_argument('out')
     args = parser.parse_args()

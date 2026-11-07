@@ -17,7 +17,7 @@ SERVICE="aizee-motor-control-rover"
 PASS="$(cat "$(dirname "${BASH_SOURCE[0]}")/.jetson_password")"
 
 # Expand PASS and SERVICE locally; escape \$! and \$DUMP_PID so they stay remote.
-ssh -i "$KEY" "$HOST" 'bash -s' << EOF
+ssh -i "$KEY" "$HOST" 'bash -s' <<EOF
 set -euo pipefail
 
 echo "==> Stopping ${SERVICE} ..."

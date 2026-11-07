@@ -33,8 +33,8 @@ from . import load_aizee_arm
 from .kinematics import Kinematics
 
 
-_DEFAULT_LIMITS_YAML = Path(__file__).resolve().parents[2] / "config" / "joint_limits.yaml"
-_DEFAULT_QUEST_YAML  = Path(__file__).resolve().parents[2] / "config" / "quest_teleop.yaml"
+_DEFAULT_LIMITS_YAML = Path(__file__).resolve().parents[2] / 'config' / 'joint_limits.yaml'
+_DEFAULT_QUEST_YAML = Path(__file__).resolve().parents[2] / 'config' / 'quest_teleop.yaml'
 
 
 def compute_reachable_box(
@@ -66,18 +66,18 @@ def compute_reachable_box(
     pts = np.empty((n_samples, 3), dtype=np.float64)
     for i in range(n_samples):
         pts[i] = kin.fk_pose(Q[i])[0]
-    p_lo = np.percentile(pts, percentile,       axis=0) + margin
+    p_lo = np.percentile(pts, percentile, axis=0) + margin
     p_hi = np.percentile(pts, 100 - percentile, axis=0) - margin
     # Guarantee lower < upper post-margin even on degenerate axes.
     p_lo = np.minimum(p_lo, p_hi - 1e-3)
     return {
-        "lower":          p_lo.tolist(),
-        "upper":          p_hi.tolist(),
-        "raw_min":        pts.min(axis=0).tolist(),
-        "raw_max":        pts.max(axis=0).tolist(),
-        "samples":        n_samples,
-        "percentile_clip": percentile,
-        "margin_m":       margin,
+        'lower': p_lo.tolist(),
+        'upper': p_hi.tolist(),
+        'raw_min': pts.min(axis=0).tolist(),
+        'raw_max': pts.max(axis=0).tolist(),
+        'samples': n_samples,
+        'percentile_clip': percentile,
+        'margin_m': margin,
     }
 
 
@@ -87,65 +87,75 @@ def _update_quest_yaml(path: Path, lower: list[float], upper: list[float]) -> No
     VR — distinct from workspace_min/max which is the operator clutch
     safety clamp (stays as you set it)."""
     import yaml as _yaml
+
     data: dict = {}
     if path.exists():
         data = _yaml.safe_load(path.read_text()) or {}
-    data["reachable_min"] = [round(float(v), 4) for v in lower]
-    data["reachable_max"] = [round(float(v), 4) for v in upper]
+    data['reachable_min'] = [round(float(v), 4) for v in lower]
+    data['reachable_max'] = [round(float(v), 4) for v in upper]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_yaml.safe_dump(data, sort_keys=False, default_flow_style=None))
 
 
 def _cli() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--limits-yaml", type=Path, default=_DEFAULT_LIMITS_YAML,
-                    help="joint_limits.yaml to overlay (default: config/joint_limits.yaml)")
-    ap.add_argument("--samples", type=int, default=20000,
-                    help="Number of FK samples (default 20000)")
-    ap.add_argument("--percentile", type=float, default=2.0,
-                    help="Percentile clip per side (default 2 = drop worst 2%% outliers)")
-    ap.add_argument("--margin", type=float, default=0.02,
-                    help="Inset per side [m] so IK can settle (default 0.02 = 2 cm)")
-    ap.add_argument("--update-config", action="store_true",
-                    help="Patch config/quest_teleop.yaml with the new workspace_min/max")
-    ap.add_argument("--quest-yaml", type=Path, default=_DEFAULT_QUEST_YAML)
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument(
+        '--limits-yaml',
+        type=Path,
+        default=_DEFAULT_LIMITS_YAML,
+        help='joint_limits.yaml to overlay (default: config/joint_limits.yaml)',
+    )
+    ap.add_argument('--samples', type=int, default=20000, help='Number of FK samples (default 20000)')
+    ap.add_argument(
+        '--percentile', type=float, default=2.0, help='Percentile clip per side (default 2 = drop worst 2%% outliers)'
+    )
+    ap.add_argument(
+        '--margin', type=float, default=0.02, help='Inset per side [m] so IK can settle (default 0.02 = 2 cm)'
+    )
+    ap.add_argument(
+        '--update-config', action='store_true', help='Patch config/quest_teleop.yaml with the new workspace_min/max'
+    )
+    ap.add_argument('--quest-yaml', type=Path, default=_DEFAULT_QUEST_YAML)
     args = ap.parse_args()
 
     kin = load_aizee_arm()
     if args.limits_yaml.exists():
         kin.apply_limits_overlay(args.limits_yaml)
-        print(f"[workspace] applied limits from {args.limits_yaml}")
+        print(f'[workspace] applied limits from {args.limits_yaml}')
     else:
-        print(f"[workspace] no limits YAML — using raw URDF bounds")
-    print(f"[workspace] joint range:")
+        print(f'[workspace] no limits YAML — using raw URDF bounds')
+    print(f'[workspace] joint range:')
     for i, n in enumerate(kin.joint_names):
-        print(f"    {n:14s}  [{kin.lower[i]:+.3f}, {kin.upper[i]:+.3f}]")
+        print(f'    {n:14s}  [{kin.lower[i]:+.3f}, {kin.upper[i]:+.3f}]')
 
     t0 = time.perf_counter()
     box = compute_reachable_box(
-        kin, n_samples=args.samples, percentile=args.percentile, margin=args.margin,
+        kin,
+        n_samples=args.samples,
+        percentile=args.percentile,
+        margin=args.margin,
     )
     dt = time.perf_counter() - t0
-    lo, hi = box["lower"], box["upper"]
-    raw_lo, raw_hi = box["raw_min"], box["raw_max"]
-    print(f"[workspace] {args.samples} FK samples in {dt*1000:.0f} ms")
-    print(f"[workspace] raw reachable AABB:")
-    print(f"    x: [{raw_lo[0]:+.3f}, {raw_hi[0]:+.3f}]   ({(raw_hi[0]-raw_lo[0])*100:.1f} cm)")
-    print(f"    y: [{raw_lo[1]:+.3f}, {raw_hi[1]:+.3f}]   ({(raw_hi[1]-raw_lo[1])*100:.1f} cm)")
-    print(f"    z: [{raw_lo[2]:+.3f}, {raw_hi[2]:+.3f}]   ({(raw_hi[2]-raw_lo[2])*100:.1f} cm)")
-    print(f"[workspace] trimmed (p{args.percentile} clip, {args.margin*100:.0f} cm inset):")
-    print(f"    workspace_min: [{lo[0]:+.4f}, {lo[1]:+.4f}, {lo[2]:+.4f}]")
-    print(f"    workspace_max: [{hi[0]:+.4f}, {hi[1]:+.4f}, {hi[2]:+.4f}]")
-    print(f"    size:  {(hi[0]-lo[0])*100:.1f}  x  {(hi[1]-lo[1])*100:.1f}  x  {(hi[2]-lo[2])*100:.1f}  cm")
+    lo, hi = box['lower'], box['upper']
+    raw_lo, raw_hi = box['raw_min'], box['raw_max']
+    print(f'[workspace] {args.samples} FK samples in {dt * 1000:.0f} ms')
+    print(f'[workspace] raw reachable AABB:')
+    print(f'    x: [{raw_lo[0]:+.3f}, {raw_hi[0]:+.3f}]   ({(raw_hi[0] - raw_lo[0]) * 100:.1f} cm)')
+    print(f'    y: [{raw_lo[1]:+.3f}, {raw_hi[1]:+.3f}]   ({(raw_hi[1] - raw_lo[1]) * 100:.1f} cm)')
+    print(f'    z: [{raw_lo[2]:+.3f}, {raw_hi[2]:+.3f}]   ({(raw_hi[2] - raw_lo[2]) * 100:.1f} cm)')
+    print(f'[workspace] trimmed (p{args.percentile} clip, {args.margin * 100:.0f} cm inset):')
+    print(f'    workspace_min: [{lo[0]:+.4f}, {lo[1]:+.4f}, {lo[2]:+.4f}]')
+    print(f'    workspace_max: [{hi[0]:+.4f}, {hi[1]:+.4f}, {hi[2]:+.4f}]')
+    print(f'    size:  {(hi[0] - lo[0]) * 100:.1f}  x  {(hi[1] - lo[1]) * 100:.1f}  x  {(hi[2] - lo[2]) * 100:.1f}  cm')
 
     if args.update_config:
         _update_quest_yaml(args.quest_yaml, lo, hi)
-        print(f"[workspace] wrote reachable_min/max -> {args.quest_yaml}")
-        print(f"[workspace] (workspace_min/max — the OPERATOR clutch clamp — was left untouched)")
+        print(f'[workspace] wrote reachable_min/max -> {args.quest_yaml}')
+        print(f'[workspace] (workspace_min/max — the OPERATOR clutch clamp — was left untouched)')
     else:
-        print(f"[workspace] (re-run with --update-config to patch {args.quest_yaml})")
+        print(f'[workspace] (re-run with --update-config to patch {args.quest_yaml})')
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(_cli())

@@ -13,6 +13,7 @@ Helm on Minerva runs this file's source in the robot's python3 (helm.maps, throu
 imports only what that python3 has: pyzmq and msgpack. Nothing here moves a motor or changes a camera setting. It
 prints one JSON reply.
 """
+
 import json
 import math
 import os
@@ -26,11 +27,11 @@ CAPTURE_ROOT = '~/minerva/helm/maps/captures'
 FRAMES = 'tcp://127.0.0.1:5564'  # The head camera's stream (helm.calibration_still ROLES['head']).
 CAMERA_ID = 'scene_cam'
 HEAD_POSE = 'tcp://127.0.0.1:5596'  # neck.head_pose.ENDPOINT.
-CAPTURE_LAG_S = .02  # A frame's stamp is this long after its exposure (helm.camera_video_worker).
-MARGIN_S = .05  # The head's samples this far either side of an exposure tell how steady it was.
-FIRST_S = 1.  # The feed's first sample is awaited this long: none means no live head.
+CAPTURE_LAG_S = 0.02  # A frame's stamp is this long after its exposure (helm.camera_video_worker).
+MARGIN_S = 0.05  # The head's samples this far either side of an exposure tell how steady it was.
+FIRST_S = 1.0  # The feed's first sample is awaited this long: none means no live head.
 MAX_SECONDS = 120
-MAX_FPS = 6.
+MAX_FPS = 6.0
 QUEUE = 8  # Kept frames waiting for the disk; more are dropped (the microSD stalls for seconds at times).
 
 
@@ -47,7 +48,7 @@ def _path(folder):
 def _rotation_angle(a, b):
     """The angle between two orientations (quaternions x y z w), radians."""
     dot = abs(sum(p * q for p, q in zip(a, b)))
-    return 2 * math.acos(min(1., dot))
+    return 2 * math.acos(min(1.0, dot))
 
 
 class HeadFeed:
@@ -61,6 +62,7 @@ class HeadFeed:
 
     def _read(self):
         import zmq
+
         context = zmq.Context()
         socket = context.socket(zmq.SUB)
         try:
@@ -71,7 +73,7 @@ class HeadFeed:
                 if socket.poll(20):
                     data = json.loads(socket.recv_string())
                     self.joints = list(data['joints'])
-                    self.samples.extend([float(v) for v in row[:1 + len(self.joints) + 7]] for row in data['samples'])
+                    self.samples.extend([float(v) for v in row[: 1 + len(self.joints) + 7]] for row in data['samples'])
                     del self.samples[:-1000]  # Ten seconds of rows is plenty.
         finally:
             socket.close(0)
@@ -89,18 +91,19 @@ class HeadFeed:
 
     def close(self):
         self._stop.set()
-        self._thread.join(1.)
+        self._thread.join(1.0)
 
 
 def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES, feed_endpoint=HEAD_POSE):
     import msgpack
     import zmq
+
     seconds, fps = float(request.get('seconds', 30)), float(request.get('fps', 3))
     if not (0 < seconds <= MAX_SECONDS and 0 < fps <= MAX_FPS):
         raise ValueError(f'seconds must be 0..{MAX_SECONDS}, fps 0..{MAX_FPS}')
-    min_turn = math.radians(float(request.get('min_turn_deg', 3.)))
-    min_move = float(request.get('min_move_m', .03))
-    steady = float(request.get('steady_rad', .02))
+    min_turn = math.radians(float(request.get('min_turn_deg', 3.0)))
+    min_move = float(request.get('min_move_m', 0.03))
+    steady = float(request.get('steady_rad', 0.02))
     world_pose = request.get('robot_in_world')
     if world_pose is not None and (len(world_pose) != 7 or not all(math.isfinite(float(v)) for v in world_pose)):
         raise ValueError('robot_in_world is seven numbers: x y z qx qy qz qw')
@@ -127,7 +130,7 @@ def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES,
     try:
         deadline = clock() + FIRST_S
         while not feed.samples and clock() < deadline:
-            sleep(.01)
+            sleep(0.01)
         if not feed.samples:
             raise ValueError('The head pose feed is silent: a capture needs a session running the live head')
         socket.setsockopt(zmq.LINGER, 0)
@@ -148,19 +151,23 @@ def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES,
             header = msgpack.unpackb(parts[0], raw=False)
             names = header.get('parts', [])
             if header.get('camera_id') != CAMERA_ID or len(names) != len(parts) - 1:
-                raise ValueError(f'Not the head camera\'s stream: {header.get("camera_id")!r}')
+                raise ValueError(f"Not the head camera's stream: {header.get('camera_id')!r}")
             if 'depth' not in names or 'color' not in names:
                 raise ValueError('The head camera sends no depth: a capture needs its depth stream')
             counts['seen'] += 1
             depth_meta, color = header['depth'], header['color']
-            this = dict(color_intrinsics=color.get('intrinsics'), depth_intrinsics=depth_meta.get('intrinsics'),
-                        to_color=depth_meta.get('to_color'), depth_scale=depth_meta.get('scale'))
+            this = dict(
+                color_intrinsics=color.get('intrinsics'),
+                depth_intrinsics=depth_meta.get('intrinsics'),
+                to_color=depth_meta.get('to_color'),
+                depth_scale=depth_meta.get('scale'),
+            )
             if meta is None:
                 if any(value is None for value in this.values()) or color.get('format', '').lower() != 'jpeg':
                     raise ValueError('The head camera publishes no colour registration with its depth')
                 meta = this
             elif this != meta:
-                raise ValueError('The head camera\'s intrinsics changed during the capture')
+                raise ValueError("The head camera's intrinsics changed during the capture")
             exposure = float(header['timestamp']) - CAPTURE_LAG_S
             if last is not None and exposure - last['exposure'] < 1 / fps:
                 counts['rate'] += 1
@@ -170,7 +177,7 @@ def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES,
                 found = feed.around(exposure, MARGIN_S)
                 if found is not None:
                     break
-                sleep(.005)
+                sleep(0.005)
             if found is None:
                 counts['unposed'] += 1
                 continue
@@ -178,20 +185,29 @@ def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES,
             if spread > steady:
                 counts['turning'] += 1
                 continue
-            pose = sample[1 + len(feed.joints):]
-            if last is not None and _rotation_angle(pose[3:], last['pose'][3:]) < min_turn \
-                    and math.dist(pose[:3], last['pose'][:3]) < min_move:
+            pose = sample[1 + len(feed.joints) :]
+            if (
+                last is not None
+                and _rotation_angle(pose[3:], last['pose'][3:]) < min_turn
+                and math.dist(pose[:3], last['pose'][:3]) < min_move
+            ):
                 counts['same_view'] += 1
                 continue
             index = len(frames)
             try:
-                pending.put_nowait((index, bytes(parts[1 + names.index('color')]),
-                                    bytes(parts[1 + names.index('depth')])))
+                pending.put_nowait(
+                    (index, bytes(parts[1 + names.index('color')]), bytes(parts[1 + names.index('depth')]))
+                )
             except queue.Full:
                 counts['dropped'] += 1
                 continue
-            record = {'color': f'color/{index:06d}.jpg', 'depth': f'depth/{index:06d}.u16.z', 'pose': pose,
-                      'joints': dict(zip(feed.joints, sample[1:1 + len(feed.joints)])), 'stamp': exposure}
+            record = {
+                'color': f'color/{index:06d}.jpg',
+                'depth': f'depth/{index:06d}.u16.z',
+                'pose': pose,
+                'joints': dict(zip(feed.joints, sample[1 : 1 + len(feed.joints)])),
+                'stamp': exposure,
+            }
             if world_pose is not None:
                 record['robot_in_world'] = [float(v) for v in world_pose]
             frames.append(record)
@@ -202,20 +218,28 @@ def scene(request, *, clock=time.time, sleep=time.sleep, frames_endpoint=FRAMES,
         context.term()
         if writer.is_alive():
             pending.put(None)
-            writer.join(30.)
+            writer.join(30.0)
     if failures:
         raise RuntimeError(f'The capture did not save: {failures[0]}')
     saved = set(written)
     frames = [frame for index, frame in enumerate(frames) if index in saved]
     if meta is None:
         raise ValueError('No head camera frame came during the capture')
-    scene_file = dict(schema=1, kind='head_scene', source='minerva', world=request.get('world', 'robot'),
-                      captured_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), seconds=seconds, frames=frames,
-                      **meta)
+    scene_file = dict(
+        schema=1,
+        kind='head_scene',
+        source='minerva',
+        world=request.get('world', 'robot'),
+        captured_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        seconds=seconds,
+        frames=frames,
+        **meta,
+    )
     (folder / 'scene.json').write_text(json.dumps(scene_file, indent=1), encoding='utf-8')
     size = sum(path.stat().st_size for path in folder.rglob('*') if path.is_file())
-    return dict(folder=str(folder), name=folder.name, frames=len(frames), counts=counts, bytes=size,
-                world=scene_file['world'])
+    return dict(
+        folder=str(folder), name=folder.name, frames=len(frames), counts=counts, bytes=size, world=scene_file['world']
+    )
 
 
 def remote_main(request):
@@ -223,6 +247,7 @@ def remote_main(request):
 
     def expired(*_):
         raise TimeoutError('The capture exceeded its robot budget')
+
     timed = hasattr(signal, 'SIGALRM')  # The robot's Linux; not a Windows test run.
     if timed:
         signal.signal(signal.SIGALRM, expired)

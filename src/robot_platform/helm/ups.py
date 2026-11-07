@@ -7,6 +7,7 @@ the robot announces a shutdown, Helm stops a recording, then the session and any
 paths: the loop lowers an enabled arm before the receiver closes, well inside the service's grace period. Until
 the power comes back, starting anything that moves the arms is refused.
 """
+
 import json
 import shlex
 import threading
@@ -14,11 +15,11 @@ import time
 
 from robot_platform.ops.ups import STATE
 
-STALE_S = 10.   # A state the service wrote longer ago than this (robot clock): the service is not running.
-SILENT_S = 8.   # No line from the robot for this long (PC clock): the link is down; reconnect.
+STALE_S = 10.0  # A state the service wrote longer ago than this (robot clock): the service is not running.
+SILENT_S = 8.0  # No line from the robot for this long (PC clock): the link is down; reconnect.
 
 # Runs on the robot (python3 -u -c WATCH <state path>): the state and its age every 2 s, off the control CPUs.
-WATCH = r'''
+WATCH = r"""
 import json, os, sys, time
 path = sys.argv[1]
 try:
@@ -47,17 +48,20 @@ while True:
         record['error'] = str(exc) or type(exc).__name__
     print(json.dumps(record), flush=True)
     time.sleep(2)
-'''
+"""
 
 
-def robot_ups(profile, *, open_ssh=None, timeout=5., path=STATE):
+def robot_ups(profile, *, open_ssh=None, timeout=5.0, path=STATE):
     """open(address) -> a line stream of the robot's UPS state, over the pinned SSH connection."""
+
     def open_connection(address):
         from robot_platform.ops.ssh import connect, open_command
+
         client = (open_ssh or connect)(profile, address=address, timeout=timeout)
         try:
-            _stdin, out, _err = open_command(client, 'python3 -u -c ' + shlex.quote(WATCH) + ' ' + shlex.quote(path),
-                                             timeout=timeout)
+            _stdin, out, _err = open_command(
+                client, 'python3 -u -c ' + shlex.quote(WATCH) + ' ' + shlex.quote(path), timeout=timeout
+            )
             out.channel.settimeout(SILENT_S)  # A line comes every 2 s; silence means the link is down.
         except BaseException:
             client.close()
@@ -71,7 +75,9 @@ def robot_ups(profile, *, open_ssh=None, timeout=5., path=STATE):
             def close(self):
                 out.channel.close()
                 client.close()
+
         return Connection()
+
     return open_connection
 
 
@@ -79,13 +85,13 @@ class UpsWatch:
     """The robot's latest UPS state for Helm. `transport(address)` opens a line stream (robot_ups); `address()`
     is where Minerva is reached now (tether or Wi-Fi). `on_shutdown(record)` runs once per announced shutdown."""
 
-    def __init__(self, transport, address, *, on_shutdown=None, retry_s=10., clock=time.monotonic):
+    def __init__(self, transport, address, *, on_shutdown=None, retry_s=10.0, clock=time.monotonic):
         self.transport, self.address, self.on_shutdown = transport, address, on_shutdown
         self.retry_s, self.clock = retry_s, clock
         self._lock = threading.Lock()
         self._record = self._heard_at = self._error = self._connection = None
-        self._good = None           # The latest record with a fresh state: shown as "last seen" when offline.
-        self._handled = None        # The announced shutdown already acted on (its start time).
+        self._good = None  # The latest record with a fresh state: shown as "last seen" when offline.
+        self._handled = None  # The announced shutdown already acted on (its start time).
         self._closed = threading.Event()
         self._thread = None
 
@@ -156,8 +162,7 @@ class UpsWatch:
         if isinstance(shutdown, dict) and shutdown.get('since') != self._handled:
             self._handled = shutdown.get('since')
             if self.on_shutdown is not None:
-                threading.Thread(target=self.on_shutdown, args=(record,), daemon=True,
-                                 name='helm-ups-shutdown').start()
+                threading.Thread(target=self.on_shutdown, args=(record,), daemon=True, name='helm-ups-shutdown').start()
 
     def snapshot(self):
         """What the pill and banner show: status ok, missing (no service), stale, unreachable or starting."""
@@ -165,8 +170,14 @@ class UpsWatch:
             record, heard_at, error, good = self._record, self._heard_at, self._error, self._good
         now = self.clock()
         heard = heard_at is not None and now - heard_at <= SILENT_S
-        result = {'status': 'starting', 'state': None, 'age_s': None, 'poweroff_in_s': None, 'error': error,
-                  'last': None}
+        result = {
+            'status': 'starting',
+            'state': None,
+            'age_s': None,
+            'poweroff_in_s': None,
+            'error': error,
+            'last': None,
+        }
         if not heard:
             if error is not None or heard_at is not None:
                 result['status'] = 'unreachable'
@@ -186,8 +197,11 @@ class UpsWatch:
         """Why nothing that moves the arms may start now: a fresh, announced UPS shutdown; else None."""
         view = self.snapshot()
         state = view['state'] or {}
-        if view['status'] == 'ok' and (state.get('shutdown') or (state.get('source') == 'battery'
-                                                                  and state.get('level') == 'critical')):
-            return ("Minerva's UPS battery is critical and the Jetson is shutting down. Plug in the UPS charger; "
-                    'starts are allowed again once the shutdown is cancelled.')
+        if view['status'] == 'ok' and (
+            state.get('shutdown') or (state.get('source') == 'battery' and state.get('level') == 'critical')
+        ):
+            return (
+                "Minerva's UPS battery is critical and the Jetson is shutting down. Plug in the UPS charger; "
+                'starts are allowed again once the shutdown is cancelled.'
+            )
         return None

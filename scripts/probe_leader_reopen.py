@@ -8,6 +8,7 @@ cycle (supply off as well as USB).
 
 Usage: python scripts/probe_leader_reopen.py {left,right} [--seconds 20] [--cycles 3]
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -28,11 +29,11 @@ def log(text):
 
 def open_port(device):
     log('open ...')
-    port = serial.Serial(device, 1_000_000, timeout=.01, write_timeout=.01)
+    port = serial.Serial(device, 1_000_000, timeout=0.01, write_timeout=0.01)
     log('open ok')
     port.reset_input_buffer()
     port.write(b'\x50')
-    reply, deadline = bytearray(), time.perf_counter() + .2
+    reply, deadline = bytearray(), time.perf_counter() + 0.2
     while time.perf_counter() < deadline and len(reply) <= len(IDENTITY) + 2:
         part = port.read(1)
         reply.extend(part)
@@ -44,18 +45,19 @@ def open_port(device):
 
 def read_for(port, seconds, label):
     good = skipped = failed = 0
-    slowest, previous = 0., None
-    end, second = time.perf_counter() + seconds, time.perf_counter() + 1.
+    slowest, previous = 0.0, None
+    end, second = time.perf_counter() + seconds, time.perf_counter() + 1.0
     while time.perf_counter() < end:
         started = time.perf_counter()
         try:
             port.reset_input_buffer()
             port.write(b'\xa6')
             raw = bytearray()
-            while len(raw) < FRAME_SIZE and time.perf_counter() - started < .05:
+            while len(raw) < FRAME_SIZE and time.perf_counter() - started < 0.05:
                 raw.extend(port.read(FRAME_SIZE - len(raw)))
-            previous = decode_frame(bytes(raw), requested_at=started, received_at=time.perf_counter(),
-                                    previous=previous, max_age_s=.05)
+            previous = decode_frame(
+                bytes(raw), requested_at=started, received_at=time.perf_counter(), previous=previous, max_age_s=0.05
+            )
             good += 1
         except LeaderSampleSkipped:
             skipped += 1
@@ -67,16 +69,16 @@ def read_for(port, seconds, label):
         if time.perf_counter() >= second:
             log(f'{label}: {good} samples, {skipped} skipped, {failed} failed, slowest {1000 * slowest:.1f} ms')
             good = skipped = failed = 0
-            slowest = 0.
-            second += 1.
-        time.sleep(max(0., .01 - (time.perf_counter() - started)))
+            slowest = 0.0
+            second += 1.0
+        time.sleep(max(0.0, 0.01 - (time.perf_counter() - started)))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('side', choices=('left', 'right'))
     parser.add_argument('--profile', default=str(ROOT / 'config/devices/gello-dual-viewer.json'))
-    parser.add_argument('--seconds', type=float, default=20., help='continuous polling before the first close')
+    parser.add_argument('--seconds', type=float, default=20.0, help='continuous polling before the first close')
     parser.add_argument('--cycles', type=int, default=3, help='close/reopen cycles')
     args = parser.parse_args()
     serial_number = json.loads(Path(args.profile).read_text(encoding='utf-8'))['leaders'][args.side]['usb_serial']

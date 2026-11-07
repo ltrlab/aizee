@@ -7,6 +7,7 @@ joint whose motor has changed since. Its `gravity` section keeps each saved join
 gravity slice (servo_analysis.torque_map's gravity_fit), from which control.gravity
 builds each arm's gravity feed-forward.
 """
+
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -40,7 +41,7 @@ def evidence_name(session):
     the calibration is kept in the public repository."""
     text = str(session)
     marker = '/minerva/evidence/'
-    return '~' + text[text.index(marker):] if marker in text else text
+    return '~' + text[text.index(marker) :] if marker in text else text
 
 
 def save_servo(path, *, asset_id, reference, results, motors, session, existing=None):
@@ -55,18 +56,29 @@ def save_servo(path, *, asset_id, reference, results, motors, session, existing=
             raise ValueError(f'{motor}: no recommended settings to save')
         if not (result.get('verification') or {}).get('passed'):
             raise ValueError(f'{motor}: the verification pass did not pass')
-        entry = {'uid': roster[motor]['uid'], 'firmware': roster[motor]['firmware'],
-                 'confirmed_at': utc_now(), 'session': evidence_name(session), 'control': CONTROL_LAW,
-                 'measured': {'torque': result.get('torque'), 'verified': result.get('verified'),
-                              'verification': result.get('verification')},
-                 'notes': recommendation.get('notes', [])}
+        entry = {
+            'uid': roster[motor]['uid'],
+            'firmware': roster[motor]['firmware'],
+            'confirmed_at': utc_now(),
+            'session': evidence_name(session),
+            'control': CONTROL_LAW,
+            'measured': {
+                'torque': result.get('torque'),
+                'verified': result.get('verified'),
+                'verification': result.get('verification'),
+            },
+            'notes': recommendation.get('notes', []),
+        }
         entry.update({key: recommendation[key] for key in SERVO_KEYS if recommendation.get(key) is not None})
         document['joints'][motor] = entry
         torque = result.get('torque') or {}
         if torque.get('gravity_fit'):
             document.setdefault('gravity', {})[motor] = {
-                **torque['gravity_fit'], 'span': list(torque.get('span') or []), 'session': evidence_name(session),
-                'measured_at': entry['confirmed_at']}
+                **torque['gravity_fit'],
+                'span': list(torque.get('span') or []),
+                'session': evidence_name(session),
+                'measured_at': entry['confirmed_at'],
+            }
     Path(path).write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
     return document
 

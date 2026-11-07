@@ -4,6 +4,7 @@ The check reads the motors itself (stopped-only) and may read the leaders, so
 the server refuses to start it while the motor link or a teleop session runs,
 and refuses those while it runs. The last saved report is shown at startup.
 """
+
 from copy import deepcopy
 import threading
 
@@ -12,8 +13,13 @@ from robot_platform.ops.check import FAIL, latest_report, outdated, record_live,
 
 class CheckWorkspace:
     def __init__(self, *, profile, teleop, runs, limits=None, runner=run_check, address=None, operator_files=None):
-        self.options = dict(profile=profile, teleop=teleop, runs=runs, limits=limits,
-                            **({'operator_files': operator_files} if operator_files else {}))
+        self.options = dict(
+            profile=profile,
+            teleop=teleop,
+            runs=runs,
+            limits=limits,
+            **({'operator_files': operator_files} if operator_files else {}),
+        )
         self.runner = runner
         self.address = address  # () -> the robot address Helm is set to use; None: the runner's (the tether).
         self.lock = threading.Lock()
@@ -31,8 +37,7 @@ class CheckWorkspace:
                 raise ValueError('Minerva Check is already running')
             self.report, self.error = None, None
             options = dict(self.options, **({'address': self.address()} if self.address else {}))
-            self._thread = threading.Thread(target=self._run, args=(options,), daemon=True,
-                                            name='helm-minerva-check')
+            self._thread = threading.Thread(target=self._run, args=(options,), daemon=True, name='helm-minerva-check')
             self._thread.start()
 
     def _publish(self, report):
@@ -55,13 +60,21 @@ class CheckWorkspace:
         if report is None or report.get('state') != 'finished':
             raise ValueError('Run Minerva Check first: the live joint sweep follows the stopped checks')
         if outdated(report):
-            raise ValueError('The last Minerva Check was saved before it had the live joint sweep: run '
-                             'Minerva Check again first')
-        failed = [c['title'] for stage in report['stages'] if stage['id'] != 'sweep' for c in stage['checks']
-                  if c['status'] == FAIL]
+            raise ValueError(
+                'The last Minerva Check was saved before it had the live joint sweep: run Minerva Check again first'
+            )
+        failed = [
+            c['title']
+            for stage in report['stages']
+            if stage['id'] != 'sweep'
+            for c in stage['checks']
+            if c['status'] == FAIL
+        ]
         if failed:
-            raise ValueError('The stopped checks did not pass (' + ', '.join(failed) + '): fix them and run '
-                             'Minerva Check again before the live sweep')
+            raise ValueError(
+                'The stopped checks did not pass (' + ', '.join(failed) + '): fix them and run '
+                'Minerva Check again before the live sweep'
+            )
 
     def record_live(self, arm, results, *, fault=None):
         with self.lock:

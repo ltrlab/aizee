@@ -3,6 +3,7 @@
 `node --check file.js` passed a helm.js the browser refused (an unescaped apostrophe in a string, 2026-10-15):
 it parses the file as CommonJS first. Checked as a module, as the page loads it, the error shows.
 """
+
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,7 +11,9 @@ import subprocess
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = sorted([*ROOT.glob('src/robot_platform/helm/static/*.js'), *ROOT.glob('src/robot_platform/viewer/static/*.js')])
+SCRIPTS = sorted(
+    [*ROOT.glob('src/robot_platform/helm/static/*.js'), *ROOT.glob('src/robot_platform/viewer/static/*.js')]
+)
 
 
 def test_every_page_script_is_checked():
@@ -21,8 +24,9 @@ def test_every_page_script_is_checked():
 def test_a_browser_script_parses_as_a_module(script):
     node = shutil.which('node')
     assert node, 'Node.js is required to check the browser scripts'
-    result = subprocess.run([node, '--input-type=module', '--check'], input=script.read_bytes(),
-                            capture_output=True, timeout=60)
+    result = subprocess.run(
+        [node, '--input-type=module', '--check'], input=script.read_bytes(), capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-800:]
 
 
@@ -37,40 +41,39 @@ def test_the_check_catches_a_quote_the_browser_rejects(tmp_path):
 def test_task_viewer_unloads_duplicate_rendering_and_restores_after_stop():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the browser lifecycle'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_task_viewer.mjs')],
-                            capture_output=True, timeout=60)
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_task_viewer.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
 
 
 def test_capture_failure_locks_following_but_keeps_disable_shutdown_and_stop():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the browser lifecycle'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_capture_failure.mjs')],
-                            capture_output=True, timeout=60)
+    result = subprocess.run(
+        [node, str(ROOT / 'tests/ui/test_helm_capture_failure.mjs')], capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
 
 
 def test_live_camera_packets_bound_headers_pixels_and_freshness_metadata():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the camera packet boundary'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_live_camera_packets.mjs')],
-                            capture_output=True, timeout=60)
+    result = subprocess.run(
+        [node, str(ROOT / 'tests/ui/test_helm_live_camera_packets.mjs')], capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-1200:]
 
 
 def test_pedal_offers_and_stopped_input_test_keep_motion_and_freshness_guards():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the pedal input boundary'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_pedals.mjs')],
-                            capture_output=True, timeout=60)
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_pedals.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
 def test_replay_plays_by_recorded_time_and_scrubs_within_the_episode():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the replay clock'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_replay.mjs')],
-                            capture_output=True, timeout=60)
+    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_replay.mjs')], capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
@@ -91,8 +94,9 @@ def test_the_calibration_card_says_what_blocks_a_still_and_what_the_solve_found(
 def test_the_calibration_guide_says_the_next_step_and_what_a_solve_means():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the calibration guide'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_calibration_guide.mjs')], capture_output=True,
-                            timeout=60)
+    result = subprocess.run(
+        [node, str(ROOT / 'tests/ui/test_helm_calibration_guide.mjs')], capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 
@@ -176,7 +180,9 @@ def test_the_headset_shows_minervas_model_and_the_wrist_cameras_on_its_wrists():
 def test_settings_shows_what_the_headset_shows_and_streams_only_while_on_screen():
     node = shutil.which('node')
     assert node, 'Node.js is required to check the headset section'
-    result = subprocess.run([node, str(ROOT / 'tests/ui/test_helm_headset_mirror.mjs')], capture_output=True, timeout=60)
+    result = subprocess.run(
+        [node, str(ROOT / 'tests/ui/test_helm_headset_mirror.mjs')], capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stderr.decode(errors='replace')[-2000:]
 
 

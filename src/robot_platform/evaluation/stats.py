@@ -3,6 +3,7 @@
 Robot trial counts are small (10-50), so every rate carries its interval and every
 comparison says how many trials it would take to tell two policies apart.
 """
+
 from __future__ import annotations
 
 import math
@@ -14,7 +15,7 @@ _NORMAL = NormalDist()
 def _z(confidence):
     if not 0 < confidence < 1:
         raise ValueError('confidence must be in (0, 1)')
-    return _NORMAL.inv_cdf(.5 + confidence / 2)
+    return _NORMAL.inv_cdf(0.5 + confidence / 2)
 
 
 def _counts(successes, trials):
@@ -22,7 +23,7 @@ def _counts(successes, trials):
         raise ValueError('successes and trials must be integers with 0 <= successes <= trials')
 
 
-def wilson_interval(successes, trials, confidence=.95):
+def wilson_interval(successes, trials, confidence=0.95):
     """Wilson score interval for a binomial proportion (Wilson 1927; Newcombe 1998 method 3).
 
     Unlike the normal (Wald) interval it stays inside [0, 1] and does not collapse to zero
@@ -30,15 +31,15 @@ def wilson_interval(successes, trials, confidence=.95):
     """
     _counts(successes, trials)
     if trials == 0:
-        return (0., 1.)
+        return (0.0, 1.0)
     z = _z(confidence)
     p = successes / trials
     denominator = 1 + z * z / trials
     center = (p + z * z / (2 * trials)) / denominator
     half = z * math.sqrt(p * (1 - p) / trials + z * z / (4 * trials * trials)) / denominator
     # Exact endpoints at 0/n and n/n, without rounding residue.
-    low = 0. if successes == 0 else max(0., center - half)
-    high = 1. if successes == trials else min(1., center + half)
+    low = 0.0 if successes == 0 else max(0.0, center - half)
+    high = 1.0 if successes == trials else min(1.0, center + half)
     return (low, high)
 
 
@@ -56,15 +57,18 @@ def fisher_exact(s1, n1, s2, n2):
     _counts(s2, n2)
     successes, total = s1 + s2, n1 + n2
     if total == 0 or successes in (0, total) or 0 in (n1, n2):
-        return 1.
+        return 1.0
     observed = _hypergeometric(s1, n1, successes, total)
     low, high = max(0, successes - n2), min(n1, successes)
-    p = sum(prob for k in range(low, high + 1)
-            if (prob := _hypergeometric(k, n1, successes, total)) <= observed * (1 + 1e-7))
-    return min(1., p)
+    p = sum(
+        prob
+        for k in range(low, high + 1)
+        if (prob := _hypergeometric(k, n1, successes, total)) <= observed * (1 + 1e-7)
+    )
+    return min(1.0, p)
 
 
-def two_proportion_test(s1, n1, s2, n2, alpha=.05):
+def two_proportion_test(s1, n1, s2, n2, alpha=0.05):
     """Whether two success counts differ: pooled two-proportion z-test, two-sided, and Fisher's exact test.
 
     The verdict uses Fisher's exact test when any expected cell count is below 5 (the usual
@@ -80,7 +84,7 @@ def two_proportion_test(s1, n1, s2, n2, alpha=.05):
     pooled = (s1 + s2) / (n1 + n2)
     se = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
     if se == 0:
-        z, p_z = 0., 1.
+        z, p_z = 0.0, 1.0
     else:
         z = (p2 - p1) / se
         p_z = 2 * (1 - _NORMAL.cdf(abs(z)))
@@ -88,14 +92,22 @@ def two_proportion_test(s1, n1, s2, n2, alpha=.05):
     expected = min(n * share for n in (n1, n2) for share in (pooled, 1 - pooled))
     method = 'fisher_exact' if expected < 5 else 'z_test'
     p = p_fisher if method == 'fisher_exact' else p_z
-    return {'a': {'successes': s1, 'trials': n1, 'rate': p1, 'wilson95': wilson_interval(s1, n1)},
-            'b': {'successes': s2, 'trials': n2, 'rate': p2, 'wilson95': wilson_interval(s2, n2)},
-            'difference': p2 - p1, 'z': z, 'p_z_test': p_z, 'p_fisher_exact': p_fisher,
-            'min_expected_count': expected, 'method': method, 'p_value': p, 'alpha': alpha,
-            'differ': p < alpha}
+    return {
+        'a': {'successes': s1, 'trials': n1, 'rate': p1, 'wilson95': wilson_interval(s1, n1)},
+        'b': {'successes': s2, 'trials': n2, 'rate': p2, 'wilson95': wilson_interval(s2, n2)},
+        'difference': p2 - p1,
+        'z': z,
+        'p_z_test': p_z,
+        'p_fisher_exact': p_fisher,
+        'min_expected_count': expected,
+        'method': method,
+        'p_value': p,
+        'alpha': alpha,
+        'differ': p < alpha,
+    }
 
 
-def trials_per_arm(p1, p2, alpha=.05, power=.8):
+def trials_per_arm(p1, p2, alpha=0.05, power=0.8):
     """Trials per arm for a two-sided pooled two-proportion z-test to detect p1 vs p2.
 
     n = (z_{1-alpha/2} sqrt(2 pbar qbar) + z_{power} sqrt(p1 q1 + p2 q2))^2 / (p1 - p2)^2,
@@ -111,7 +123,7 @@ def trials_per_arm(p1, p2, alpha=.05, power=.8):
     pbar = (p1 + p2) / 2
     numerator = za * math.sqrt(2 * pbar * (1 - pbar)) + zb * math.sqrt(p1 * (1 - p1) + p2 * (1 - p2))
     # Guard the ceiling against binary noise in an exact integer result.
-    return math.ceil(numerator ** 2 / (p1 - p2) ** 2 - 1e-9)
+    return math.ceil(numerator**2 / (p1 - p2) ** 2 - 1e-9)
 
 
 def percentile(values, q):

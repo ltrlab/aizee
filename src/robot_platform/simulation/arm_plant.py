@@ -11,6 +11,7 @@ recorder's rows. The receiver reads its configuration from JSON, as the live one
 This rehearses the receiver's checks against realistic feedback. It is not a model of
 Minerva's dynamics, and no evidence about the physical arm.
 """
+
 from __future__ import annotations
 
 import math
@@ -21,7 +22,7 @@ from types import SimpleNamespace
 
 from .control_harness import NativeControlHarness
 
-TICK_S = .0025  # The live receiver's period.
+TICK_S = 0.0025  # The live receiver's period.
 SUBSTEPS = 5
 POSITION_STEP_RAD = 8 * math.pi / 65535  # RobStride feedback: 16 bits over +-4 pi.
 COMMAND_FIELDS = ('position', 'velocity', 'effort', 'kp', 'kd')
@@ -43,16 +44,16 @@ class ArmPlant:
     gravity: {name: callable(pose) -> the torque that holds the joint against gravity}.
     """
 
-    def __init__(self, joints, *, gravity=None, speed_noise=.08, position_noise=0., seed=1, disturbance=None):
+    def __init__(self, joints, *, gravity=None, speed_noise=0.08, position_noise=0.0, seed=1, disturbance=None):
         self.specs = [dict(joint) for joint in joints]
         self.names = [joint['name'] for joint in joints]
-        self.q = [float(joint.get('q', 0.)) for joint in joints]
-        self.v = [0.] * len(joints)
-        self.torque = [0.] * len(joints)
+        self.q = [float(joint.get('q', 0.0)) for joint in joints]
+        self.v = [0.0] * len(joints)
+        self.torque = [0.0] * len(joints)
         self.gravity = dict(gravity or {})
         self.speed_noise, self.position_noise = speed_noise, position_noise
         self.random = random.Random(seed)
-        self.t = 0.  # Simulated time (s).
+        self.t = 0.0  # Simulated time (s).
         # callable(plant) -> {name: Nm}: an outside push (a bump, a hand), added to the drive's torque.
         self.disturbance = disturbance
         self.quiet = set()  # Drives that have stopped answering: the receiver sees no new reading from them.
@@ -65,7 +66,7 @@ class ArmPlant:
 
     def holding(self):
         pose = self.pose()
-        return [self.gravity[name](pose) if name in self.gravity else 0. for name in self.names]
+        return [self.gravity[name](pose) if name in self.gravity else 0.0 for name in self.names]
 
     def step(self, commands, dt):
         """Integrate `dt` s under `commands` (the receiver's, per joint), or limp when None.
@@ -74,8 +75,10 @@ class ArmPlant:
         characterization.sim2real fits it; just after the drive was limp it has only this step's."""
         previous, self.previous = self.previous, commands
         if commands is not None and previous is not None and any(spec.get('delay') for spec in self.specs):
-            commands = [_late(c, p, spec['delay'] / dt) if spec.get('delay') else c
-                        for c, p, spec in zip(commands, previous, self.specs)]
+            commands = [
+                _late(c, p, spec['delay'] / dt) if spec.get('delay') else c
+                for c, p, spec in zip(commands, previous, self.specs)
+            ]
         h = dt / SUBSTEPS
         for _ in range(SUBSTEPS):
             holding = self.holding()
@@ -83,14 +86,14 @@ class ArmPlant:
             for i, spec in enumerate(self.specs):
                 q, v = self.q[i], self.v[i]
                 if commands is None or spec['name'] in self.dropped:
-                    torque = 0.
+                    torque = 0.0
                 else:
                     c = commands[i]
                     torque = c['kp'] * (c['position'] - q) + c['kd'] * (c['velocity'] - v) + c['effort']
-                net = torque - holding[i] + pushed.get(spec['name'], 0.) - spec.get('viscous', 0.) * v
+                net = torque - holding[i] + pushed.get(spec['name'], 0.0) - spec.get('viscous', 0.0) * v
                 friction, static = spec['friction'], spec.get('static', spec['friction'])
                 if abs(v) < 1e-4 and abs(net) <= static:
-                    v = 0.  # Sticks, then slides.
+                    v = 0.0  # Sticks, then slides.
                 else:
                     v += (net - friction * math.copysign(1, v if abs(v) >= 1e-4 else net)) / spec['inertia'] * h
                     q += v * h
@@ -98,11 +101,16 @@ class ArmPlant:
             self.t += h
 
     def measured(self):
-        return [{'position': round((q + self.random.gauss(0., self.position_noise)) / POSITION_STEP_RAD)
-                 * POSITION_STEP_RAD,
-                 'velocity': v + self.random.gauss(0., self.speed_noise), 'effort': torque,
-                 'quiet': name in self.quiet or name in self.dropped}
-                for name, q, v, torque in zip(self.names, self.q, self.v, self.torque)]
+        return [
+            {
+                'position': round((q + self.random.gauss(0.0, self.position_noise)) / POSITION_STEP_RAD)
+                * POSITION_STEP_RAD,
+                'velocity': v + self.random.gauss(0.0, self.speed_noise),
+                'effort': torque,
+                'quiet': name in self.quiet or name in self.dropped,
+            }
+            for name, q, v, torque in zip(self.names, self.q, self.v, self.torque)
+        ]
 
 
 class PlantReceiver:
@@ -125,8 +133,7 @@ class PlantReceiver:
         self.directory = Path(directory) if directory else Path(tempfile.mkdtemp(prefix='plant-receiver-'))
         self.directory.mkdir(parents=True, exist_ok=True)
         positions = [q for q in plant.q]
-        self.harness = NativeControlHarness(config, positions, binary=binary,
-                                            setup_json=self.directory / 'setup.json')
+        self.harness = NativeControlHarness(config, positions, binary=binary, setup_json=self.directory / 'setup.json')
         self.epoch = clock()
         self.ticks = 0
         self.rows = []
@@ -160,8 +167,9 @@ class PlantReceiver:
         self.ticks += 1
         t_ms = self.ticks * TICK_S * 1000
         # Whole milliseconds of the tick's own time: 1606 ticks are 4015 ms, not int(4014.9999999999995).
-        self.last = dict(self.harness.step(int(round(t_ms, 6)), feedback=self.plant.measured()),
-                         hardware_dropped=self._dropped())
+        self.last = dict(
+            self.harness.step(int(round(t_ms, 6)), feedback=self.plant.measured()), hardware_dropped=self._dropped()
+        )
         self._note_driven(self.last)
         self.rows.append(self._row(self.last, t_ms))
 

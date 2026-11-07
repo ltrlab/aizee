@@ -17,6 +17,7 @@ not (docs/robots/minerva/UPS_MONITOR.md).
 
 Standard library only: the installed copy runs without a release (python3 -I).
 """
+
 import argparse
 from collections import deque
 import ctypes
@@ -50,21 +51,83 @@ def release_config():
 
 
 # A lithium-ion cell's resting voltage against its charge (%), at a low rate: the usual published 18650 curve.
-OCV = ((3.27, 0.), (3.61, 5.), (3.69, 10.), (3.71, 15.), (3.73, 20.), (3.75, 25.), (3.77, 30.), (3.79, 35.),
-       (3.80, 40.), (3.82, 45.), (3.84, 50.), (3.85, 55.), (3.87, 60.), (3.91, 65.), (3.95, 70.), (3.98, 75.),
-       (4.02, 80.), (4.08, 85.), (4.11, 90.), (4.15, 95.), (4.20, 100.))
+OCV = (
+    (3.27, 0.0),
+    (3.61, 5.0),
+    (3.69, 10.0),
+    (3.71, 15.0),
+    (3.73, 20.0),
+    (3.75, 25.0),
+    (3.77, 30.0),
+    (3.79, 35.0),
+    (3.80, 40.0),
+    (3.82, 45.0),
+    (3.84, 50.0),
+    (3.85, 55.0),
+    (3.87, 60.0),
+    (3.91, 65.0),
+    (3.95, 70.0),
+    (3.98, 75.0),
+    (4.02, 80.0),
+    (4.08, 85.0),
+    (4.11, 90.0),
+    (4.15, 95.0),
+    (4.20, 100.0),
+)
 
-DEFAULTS = dict(i2c_bus=7, i2c_address=0x41, shunt_ohm=.01, charging_sign=1, cells=3, pack_ohm=.2,
-                capacity_wh=28., period_s=1., samples=5, on_battery_a=.1, on_battery_s=3., power_back_s=5.,
-                charging_a=.05, average_s=20., floor_average_s=5., low_percent=25., low_clear_percent=28.,
-                shutdown_percent=10., floor_cell_v=3.35, notice_s=30., grace_s=60., terminate_s=30.,
-                sensor_error_s=10., battery_sample_s=60., settle_s=10.)
-BOUNDS = dict(i2c_bus=(0, 31), i2c_address=(0x03, 0x77), shunt_ohm=(.001, 1.), cells=(1, 8), pack_ohm=(0., 2.),
-              capacity_wh=(1., 1000.), period_s=(.2, 10.), samples=(1, 32), on_battery_a=(.01, 5.),
-              on_battery_s=(0., 60.), power_back_s=(0., 120.), charging_a=(.01, 5.), average_s=(1., 300.),
-              floor_average_s=(1., 60.), low_percent=(0., 100.), low_clear_percent=(0., 100.),
-              shutdown_percent=(0., 100.), floor_cell_v=(2.5, 4.), notice_s=(0., 600.), grace_s=(0., 900.),
-              terminate_s=(0., 600.), sensor_error_s=(1., 600.), battery_sample_s=(5., 3600.), settle_s=(0., 120.))
+DEFAULTS = dict(
+    i2c_bus=7,
+    i2c_address=0x41,
+    shunt_ohm=0.01,
+    charging_sign=1,
+    cells=3,
+    pack_ohm=0.2,
+    capacity_wh=28.0,
+    period_s=1.0,
+    samples=5,
+    on_battery_a=0.1,
+    on_battery_s=3.0,
+    power_back_s=5.0,
+    charging_a=0.05,
+    average_s=20.0,
+    floor_average_s=5.0,
+    low_percent=25.0,
+    low_clear_percent=28.0,
+    shutdown_percent=10.0,
+    floor_cell_v=3.35,
+    notice_s=30.0,
+    grace_s=60.0,
+    terminate_s=30.0,
+    sensor_error_s=10.0,
+    battery_sample_s=60.0,
+    settle_s=10.0,
+)
+BOUNDS = dict(
+    i2c_bus=(0, 31),
+    i2c_address=(0x03, 0x77),
+    shunt_ohm=(0.001, 1.0),
+    cells=(1, 8),
+    pack_ohm=(0.0, 2.0),
+    capacity_wh=(1.0, 1000.0),
+    period_s=(0.2, 10.0),
+    samples=(1, 32),
+    on_battery_a=(0.01, 5.0),
+    on_battery_s=(0.0, 60.0),
+    power_back_s=(0.0, 120.0),
+    charging_a=(0.01, 5.0),
+    average_s=(1.0, 300.0),
+    floor_average_s=(1.0, 60.0),
+    low_percent=(0.0, 100.0),
+    low_clear_percent=(0.0, 100.0),
+    shutdown_percent=(0.0, 100.0),
+    floor_cell_v=(2.5, 4.0),
+    notice_s=(0.0, 600.0),
+    grace_s=(0.0, 900.0),
+    terminate_s=(0.0, 600.0),
+    sensor_error_s=(1.0, 600.0),
+    battery_sample_s=(5.0, 3600.0),
+    settle_s=(0.0, 120.0),
+)
 INTEGERS = {'i2c_bus', 'i2c_address', 'cells', 'samples', 'charging_sign'}
 
 
@@ -103,11 +166,11 @@ def load_config(path=None, overrides=None):
 def charge_percent(cell_v):
     """A cell's charge (%) from its resting voltage (OCV)."""
     if cell_v <= OCV[0][0]:
-        return 0.
+        return 0.0
     for (v0, p0), (v1, p1) in zip(OCV, OCV[1:]):
         if cell_v <= v1:
             return p0 + (p1 - p0) * (cell_v - v0) / (v1 - v0)
-    return 100.
+    return 100.0
 
 
 # -- the sensor ------------------------------------------------------------------------------------------------
@@ -117,8 +180,12 @@ SHUNT_REGISTER, BUS_REGISTER = 1, 2
 
 
 class _Msg(ctypes.Structure):
-    _fields_ = [('addr', ctypes.c_uint16), ('flags', ctypes.c_uint16), ('len', ctypes.c_uint16),
-                ('buf', ctypes.POINTER(ctypes.c_uint8))]
+    _fields_ = [
+        ('addr', ctypes.c_uint16),
+        ('flags', ctypes.c_uint16),
+        ('len', ctypes.c_uint16),
+        ('buf', ctypes.POINTER(ctypes.c_uint8)),
+    ]
 
 
 class _RdWr(ctypes.Structure):
@@ -129,6 +196,7 @@ def i2c_registers(bus):
     """read(address, register) -> the 16-bit register, as one combined transaction (pointer write, repeated
     start, two-byte read): atomic even while another program reads the same chip."""
     import fcntl
+
     fd = os.open(f'/dev/i2c-{bus}', os.O_RDWR)
 
     def read(address, register):
@@ -136,18 +204,19 @@ def i2c_registers(bus):
         msgs = (_Msg * 2)(_Msg(address, 0, 1, pointer), _Msg(address, I2C_M_RD, 2, data))
         fcntl.ioctl(fd, I2C_RDWR, _RdWr(msgs, 2))
         return data[0] << 8 | data[1]
+
     read.close = lambda: os.close(fd)
     return read
 
 
 def decode_bus(raw):
     """INA219 bus voltage register -> volts (bits 15-3, 4 mV)."""
-    return (raw >> 3) * .004
+    return (raw >> 3) * 0.004
 
 
 def decode_shunt(raw):
     """INA219 shunt voltage register -> millivolts (two's complement, 10 uV)."""
-    return (raw - 65536 if raw > 32767 else raw) * .01
+    return (raw - 65536 if raw > 32767 else raw) * 0.01
 
 
 class Ina219:
@@ -159,34 +228,35 @@ class Ina219:
 
     def read(self):
         """(pack volts, current in A with charging positive), each the mean of `samples` quick readings."""
-        c, volts, shunt = self.config, 0., 0.
+        c, volts, shunt = self.config, 0.0, 0.0
         for index in range(c['samples']):
             if index:
-                self.sleep(.01)
+                self.sleep(0.01)
             shunt += decode_shunt(self.registers(c['i2c_address'], SHUNT_REGISTER))
             volts += decode_bus(self.registers(c['i2c_address'], BUS_REGISTER))
         count = c['samples']
-        return volts / count, c['charging_sign'] * shunt / count / 1000. / c['shunt_ohm']
+        return volts / count, c['charging_sign'] * shunt / count / 1000.0 / c['shunt_ohm']
 
 
 # -- the battery's state --------------------------------------------------------------------------------------
+
 
 class Monitor:
     """The pack's state from each reading: on battery or on power (debounced), its charge, and its level."""
 
     def __init__(self, config):
         self.c = config
-        self.source = None          # 'external' or 'battery', once known.
-        self.source_since = None    # Monotonic: when it switched.
-        self._pending = None        # (source, since): a change waiting out its debounce.
-        self.battery_since = None   # Wall clock.
+        self.source = None  # 'external' or 'battery', once known.
+        self.source_since = None  # Monotonic: when it switched.
+        self._pending = None  # (source, since): a change waiting out its debounce.
+        self.battery_since = None  # Wall clock.
         self.level, self.reason = 'ok', None
-        self._rest = deque()        # (t, resting cell volts) for the charge estimate.
-        self._loaded = deque()      # (t, loaded cell volts) for the floor.
-        self.reading = None         # The latest good (volts, amps).
+        self._rest = deque()  # (t, resting cell volts) for the charge estimate.
+        self._loaded = deque()  # (t, loaded cell volts) for the floor.
+        self.reading = None  # The latest good (volts, amps).
         self.percent = None
         self.error, self.error_since = None, None
-        self.stint = None           # Energy drawn on battery since it started: {'ah', 'wh', 't'}.
+        self.stint = None  # Energy drawn on battery since it started: {'ah', 'wh', 't'}.
 
     def _average(self, history, t, window):
         while history and history[0][0] < t - window:
@@ -242,12 +312,15 @@ class Monitor:
         if before is not None:  # The step across the switch measures the pack's resistance: dV / dI.
             fields.update(before_v=round(before[0], 3), before_a=round(before[1], 3))
         if source == 'battery':
-            self.battery_since, self.stint = wall, {'ah': 0., 'wh': 0., 't': t}
+            self.battery_since, self.stint = wall, {'ah': 0.0, 'wh': 0.0, 't': t}
             events.append(('on_battery', fields))
         else:
             if previous == 'battery':
-                fields.update(on_battery_s=round(wall - self.battery_since, 1),
-                              used_ah=round(self.stint['ah'], 4), used_wh=round(self.stint['wh'], 3))
+                fields.update(
+                    on_battery_s=round(wall - self.battery_since, 1),
+                    used_ah=round(self.stint['ah'], 4),
+                    used_wh=round(self.stint['wh'], 3),
+                )
                 events.append(('power_back', fields))
             else:
                 events.append(('on_power', fields))
@@ -264,29 +337,40 @@ class Monitor:
         level, reason = self.level, self.reason
         on_battery_s = t - self.source_since
         if self.percent <= c['shutdown_percent'] and on_battery_s >= c['settle_s']:
-            level, reason = 'critical', f"about {self.percent:.0f}% charge, at or under {c['shutdown_percent']:g}%"
+            level, reason = 'critical', f'about {self.percent:.0f}% charge, at or under {c["shutdown_percent"]:g}%'
         elif loaded <= c['floor_cell_v'] and on_battery_s >= c['floor_average_s']:
-            level, reason = 'critical', f"{loaded:.2f} V a cell under load, at or under {c['floor_cell_v']:g} V"
+            level, reason = 'critical', f'{loaded:.2f} V a cell under load, at or under {c["floor_cell_v"]:g} V'
         elif self.level == 'critical':
             pass  # Critical holds until the power comes back: the shutdown is under way.
         elif self.percent <= c['low_percent']:
-            level, reason = 'low', f"about {self.percent:.0f}% charge"
+            level, reason = 'low', f'about {self.percent:.0f}% charge'
         elif self.level == 'low' and self.percent < c['low_clear_percent']:
             pass
         else:
             level, reason = 'ok', None
         if level != self.level:
-            events.append((f'level_{level}', {'percent': round(self.percent, 1), 'cell_v': round(loaded, 3),
-                                              'reason': reason}))
+            events.append(
+                (f'level_{level}', {'percent': round(self.percent, 1), 'cell_v': round(loaded, 3), 'reason': reason})
+            )
         self.level, self.reason = level, reason
 
     def state(self, wall, t):
         c = self.c
-        state = {'version': VERSION, 'updated_at': round(wall, 3), 'sensor': 'ok', 'error': None,
-                 'source': self.source, 'level': self.level, 'reason': self.reason,
-                 'battery_since': self.battery_since,
-                 'thresholds': {'low_percent': c['low_percent'], 'shutdown_percent': c['shutdown_percent'],
-                                'floor_cell_v': c['floor_cell_v']}}
+        state = {
+            'version': VERSION,
+            'updated_at': round(wall, 3),
+            'sensor': 'ok',
+            'error': None,
+            'source': self.source,
+            'level': self.level,
+            'reason': self.reason,
+            'battery_since': self.battery_since,
+            'thresholds': {
+                'low_percent': c['low_percent'],
+                'shutdown_percent': c['shutdown_percent'],
+                'floor_cell_v': c['floor_cell_v'],
+            },
+        }
         if self.error is not None and t - self.error_since >= c['sensor_error_s']:
             state.update(sensor='error', error=self.error)
         if self.reading is None:
@@ -294,15 +378,28 @@ class Monitor:
             return state
         volts, amps = self.reading
         power = volts * abs(amps)
-        charge = ('discharging' if self.source == 'battery' else 'charging' if amps >= c['charging_a']
-                  else 'full' if self.percent >= 95 else 'on_power')
+        charge = (
+            'discharging'
+            if self.source == 'battery'
+            else 'charging'
+            if amps >= c['charging_a']
+            else 'full'
+            if self.percent >= 95
+            else 'on_power'
+        )
         minutes = None
-        if self.source == 'battery' and power >= 1.:
-            remaining_wh = max(0., self.percent - c['shutdown_percent']) / 100 * c['capacity_wh']
+        if self.source == 'battery' and power >= 1.0:
+            remaining_wh = max(0.0, self.percent - c['shutdown_percent']) / 100 * c['capacity_wh']
             minutes = int(remaining_wh / power * 60)
-        state.update(voltage_v=round(volts, 3), current_a=round(amps, 3), power_w=round(power, 2),
-                     cell_v=round(volts / c['cells'], 3), percent=int(round(self.percent)), charge=charge,
-                     minutes_left=minutes)
+        state.update(
+            voltage_v=round(volts, 3),
+            current_a=round(amps, 3),
+            power_w=round(power, 2),
+            cell_v=round(volts / c['cells'], 3),
+            percent=int(round(self.percent)),
+            charge=charge,
+            minutes_left=minutes,
+        )
         return state
 
 
@@ -324,12 +421,20 @@ class Shutdown:
         if self.since is None:
             if state.get('source') == 'battery' and state.get('level') == 'critical':
                 self.since, self.since_wall, self.reason, self.stage = t, wall, state.get('reason'), 'pending'
-                events.append(('shutdown_pending', {'reason': self.reason, 'sessions': sorted(sessions),
-                                                     'percent': state.get('percent'),
-                                                     'voltage_v': state.get('voltage_v')}))
+                events.append(
+                    (
+                        'shutdown_pending',
+                        {
+                            'reason': self.reason,
+                            'sessions': sorted(sessions),
+                            'percent': state.get('percent'),
+                            'voltage_v': state.get('voltage_v'),
+                        },
+                    )
+                )
             return actions, events
         if self.stage == 'powering_off':
-            if t - self.asked_at >= 30.:  # Still running: systemd did not take the request.
+            if t - self.asked_at >= 30.0:  # Still running: systemd did not take the request.
                 self.asked_at = t
                 events.append(('poweroff_retry', {'after_s': round(t - self.since, 1)}))
                 actions.append(('poweroff',))
@@ -341,8 +446,17 @@ class Shutdown:
         elapsed = t - self.since
         if (elapsed >= c['notice_s'] and not sessions) or elapsed >= c['grace_s'] + c['terminate_s']:
             self.stage, self.asked_at = 'powering_off', t
-            events.append(('poweroff', {'after_s': round(elapsed, 1), 'sessions_left': sorted(sessions),
-                                        'voltage_v': state.get('voltage_v'), 'percent': state.get('percent')}))
+            events.append(
+                (
+                    'poweroff',
+                    {
+                        'after_s': round(elapsed, 1),
+                        'sessions_left': sorted(sessions),
+                        'voltage_v': state.get('voltage_v'),
+                        'percent': state.get('percent'),
+                    },
+                )
+            )
             actions.append(('poweroff',))
         elif elapsed >= c['grace_s']:
             for pid in sorted(set(sessions) - self.signalled):
@@ -356,12 +470,18 @@ class Shutdown:
         if self.since is None:
             return None
         c = self.c
-        return {'stage': self.stage, 'reason': self.reason, 'since': round(self.since_wall, 3),
-                'notice_s': c['notice_s'], 'grace_s': c['grace_s'],
-                'poweroff_by': round(self.since_wall + c['grace_s'] + c['terminate_s'], 3)}
+        return {
+            'stage': self.stage,
+            'reason': self.reason,
+            'since': round(self.since_wall, 3),
+            'notice_s': c['notice_s'],
+            'grace_s': c['grace_s'],
+            'poweroff_by': round(self.since_wall + c['grace_s'] + c['terminate_s'], 3),
+        }
 
 
 # -- the robot -------------------------------------------------------------------------------------------------
+
 
 class Host:
     """The robot's files, processes and services. Tests root it in a directory and record what it would run."""
@@ -378,13 +498,12 @@ class Host:
             return self._systemctl(*args)
         result = subprocess.run(['systemctl', *args], capture_output=True, text=True)
         if check and result.returncode != 0:
-            raise RuntimeError(f"systemctl {' '.join(args)}: {(result.stderr or result.stdout).strip()}")
+            raise RuntimeError(f'systemctl {" ".join(args)}: {(result.stderr or result.stdout).strip()}')
         return result.stdout
 
     def unit_state(self, unit):
         """{'LoadState', 'ActiveState', 'UnitFileState'} of a unit, as systemctl shows them."""
-        text = self.systemctl('show', '-p', 'LoadState', '-p', 'ActiveState', '-p', 'UnitFileState', unit,
-                              check=False)
+        text = self.systemctl('show', '-p', 'LoadState', '-p', 'ActiveState', '-p', 'UnitFileState', unit, check=False)
         return dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
 
     def sessions(self):
@@ -436,8 +555,12 @@ class EventLog:
         self.path = Path(path)
 
     def write(self, wall, event, fields=None):
-        record = {'at': datetime.fromtimestamp(wall, timezone.utc).isoformat(timespec='seconds'),
-                  't': round(wall, 3), 'event': event, **(fields or {})}
+        record = {
+            'at': datetime.fromtimestamp(wall, timezone.utc).isoformat(timespec='seconds'),
+            't': round(wall, 3),
+            'event': event,
+            **(fields or {}),
+        }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             if self.path.exists() and self.path.stat().st_size > self.LIMIT:
@@ -448,10 +571,10 @@ class EventLog:
                 os.fsync(handle.fileno())
         except OSError as exc:
             print(f'minerva-ups: could not log {event}: {exc}', file=sys.stderr, flush=True)
-        print(f"minerva-ups: {event} {json.dumps(fields or {})}", flush=True)
+        print(f'minerva-ups: {event} {json.dumps(fields or {})}', flush=True)
 
 
-def shutdown_announced(path=STATE, *, now=None, fresh_s=10.):
+def shutdown_announced(path=STATE, *, now=None, fresh_s=10.0):
     """Why a session may not start: the UPS service's announced shutdown, from a state it wrote in the last
     `fresh_s` seconds (by this computer's clock); None otherwise, also with no service or a stale file."""
     try:
@@ -465,17 +588,33 @@ def shutdown_announced(path=STATE, *, now=None, fresh_s=10.):
     shutdown = state.get('shutdown')
     if not isinstance(shutdown, dict):
         return None
-    return (f"Minerva is shutting down: its UPS battery is low ({shutdown.get('reason') or 'critical'}). "
-            'Plug in the UPS charger, then start again once the shutdown is cancelled.')
+    return (
+        f'Minerva is shutting down: its UPS battery is low ({shutdown.get("reason") or "critical"}). '
+        'Plug in the UPS charger, then start again once the shutdown is cancelled.'
+    )
 
 
-def run(config, *, sensor, host, state_path, events_path, dry_run=False, duration_s=None,
-        clock=time.monotonic, wall=time.time, sleep=time.sleep):
+def run(
+    config,
+    *,
+    sensor,
+    host,
+    state_path,
+    events_path,
+    dry_run=False,
+    duration_s=None,
+    clock=time.monotonic,
+    wall=time.time,
+    sleep=time.sleep,
+):
     """The service: read, grade, write the state, log transitions, and act on the shutdown steps."""
     monitor, shutdown, log = Monitor(config), Shutdown(config), EventLog(events_path)
     Path(state_path).parent.mkdir(parents=True, exist_ok=True)
-    log.write(wall(), 'started', {'version': VERSION, 'dry_run': dry_run, 'pid': os.getpid(),
-                                  'config': {k: config[k] for k in sorted(config)}})
+    log.write(
+        wall(),
+        'started',
+        {'version': VERSION, 'dry_run': dry_run, 'pid': os.getpid(), 'config': {k: config[k] for k in sorted(config)}},
+    )
     started = next_at = clock()
     sampled = None
     while duration_s is None or clock() - started < duration_s:
@@ -500,9 +639,12 @@ def run(config, *, sensor, host, state_path, events_path, dry_run=False, duratio
         if state.get('source') == 'battery':
             if sampled is None or t - sampled >= config['battery_sample_s']:
                 sampled = t
-                log.write(now, 'battery_sample', {key: state.get(key) for key in
-                                                  ('voltage_v', 'current_a', 'power_w', 'percent', 'minutes_left')}
-                          | {'used_wh': round(monitor.stint['wh'], 3) if monitor.stint else None})
+                log.write(
+                    now,
+                    'battery_sample',
+                    {key: state.get(key) for key in ('voltage_v', 'current_a', 'power_w', 'percent', 'minutes_left')}
+                    | {'used_wh': round(monitor.stint['wh'], 3) if monitor.stint else None},
+                )
         else:
             sampled = None
         for action in actions:
@@ -515,12 +657,13 @@ def run(config, *, sensor, host, state_path, events_path, dry_run=False, duratio
         next_at += config['period_s']
         delay = next_at - clock()
         if delay < 0:
-            next_at, delay = clock(), 0.
+            next_at, delay = clock(), 0.0
         sleep(delay)
     return monitor, shutdown
 
 
 # -- installing ------------------------------------------------------------------------------------------------
+
 
 def unit_text():
     return f"""[Unit]
@@ -565,7 +708,7 @@ def _write(path, data, mode=0o644):
     os.replace(partial, path)
 
 
-def install(host=None, source=None, config_path=None, *, wait_s=20., clock=time.monotonic, sleep=time.sleep):
+def install(host=None, source=None, config_path=None, *, wait_s=20.0, clock=time.monotonic, sleep=time.sleep):
     host = host or Host()
     source = Path(source or __file__)
     config_path = config_path or release_config()
@@ -592,9 +735,11 @@ def install(host=None, source=None, config_path=None, *, wait_s=20., clock=time.
         if state is not None and state.get('age_s') is not None and state['age_s'] < 5 and state['sensor'] == 'ok':
             return report
         if clock() > deadline:
-            raise RuntimeError(f'{UNIT} started but wrote no fresh reading in {wait_s:g} s: '
-                               f'journalctl -u {UNIT} -n 30. Status: {json.dumps(report)}')
-        sleep(.5)
+            raise RuntimeError(
+                f'{UNIT} started but wrote no fresh reading in {wait_s:g} s: '
+                f'journalctl -u {UNIT} -n 30. Status: {json.dumps(report)}'
+            )
+        sleep(0.5)
 
 
 def remove(host=None):
@@ -612,8 +757,13 @@ def remove(host=None):
 def status(host=None, now=None):
     host = host or Host()
     now = time.time() if now is None else now
-    report = {'service': host.unit_state(UNIT), 'old_service': host.unit_state(OLD_UNIT),
-              'installed': host.path(LIB / 'ups.py').exists(), 'state': None, 'events': []}
+    report = {
+        'service': host.unit_state(UNIT),
+        'old_service': host.unit_state(OLD_UNIT),
+        'installed': host.path(LIB / 'ups.py').exists(),
+        'state': None,
+        'events': [],
+    }
     try:
         state = json.loads(host.path(STATE).read_text(encoding='utf-8'))
         updated = state.get('updated_at')
@@ -629,16 +779,25 @@ def status(host=None, now=None):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python3 -m robot_platform.ops.ups', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog='python3 -m robot_platform.ops.ups',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('action', choices=('run', 'read', 'install', 'remove', 'status'))
     parser.add_argument('--config', type=Path, help=f"UPS profile (default the release's config/devices/{CONFIG})")
     parser.add_argument('--state', default=None, help=f'state file (run; default {STATE})')
     parser.add_argument('--events', default=None, help=f'event log (run; default {EVENTS})')
     parser.add_argument('--dry-run', action='store_true', help='run: never signal a loop or power off')
     parser.add_argument('--for', dest='duration_s', type=float, help='run: stop after this many seconds')
-    parser.add_argument('--set', dest='overrides', action='append', default=[], metavar='KEY=VALUE',
-                        help='dry run only: override a UPS setting, e.g. shutdown_percent=99')
+    parser.add_argument(
+        '--set',
+        dest='overrides',
+        action='append',
+        default=[],
+        metavar='KEY=VALUE',
+        help='dry run only: override a UPS setting, e.g. shutdown_percent=99',
+    )
     args = parser.parse_args(argv)
     config_path = args.config or release_config()
     try:
@@ -653,8 +812,11 @@ def main(argv=None):
                 print('install and remove change systemd units: run them with sudo.', file=sys.stderr)
                 return 2
             if not sys.flags.dont_write_bytecode:
-                print('Run as sudo python3 -B -m robot_platform.ops.ups, so no root-owned bytecode is left in the '
-                      'release.', file=sys.stderr)
+                print(
+                    'Run as sudo python3 -B -m robot_platform.ops.ups, so no root-owned bytecode is left in the '
+                    'release.',
+                    file=sys.stderr,
+                )
                 return 2
             report = install(config_path=config_path) if args.action == 'install' else remove()
         elif args.action == 'status':
@@ -664,15 +826,25 @@ def main(argv=None):
             sensor = Ina219(config)
             if args.action == 'read':
                 volts, amps = sensor.read()
-                report = {'voltage_v': round(volts, 3), 'current_a': round(amps, 3),
-                          'cell_v': round(volts / config['cells'], 3),
-                          'percent': round(charge_percent((volts - amps * config['pack_ohm']) / config['cells']))}
+                report = {
+                    'voltage_v': round(volts, 3),
+                    'current_a': round(amps, 3),
+                    'cell_v': round(volts / config['cells'], 3),
+                    'percent': round(charge_percent((volts - amps * config['pack_ohm']) / config['cells'])),
+                }
             else:
                 if args.dry_run and (args.state is None or args.events is None):
-                    raise ValueError('A dry run writes its own --state and --events, never the service\'s')
+                    raise ValueError("A dry run writes its own --state and --events, never the service's")
                 signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-                run(config, sensor=sensor, host=Host(), state_path=args.state or STATE,
-                    events_path=args.events or EVENTS, dry_run=args.dry_run, duration_s=args.duration_s)
+                run(
+                    config,
+                    sensor=sensor,
+                    host=Host(),
+                    state_path=args.state or STATE,
+                    events_path=args.events or EVENTS,
+                    dry_run=args.dry_run,
+                    duration_s=args.duration_s,
+                )
                 return 0
     except (RuntimeError, ValueError, OSError) as exc:
         print(exc, file=sys.stderr)

@@ -66,11 +66,10 @@ def auto_segment_boundaries(
     return out
 
 
-def segments_from_boundaries(boundaries: Sequence[int], T: int, label: str = "") -> list:
+def segments_from_boundaries(boundaries: Sequence[int], T: int, label: str = '') -> list:
     """Contiguous [start, end) spans split at `boundaries`, covering [0, T)."""
     pts = sorted({0, *[int(b) for b in boundaries if 0 < b < T], int(T)})
-    return [{"start": pts[i], "end": pts[i + 1], "label": label}
-            for i in range(len(pts) - 1) if pts[i + 1] > pts[i]]
+    return [{'start': pts[i], 'end': pts[i + 1], 'label': label} for i in range(len(pts) - 1) if pts[i + 1] > pts[i]]
 
 
-__all__ = ["auto_segment_boundaries", "segments_from_boundaries"]
+__all__ = ['auto_segment_boundaries', 'segments_from_boundaries']

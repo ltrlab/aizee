@@ -1,5 +1,6 @@
 """The Jetson's CPU split: the loop and its receiver keep to the control CPUs only where the host installed a
 partition (tests/unit/test_cpu_partition_install.py), and live task capture moves back off them."""
+
 import json
 import os
 import sys
@@ -8,8 +9,15 @@ from types import SimpleNamespace
 import pytest
 
 from robot_platform.control import scheduling
-from robot_platform.control.scheduling import (cpu_partition, head_cpus, prefer_background, prefer_background_thread,
-                                               prefer_head, prefer_responsive, thread_placement)
+from robot_platform.control.scheduling import (
+    cpu_partition,
+    head_cpus,
+    prefer_background,
+    prefer_background_thread,
+    prefer_head,
+    prefer_responsive,
+    thread_placement,
+)
 
 ALL = set(range(6))
 OTHER = 0  # os.SCHED_OTHER on Linux.
@@ -46,8 +54,12 @@ def linux(tmp_path, monkeypatch):
 
 
 def split(path, control=(4, 5), background=(0, 1, 2, 3), head=None):
-    path.write_text(json.dumps({'control': list(control), 'background': list(background)}
-                               | ({} if head is None else {'head': list(head)})), encoding='utf-8')
+    path.write_text(
+        json.dumps(
+            {'control': list(control), 'background': list(background)} | ({} if head is None else {'head': list(head)})
+        ),
+        encoding='utf-8',
+    )
 
 
 def test_without_an_installed_partition_nothing_moves(linux):
@@ -107,20 +119,24 @@ def test_the_heads_receiver_keeps_to_its_own_cpus(linux):
     split(linux.partition, background=(0, 1, 2), head=(3,))
     linux.started[300] = [(300, 302)]  # Started as it moves: the next pass catches it.
     assert prefer_head(300) == ['head_cpus'] and linux.cpus == {300: {3}, 301: {3}, 302: {3}}
-    assert thread_placement(300) == {tid: {'cpus': [3], 'policy': 'SCHED_OTHER', 'priority': 0}
-                                     for tid in (300, 301, 302)}
+    assert thread_placement(300) == {
+        tid: {'cpus': [3], 'policy': 'SCHED_OTHER', 'priority': 0} for tid in (300, 301, 302)
+    }
     assert prefer_background(300) == ['background_cpus'] and linux.cpus[300] == {0, 1, 2}
     assert head_cpus(linux.partition) == {3} and thread_placement(4242) == {}
     linux.refuse = PermissionError('refused')
     assert prefer_head(300) == []
 
 
-@pytest.mark.parametrize('content', [
-    {'control': [4, 5], 'background': [0, 1, 2], 'head': [2]},
-    {'control': [4, 5], 'background': [0, 1, 2], 'head': [5]},
-    {'control': [4, 5], 'background': [0, 1, 2], 'head': []},
-    {'control': [4, 5], 'background': [0, 1, 2], 'head': '3'},
-])
+@pytest.mark.parametrize(
+    'content',
+    [
+        {'control': [4, 5], 'background': [0, 1, 2], 'head': [2]},
+        {'control': [4, 5], 'background': [0, 1, 2], 'head': [5]},
+        {'control': [4, 5], 'background': [0, 1, 2], 'head': []},
+        {'control': [4, 5], 'background': [0, 1, 2], 'head': '3'},
+    ],
+)
 def test_a_head_cpu_shared_or_malformed_is_an_installation_error(tmp_path, content):
     path = tmp_path / 'cpu-partition.json'
     path.write_text(json.dumps(content), encoding='utf-8')
@@ -129,15 +145,18 @@ def test_a_head_cpu_shared_or_malformed_is_an_installation_error(tmp_path, conte
         head_cpus(path)
 
 
-@pytest.mark.parametrize('content', [
-    {'control': [4, 5], 'background': [3, 4]},
-    {'control': [], 'background': [0, 1]},
-    {'control': [4, 5]},
-    {'control': ['4'], 'background': [0]},
-    {'control': [-1], 'background': [0]},
-    {'control': [True], 'background': [0]},
-    [[4, 5], [0, 1, 2, 3]],
-])
+@pytest.mark.parametrize(
+    'content',
+    [
+        {'control': [4, 5], 'background': [3, 4]},
+        {'control': [], 'background': [0, 1]},
+        {'control': [4, 5]},
+        {'control': ['4'], 'background': [0]},
+        {'control': [-1], 'background': [0]},
+        {'control': [True], 'background': [0]},
+        [[4, 5], [0, 1, 2, 3]],
+    ],
+)
 def test_a_malformed_partition_is_an_installation_error(tmp_path, content):
     path = tmp_path / 'cpu-partition.json'
     path.write_text(json.dumps(content), encoding='utf-8')
@@ -148,15 +167,23 @@ def test_a_malformed_partition_is_an_installation_error(tmp_path, content):
 def test_the_robots_loop_reports_the_cpus_it_keeps_to(monkeypatch):
     """helm.edge.main applies the hints before its first thread; serve records them in the session's view."""
     from robot_platform.helm import edge, teleop, tune
+
     ran = []
-    monkeypatch.setattr(edge, 'prepare', lambda start, root, leaders=True:
-                        (start['bundle'], SimpleNamespace(address=('127.0.0.1', 5)) if leaders else None))
+    monkeypatch.setattr(
+        edge,
+        'prepare',
+        lambda start, root, leaders=True: (
+            start['bundle'],
+            SimpleNamespace(address=('127.0.0.1', 5)) if leaders else None,
+        ),
+    )
     monkeypatch.setattr(teleop, 'run_loop', lambda commands, views, core, silence_s=None: ran.append(core))
     monkeypatch.setattr(tune, 'run_tune_loop', lambda commands, views, core, silence_s=None: ran.append(core))
 
     class Core:
         def __init__(self, bundle, open_leaders=None):
             self.scheduling = {}
+
     sent = []
     views = SimpleNamespace(send=sent.append, close=lambda: None)
     assert edge.serve({'bundle': {}}, None, views, core_factory=Core, scheduling=['control_cpus']) == 0
@@ -168,6 +195,7 @@ def test_the_robots_loop_reports_the_cpus_it_keeps_to(monkeypatch):
 
 def test_live_task_capture_moves_off_the_control_cpus_before_it_works(monkeypatch):
     from robot_platform.helm import task_capture_process
+
     calls = []
     monkeypatch.setattr(scheduling, 'prefer_background', lambda: calls.append('background') or [])
     monkeypatch.setattr(task_capture_process, '_worker', lambda: calls.append('worker'))

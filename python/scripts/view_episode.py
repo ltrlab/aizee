@@ -29,19 +29,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common.arm_constants import ARM_JOINTS  # canonical 7-DoF fallback joint names
 
 # Per-joint colors (RGBA 0-255)
-_QPOS_COLOR   = [80,  180, 255, 255]   # blue  — recorded position
-_ACTION_COLOR = [255, 200,  60, 255]   # amber — recorded action target
+_QPOS_COLOR = [80, 180, 255, 255]  # blue  — recorded position
+_ACTION_COLOR = [255, 200, 60, 255]  # amber — recorded action target
 
 
 def build_blueprint(show_images: bool, has_sync: bool) -> rrb.Blueprint:
     joint_panel = rrb.Vertical(
         rrb.TimeSeriesView(
-            name="Joint Positions  qpos  (rad)",
-            contents=["episode/qpos/**"],
+            name='Joint Positions  qpos  (rad)',
+            contents=['episode/qpos/**'],
         ),
         rrb.TimeSeriesView(
-            name="Actions  (rad)",
-            contents=["episode/actions/**"],
+            name='Actions  (rad)',
+            contents=['episode/actions/**'],
         ),
         row_shares=[1, 1],
     )
@@ -50,18 +50,18 @@ def build_blueprint(show_images: bool, has_sync: bool) -> rrb.Blueprint:
         data_col = rrb.Vertical(
             joint_panel,
             rrb.TimeSeriesView(
-                name="Sync skew  (ms)",
-                contents=["episode/sync/**"],
+                name='Sync skew  (ms)',
+                contents=['episode/sync/**'],
             ),
             row_shares=[4, 1],
         )
     else:
         data_col = joint_panel
 
-    info_col = rrb.TextDocumentView(name="Episode Info", origin="episode/info")
+    info_col = rrb.TextDocumentView(name='Episode Info', origin='episode/info')
 
     if show_images:
-        cam_col = rrb.Spatial2DView(name="Gripper camera", origin="cameras/gripper")
+        cam_col = rrb.Spatial2DView(name='Gripper camera', origin='cameras/gripper')
         return rrb.Blueprint(
             rrb.Horizontal(
                 cam_col,
@@ -81,42 +81,46 @@ def build_blueprint(show_images: bool, has_sync: bool) -> rrb.Blueprint:
 
 
 def load_episode(path: Path):
-    with h5py.File(path, "r") as f:
-        qpos    = f["observations/qpos"][:]                # [T, J]
-        gripper = f["observations/images/gripper"][:]      # [T, 768, 1024, 3]
-        actions = f["actions"][:]                          # [T, J]
+    with h5py.File(path, 'r') as f:
+        qpos = f['observations/qpos'][:]  # [T, J]
+        gripper = f['observations/images/gripper'][:]  # [T, 768, 1024, 3]
+        actions = f['actions'][:]  # [T, J]
 
-        hz     = float(f.attrs.get("hz", 20))
-        joints = f.attrs.get("arm_joints", ",".join(ARM_JOINTS))
-        joint_names = [j.strip() for j in joints.split(",")]
+        hz = float(f.attrs.get('hz', 20))
+        joints = f.attrs.get('arm_joints', ','.join(ARM_JOINTS))
+        joint_names = [j.strip() for j in joints.split(',')]
 
         ts_telem = ts_gripper = None
-        if "timestamps" in f:
-            ts_telem   = f["timestamps/telem"][:]
-            ts_gripper = f["timestamps/camera_gripper"][:]
+        if 'timestamps' in f:
+            ts_telem = f['timestamps/telem'][:]
+            ts_gripper = f['timestamps/camera_gripper'][:]
 
     return {
-        "qpos": qpos, "gripper": gripper, "actions": actions,
-        "hz": hz, "joint_names": joint_names,
-        "ts_telem": ts_telem, "ts_gripper": ts_gripper,
+        'qpos': qpos,
+        'gripper': gripper,
+        'actions': actions,
+        'hz': hz,
+        'joint_names': joint_names,
+        'ts_telem': ts_telem,
+        'ts_gripper': ts_gripper,
     }
 
 
 def print_stats(path: Path, ep: dict) -> str:
-    T   = ep["qpos"].shape[0]
-    hz  = ep["hz"]
+    T = ep['qpos'].shape[0]
+    hz = ep['hz']
     dur = T / hz
 
     lines = [
-        f"## Episode: {path.name}",
-        f"",
-        f"**Steps:** {T}  ({dur:.1f} s @ {hz:.0f} Hz)",
-        f"**Joints:** {', '.join(ep['joint_names'])}",
+        f'## Episode: {path.name}',
+        f'',
+        f'**Steps:** {T}  ({dur:.1f} s @ {hz:.0f} Hz)',
+        f'**Joints:** {", ".join(ep["joint_names"])}',
     ]
 
-    if ep["ts_telem"] is not None:
-        ts_t = ep["ts_telem"]
-        ts_g = ep["ts_gripper"]
+    if ep['ts_telem'] is not None:
+        ts_t = ep['ts_telem']
+        ts_g = ep['ts_gripper']
 
         # Drop NaN frames
         valid = ~(np.isnan(ts_t) | np.isnan(ts_g))
@@ -125,65 +129,66 @@ def print_stats(path: Path, ep: dict) -> str:
         skew_gt = np.abs(ts_g[valid] - ts_t[valid]) * 1000
 
         lines += [
-            f"",
-            f"**Sync ({n_valid}/{T} frames with timestamps)**",
-            f"- gripper-telem: mean {skew_gt.mean():.1f} ms, max {skew_gt.max():.1f} ms",
+            f'',
+            f'**Sync ({n_valid}/{T} frames with timestamps)**',
+            f'- gripper-telem: mean {skew_gt.mean():.1f} ms, max {skew_gt.max():.1f} ms',
         ]
     else:
-        lines.append("")
-        lines.append("*No /timestamps group — sync data not available.*")
+        lines.append('')
+        lines.append('*No /timestamps group — sync data not available.*')
 
-    text = "\n".join(lines)
-    print(text.replace("**", "").replace("*", "").replace("## ", "").replace("# ", ""))
+    text = '\n'.join(lines)
+    print(text.replace('**', '').replace('*', '').replace('## ', '').replace('# ', ''))
     return text
 
 
 def log_episode(ep: dict, show_images: bool, speed: float) -> None:
-    T           = ep["qpos"].shape[0]
-    hz          = ep["hz"]
-    joint_names = ep["joint_names"]
-    tick        = 1.0 / (hz * speed)
-    has_sync    = ep["ts_telem"] is not None
+    T = ep['qpos'].shape[0]
+    hz = ep['hz']
+    joint_names = ep['joint_names']
+    tick = 1.0 / (hz * speed)
+    has_sync = ep['ts_telem'] is not None
 
     # Pre-style each joint series once
     for j, name in enumerate(joint_names):
-        rr.log(f"episode/qpos/{name}",
-               rr.SeriesLines(colors=_QPOS_COLOR,   names=name), static=True)
-        rr.log(f"episode/actions/{name}",
-               rr.SeriesLines(colors=_ACTION_COLOR, names=name), static=True)
+        rr.log(f'episode/qpos/{name}', rr.SeriesLines(colors=_QPOS_COLOR, names=name), static=True)
+        rr.log(f'episode/actions/{name}', rr.SeriesLines(colors=_ACTION_COLOR, names=name), static=True)
 
     if has_sync:
-        rr.log("episode/sync/gripper_telem_ms",
-               rr.SeriesLines(colors=[255, 80, 80, 200], names="gripper-telem"), static=True)
+        rr.log(
+            'episode/sync/gripper_telem_ms',
+            rr.SeriesLines(colors=[255, 80, 80, 200], names='gripper-telem'),
+            static=True,
+        )
 
     t0 = time.monotonic()
 
     for t in range(T):
-        rr.set_time("frame", sequence=t)
+        rr.set_time('frame', sequence=t)
 
         if has_sync:
-            ts = ep["ts_telem"][t]
+            ts = ep['ts_telem'][t]
             if not np.isnan(ts):
-                rr.set_time("wall_time", timestamp=float(ts))
+                rr.set_time('wall_time', timestamp=float(ts))
 
         # Joint positions and actions
         for j, name in enumerate(joint_names):
-            rr.log(f"episode/qpos/{name}",    rr.Scalars(float(ep["qpos"][t, j])))
-            rr.log(f"episode/actions/{name}", rr.Scalars(float(ep["actions"][t, j])))
+            rr.log(f'episode/qpos/{name}', rr.Scalars(float(ep['qpos'][t, j])))
+            rr.log(f'episode/actions/{name}', rr.Scalars(float(ep['actions'][t, j])))
 
         # Sync skew
         if has_sync:
-            ts_t = ep["ts_telem"][t]
-            ts_g = ep["ts_gripper"][t]
+            ts_t = ep['ts_telem'][t]
+            ts_g = ep['ts_gripper'][t]
             if not (np.isnan(ts_t) or np.isnan(ts_g)):
-                rr.log("episode/sync/gripper_telem_ms", rr.Scalars(abs(ts_g - ts_t) * 1000))
+                rr.log('episode/sync/gripper_telem_ms', rr.Scalars(abs(ts_g - ts_t) * 1000))
 
         # Camera image
         if show_images:
-            rr.log("cameras/gripper", rr.Image(ep["gripper"][t], color_model="RGB"))
+            rr.log('cameras/gripper', rr.Image(ep['gripper'][t], color_model='RGB'))
 
         # Pace to real-time (or scaled)
-        elapsed  = time.monotonic() - t0
+        elapsed = time.monotonic() - t0
         expected = t * tick
         remaining = expected - elapsed
         if remaining > 0:
@@ -191,37 +196,37 @@ def log_episode(ep: dict, show_images: bool, speed: float) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="View an AIZEE HDF5 episode in Rerun")
-    ap.add_argument("episode", help="Path to episode_XXXX.hdf5")
-    ap.add_argument("--speed",      type=float, default=1.0,  help="Playback speed multiplier (default 1.0)")
-    ap.add_argument("--no-images",  action="store_true",       help="Skip camera images (faster)")
-    ap.add_argument("--save",       default=None,              help="Save .rrd recording to this path instead of spawning viewer")
+    ap = argparse.ArgumentParser(description='View an AIZEE HDF5 episode in Rerun')
+    ap.add_argument('episode', help='Path to episode_XXXX.hdf5')
+    ap.add_argument('--speed', type=float, default=1.0, help='Playback speed multiplier (default 1.0)')
+    ap.add_argument('--no-images', action='store_true', help='Skip camera images (faster)')
+    ap.add_argument('--save', default=None, help='Save .rrd recording to this path instead of spawning viewer')
     args = ap.parse_args()
 
     path = Path(args.episode)
     if not path.exists():
-        print(f"ERROR: {path} not found", file=sys.stderr)
+        print(f'ERROR: {path} not found', file=sys.stderr)
         sys.exit(1)
 
     ep = load_episode(path)
-    has_sync = ep["ts_telem"] is not None
+    has_sync = ep['ts_telem'] is not None
     show_images = not args.no_images
 
     info_md = print_stats(path, ep)
 
     if args.save:
-        rr.init("view_episode", recording_id=path.stem)
+        rr.init('view_episode', recording_id=path.stem)
         rr.save(args.save)
     else:
-        rr.init("view_episode", spawn=True)
+        rr.init('view_episode', spawn=True)
 
     rr.send_blueprint(build_blueprint(show_images, has_sync))
-    rr.log("episode/info", rr.TextDocument(info_md, media_type="text/markdown"), static=True)
+    rr.log('episode/info', rr.TextDocument(info_md, media_type='text/markdown'), static=True)
 
-    print(f"\nLogging {ep['qpos'].shape[0]} frames at {args.speed}x speed...")
+    print(f'\nLogging {ep["qpos"].shape[0]} frames at {args.speed}x speed...')
     log_episode(ep, show_images, args.speed)
-    print("Done.")
+    print('Done.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

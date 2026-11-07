@@ -30,8 +30,8 @@ from robot_platform.robots import load_robot
 # ARM_JOINTS now matches the 7-DOF representation the policy pipeline always
 # used.  POLICY_JOINTS is kept as an alias to ease the migration of training
 # code that still imports it; new code should prefer ARM_JOINTS.
-ARM_JOINTS = list(load_robot("aizee").joint_names)
-NUM_ARM_JOINTS = len(ARM_JOINTS)            # 7
+ARM_JOINTS = list(load_robot('aizee').joint_names)
+NUM_ARM_JOINTS = len(ARM_JOINTS)  # 7
 
 POLICY_JOINTS = ARM_JOINTS
 NUM_POLICY_JOINTS = NUM_ARM_JOINTS
@@ -39,20 +39,20 @@ NUM_POLICY_JOINTS = NUM_ARM_JOINTS
 # Subset useful for code that still wants to address only the gantry joints
 # (e.g. arm-only kinematics that doesn't include the swivel base).  Always
 # the trailing slice — swivel is index 0.
-GANTRY_JOINTS = ARM_JOINTS[1:]              # 6 — exclude swivel
+GANTRY_JOINTS = ARM_JOINTS[1:]  # 6 — exclude swivel
 NUM_GANTRY_JOINTS = len(GANTRY_JOINTS)
 
 # Arm link lengths (metres) — from rerun_bridge.py
-L0 = 0.5906   # base → mid
-L1 = 0.5649   # mid → end
-L2 = 0.100    # end → wrist_pitch pivot
-L3 = 0.1063   # wrist_pitch pivot → wrist_roll pivot
-L5 = 0.132    # wrist_roll pivot → gripper tip
+L0 = 0.5906  # base → mid
+L1 = 0.5649  # mid → end
+L2 = 0.100  # end → wrist_pitch pivot
+L3 = 0.1063  # wrist_pitch pivot → wrist_roll pivot
+L5 = 0.132  # wrist_roll pivot → gripper tip
 ARM_MOUNT_Z = 0.200  # arm mount height above rover base frame
 
 # Gains — config/teleop.yaml `arm` section, 7-element (swivel-first) lists.
 KP = [150.0, 100.0, 100.0, 40.0, 7.0, 3.0, 3.0]
-KD = [5.0,   7.0,   5.5,   4.0,  0.2, 1.0, 1.0]
+KD = [5.0, 7.0, 5.5, 4.0, 0.2, 1.0, 1.0]
 
 # Backwards-compat aliases for callers that still treat swivel separately
 # (e.g. live-replay HUD).  Prefer indexing KP/KD by joint going forward.
@@ -62,7 +62,7 @@ SWIVEL_KD = KD[0]
 RECORD_HZ = 20
 
 # This file lives at <repo>/python/common/; three parents up is the repo root.
-ROBSTRIDE_CALIB_PATH = Path(__file__).parent.parent.parent / "config" / "robstride_calibration.json"
+ROBSTRIDE_CALIB_PATH = Path(__file__).parent.parent.parent / 'config' / 'robstride_calibration.json'
 
 
 def load_arm_limits(path: Optional[Path] = None) -> Optional[dict[str, tuple[float, float]]]:
@@ -75,14 +75,14 @@ def load_arm_limits(path: Optional[Path] = None) -> Optional[dict[str, tuple[flo
         with open(calib_path) as f:
             calib = json.load(f)
         limits = {}
-        for joint, data in calib.get("joints", {}).items():
-            a, b = float(data["min_rad"]), float(data["max_rad"])
+        for joint, data in calib.get('joints', {}).items():
+            a, b = float(data['min_rad']), float(data['max_rad'])
             limits[joint] = (min(a, b), max(a, b))
         return limits or None
     except FileNotFoundError:
         return None
     except Exception as exc:
-        print(f"Warning: could not load arm limits from {calib_path}: {exc}", file=sys.stderr)
+        print(f'Warning: could not load arm limits from {calib_path}: {exc}', file=sys.stderr)
         return None
 
 
@@ -104,6 +104,7 @@ def clamp_arm_positions(
 # Telemetry extraction (originally from act_policy_node.py)
 # ---------------------------------------------------------------------------
 
+
 def drain_sub(sock) -> Optional[dict]:
     """Drain a ZMQ SUB socket (msgpack), return latest message or None."""
     import zmq
@@ -122,11 +123,13 @@ def drain_sub(sock) -> Optional[dict]:
 
 
 def _extract_field(
-    telem: Optional[dict], field: str, joints: list = ARM_JOINTS,
+    telem: Optional[dict],
+    field: str,
+    joints: list = ARM_JOINTS,
 ) -> Optional[np.ndarray]:
-    if telem is None or "motors" not in telem:
+    if telem is None or 'motors' not in telem:
         return None
-    motors = telem["motors"]
+    motors = telem['motors']
     out = []
     for joint in joints:
         m = motors.get(joint)
@@ -138,12 +141,12 @@ def _extract_field(
 
 def extract_qpos(telem: dict) -> Optional[np.ndarray]:
     """Extract [7] float32 positions in ARM_JOINTS order (swivel first)."""
-    return _extract_field(telem, "position")
+    return _extract_field(telem, 'position')
 
 
 def extract_velocities(telem: dict) -> Optional[np.ndarray]:
     """Extract [7] float32 velocities in ARM_JOINTS order."""
-    return _extract_field(telem, "velocity")
+    return _extract_field(telem, 'velocity')
 
 
 # POLICY_JOINTS == ARM_JOINTS now; these are kept as aliases for callers in
@@ -153,7 +156,7 @@ extract_policy_qpos = extract_qpos
 
 def extract_policy_torques(telem: dict) -> Optional[np.ndarray]:
     """Extract [7] float32 torques in ARM_JOINTS order."""
-    return _extract_field(telem, "torque")
+    return _extract_field(telem, 'torque')
 
 
 def apply_safety_limits(
@@ -178,15 +181,16 @@ def apply_safety_limits(
 # Keyboard
 # ---------------------------------------------------------------------------
 
+
 def setup_keyboard():
     """Return a function that reads a single key without blocking (or None)."""
-    if sys.platform == "win32":
+    if sys.platform == 'win32':
         import msvcrt
 
         def _get_key():
             if msvcrt.kbhit():
                 ch = msvcrt.getwch()
-                return ch.upper() if hasattr(ch, "upper") else None
+                return ch.upper() if hasattr(ch, 'upper') else None
             return None
     else:
         import select
@@ -204,6 +208,7 @@ def setup_keyboard():
             return None
 
         import atexit
+
         atexit.register(lambda: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings))
 
     return _get_key

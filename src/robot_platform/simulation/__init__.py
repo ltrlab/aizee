@@ -2,4 +2,4 @@
 
 from .plant import SimulatedRobot
 
-__all__ = ["SimulatedRobot"]
+__all__ = ['SimulatedRobot']

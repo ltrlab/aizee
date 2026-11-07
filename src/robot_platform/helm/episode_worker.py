@@ -18,6 +18,7 @@ Each frame on the wire is a 4-byte big-endian length and a msgpack body. The fir
 ({'hello': VERSION, 'root': ...}). On the robot it moves to the background CPUs and lowers its priority, so
 reading never competes with the control loop; it exits at the end of stdin or after IDLE_EXIT_S without a request.
 """
+
 from collections import OrderedDict
 import io
 import json
@@ -30,7 +31,7 @@ import time
 
 VERSION = 1
 MAX_REQUEST = 64 * 1024
-IDLE_EXIT_S = 600.
+IDLE_EXIT_S = 600.0
 OPEN_FILES = 2
 SESSION_RE = re.compile(r'^live-\d{8}T\d{6}Z$')
 NAME_RE = re.compile(r'^task_episode_[0-9a-f]{32}(\.partial)?$')
@@ -95,7 +96,11 @@ class Episodes:
                 record = json.loads(line)
             except ValueError:
                 continue  # A line cut short by a power loss: the earlier ones stand.
-            if isinstance(record, dict) and isinstance(record.get('episode'), str) and record.get('verdict') in (*VERDICTS, None):
+            if (
+                isinstance(record, dict)
+                and isinstance(record.get('episode'), str)
+                and record.get('verdict') in (*VERDICTS, None)
+            ):
                 latest[record['episode']] = record
         self._reviews[path] = (key, latest)
         return latest
@@ -104,18 +109,24 @@ class Episodes:
         """Mark `episode` Keep or Discard for training (None clears it): one line appended to its session's
         reviews.jsonl, flushed to disk. The episode file is never touched."""
         from datetime import datetime, timezone
+
         path = resolve_episode(self.root, episode)
         if verdict not in (*VERDICTS, None):
             raise ValueError('A review is keep, discard, or none to clear it')
         if not isinstance(note, str) or len(note) > MAX_NOTE:
             raise ValueError(f'A review note is text of at most {MAX_NOTE} characters')
-        name = path.name[:-len('.hdf5')]
+        name = path.name[: -len('.hdf5')]
         if verdict == 'keep':
             facts = self._quick_facts(path)
             if name.endswith('.partial') or not facts['complete'] or facts['error']:
                 raise ValueError('Only a complete episode can be kept for training')
-        record = {'episode': name, 'verdict': verdict, 'note': note.strip(),
-                  'at': datetime.now(timezone.utc).isoformat(timespec='seconds'), 'by': 'helm-replay'}
+        record = {
+            'episode': name,
+            'verdict': verdict,
+            'note': note.strip(),
+            'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'by': 'helm-replay',
+        }
         target = path.parent.parent / REVIEWS
         with open(target, 'a', encoding='utf-8') as handle:
             handle.write(json.dumps(record, separators=(',', ':')) + '\n')
@@ -125,6 +136,7 @@ class Episodes:
 
     def file(self, episode):
         import h5py
+
         path = resolve_episode(self.root, episode)
         stat = path.stat()
         key = (stat.st_size, stat.st_mtime_ns)
@@ -152,22 +164,32 @@ class Episodes:
                 continue
             reviews = self.reviews(session)
             for path in (session / 'episodes').glob('task_episode_*.hdf5'):
-                name = path.name[:-len('.hdf5')]
+                name = path.name[: -len('.hdf5')]
                 if not NAME_RE.match(name):
                     continue
                 stat = path.stat()
                 key = (path, stat.st_size, stat.st_mtime_ns)
                 if key not in self._facts:
                     self._facts[key] = self._quick_facts(path)
-                episodes.append(dict(self._facts[key], id=f'{session.name}/{name}', session=session.name, name=name,
-                                     partial=name.endswith('.partial'), size=stat.st_size, modified=stat.st_mtime,
-                                     review=reviews.get(name)))
+                episodes.append(
+                    dict(
+                        self._facts[key],
+                        id=f'{session.name}/{name}',
+                        session=session.name,
+                        name=name,
+                        partial=name.endswith('.partial'),
+                        size=stat.st_size,
+                        modified=stat.st_mtime,
+                        review=reviews.get(name),
+                    )
+                )
         episodes.sort(key=lambda entry: entry['modified'], reverse=True)
         return episodes
 
     @staticmethod
     def _quick_facts(path):
         import h5py
+
         try:
             with h5py.File(path, 'r') as f:
                 attrs = f.attrs
@@ -177,8 +199,14 @@ class Episodes:
                     frames = int(telem.shape[0])
                     if frames > 1:
                         duration = float(telem[frames - 1] - telem[0])
-                return dict(complete=bool(_text(attrs.get('complete', False))), frames=frames, duration=duration,
-                            collected_at=_text(attrs.get('collected_at')), roles=_roles(attrs), error=None)
+                return dict(
+                    complete=bool(_text(attrs.get('complete', False))),
+                    frames=frames,
+                    duration=duration,
+                    collected_at=_text(attrs.get('collected_at')),
+                    roles=_roles(attrs),
+                    error=None,
+                )
         except Exception as exc:  # noqa: BLE001 - a damaged or locked file is listed, with the reason.
             return dict(complete=False, frames=0, duration=None, collected_at=None, roles=[], error=str(exc)[:200])
 
@@ -196,28 +224,45 @@ class Episodes:
             pass
         profile = metadata.get('capture_profile') or {}
         joints = str(_text(attrs.get('minerva_joints', ''))).split(',') if 'minerva_joints' in attrs else []
-        duration = float(telem[-1] - telem[0]) if frames > 1 else 0.
+        duration = float(telem[-1] - telem[0]) if frames > 1 else 0.0
         return dict(
-            id=episode, frames=frames, duration=duration,
+            id=episode,
+            frames=frames,
+            duration=duration,
             rate_hz=(frames - 1) / duration if duration > 0 else None,
             gap_s=dict(median=sorted(gaps)[len(gaps) // 2], max=max(gaps)) if gaps else None,
-            hz=_text(attrs.get('hz')), roles=roles,
-            image_shapes={role: list(f['observations/images/' + role].shape[1:]) for role in roles
-                          if 'observations/images/' + role in f},
-            joints=joints, complete=bool(_text(attrs.get('complete', False))),
-            collected_at=_text(attrs.get('collected_at')), data_source=_text(attrs.get('data_source')),
+            hz=_text(attrs.get('hz')),
+            roles=roles,
+            image_shapes={
+                role: list(f['observations/images/' + role].shape[1:])
+                for role in roles
+                if 'observations/images/' + role in f
+            },
+            joints=joints,
+            complete=bool(_text(attrs.get('complete', False))),
+            collected_at=_text(attrs.get('collected_at')),
+            data_source=_text(attrs.get('data_source')),
             language_instruction=_text(attrs.get('language_instruction', '')) or None,
-            capture_eligible=_text(attrs.get('capture_eligible')), training_promoted=_text(attrs.get('training_promoted')),
-            format_version=_text(attrs.get('format_version')), recording_hz=profile.get('hz'))
+            capture_eligible=_text(attrs.get('capture_eligible')),
+            training_promoted=_text(attrs.get('training_promoted')),
+            format_version=_text(attrs.get('format_version')),
+            recording_hz=profile.get('hz'),
+        )
 
     def series(self, episode):
         """Per-frame arrays as little-endian float32 bytes with their shapes: compact over the tether."""
         import numpy as np
+
         f = self.file(episode)
         telem = f['timestamps/telem'][:]
         result = {'t': (telem - telem[0]).astype('<f8').tobytes(), 'frames': int(telem.shape[0])}
-        for key, name in (('qpos', 'observations/qpos'), ('qcmd', 'observations/qcmd'), ('actions', 'actions'),
-                          ('torques', 'observations/torques'), ('qvel', 'observations/qvel')):
+        for key, name in (
+            ('qpos', 'observations/qpos'),
+            ('qcmd', 'observations/qcmd'),
+            ('actions', 'actions'),
+            ('torques', 'observations/torques'),
+            ('qvel', 'observations/qvel'),
+        ):
             if name in f:
                 data = np.asarray(f[name][:], dtype='<f4')
                 result[key] = {'shape': list(data.shape), 'data': data.tobytes()}
@@ -227,6 +272,7 @@ class Episodes:
 
     def frame(self, episode, index, quality=85):
         from PIL import Image
+
         f = self.file(episode)
         telem = f['timestamps/telem']
         frames = int(telem.shape[0])
@@ -272,12 +318,13 @@ def _read_exactly(stream, size):
 
 def serve(root, stdin, stdout, *, idle_exit_s=IDLE_EXIT_S):
     import msgpack
+
     episodes = Episodes(root)
     last = [time.monotonic()]
     done = threading.Event()
 
     def watchdog():
-        while not done.wait(5.):
+        while not done.wait(5.0):
             if time.monotonic() - last[0] > idle_exit_s:
                 os._exit(0)
 
@@ -339,10 +386,15 @@ def list_policies(directory):
                 raise ValueError('its description is too large')
             meta = json.loads(meta_path.read_text(encoding='utf-8'))
             model = path / 'policy.pt'
-            row.update({key: meta.get(key) for key in ('policy_type', 'fps', 'camera_roles', 'chunk_size',
-                                                        'checkpoint_sha256')},
-                       joints=len(meta.get('joints') or []), size_mb=round(model.stat().st_size / 1e6, 1)
-                       if model.is_file() else None, error=None if model.is_file() else 'policy.pt is missing')
+            row.update(
+                {
+                    key: meta.get(key)
+                    for key in ('policy_type', 'fps', 'camera_roles', 'chunk_size', 'checkpoint_sha256')
+                },
+                joints=len(meta.get('joints') or []),
+                size_mb=round(model.stat().st_size / 1e6, 1) if model.is_file() else None,
+                error=None if model.is_file() else 'policy.pt is missing',
+            )
         except (OSError, ValueError) as exc:
             row['error'] = str(exc)[:200] or type(exc).__name__
         rows.append(row)

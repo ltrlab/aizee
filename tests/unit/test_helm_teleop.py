@@ -1,5 +1,6 @@
 """Helm teleop plumbing without native builds: profile checks, advisory verdicts,
 route edits, the loop's messaging and the web endpoints."""
+
 import asyncio
 from collections import deque
 import json
@@ -14,8 +15,7 @@ import pytest
 
 from robot_platform.control.scheduling import prefer_responsive
 from robot_platform.helm.server import create_app
-from robot_platform.helm.teleop import (PAUSE_ATTEMPTS, AdvisoryCompiler, TeleopCore, TeleopSession,
-                                        load_profile)
+from robot_platform.helm.teleop import PAUSE_ATTEMPTS, AdvisoryCompiler, TeleopCore, TeleopSession, load_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 TELEOP = ROOT / 'config/devices/minerva-teleop.json'
@@ -50,43 +50,57 @@ class Proximity:
 
 
 def advisory(pairs, **options):
-    config = {'collision': {'world_revision': 'world', 'scope': 'inter_branch'},
-              'joints': [{'name': 'arm_j1', 'lower': -1., 'upper': 1.},
-                         {'name': 'gripper', 'lower': -.1, 'upper': 2.}]}
-    joint_map = {'shoulder': {'actuator': 'arm_j1', 'scale': -1., 'offset': .1},
-                 'slide': {'actuator': 'gripper', 'scale': .01, 'offset': 0.}}
-    return AdvisoryCompiler(Proximity(pairs), config, joint_map, compute_budget_s=.02, **options)
+    config = {
+        'collision': {'world_revision': 'world', 'scope': 'inter_branch'},
+        'joints': [{'name': 'arm_j1', 'lower': -1.0, 'upper': 1.0}, {'name': 'gripper', 'lower': -0.1, 'upper': 2.0}],
+    }
+    joint_map = {
+        'shoulder': {'actuator': 'arm_j1', 'scale': -1.0, 'offset': 0.1},
+        'slide': {'actuator': 'gripper', 'scale': 0.01, 'offset': 0.0},
+    }
+    return AdvisoryCompiler(Proximity(pairs), config, joint_map, compute_budget_s=0.02, **options)
 
 
 def test_advisory_checks_the_target_pose_and_never_blocks_the_virtual_receiver():
     compiler = advisory([])
-    feedback = [{'position': .3}, {'position': 1.}]
+    feedback = [{'position': 0.3}, {'position': 1.0}]
     envelope = compiler.compile({'offer': {'id': 7}}, feedback)
     cad, threshold, scope = compiler.backend.calls[-1]
-    assert cad == pytest.approx({'shoulder': -.2, 'slide': .01}) and threshold == .05 and scope == 'inter_branch'
-    assert envelope == {'offer': 7, 'world_revision': 'world', 'scope': 'inter_branch',
-                        'lower': [-1., -.1], 'upper': [1., 2.]}
+    assert cad == pytest.approx({'shoulder': -0.2, 'slide': 0.01}) and threshold == 0.05 and scope == 'inter_branch'
+    assert envelope == {
+        'offer': 7,
+        'world_revision': 'world',
+        'scope': 'inter_branch',
+        'lower': [-1.0, -0.1],
+        'upper': [1.0, 2.0],
+    }
     assert compiler.last_verdict['reason'] == 'target_clear' and compiler.last_verdict['clear']
-    compiler.compile({'offer': {'id': 8}}, feedback, [{'position': .5}, {'position': 1.5}])
-    assert compiler.backend.calls[-1][0] == pytest.approx({'shoulder': -.4, 'slide': .015})
+    compiler.compile({'offer': {'id': 8}}, feedback, [{'position': 0.5}, {'position': 1.5}])
+    assert compiler.backend.calls[-1][0] == pytest.approx({'shoulder': -0.4, 'slide': 0.015})
     # One live arm: the rest of the model stays parked; a closed gripper is clamped into the model.
-    parked = advisory([], fixed={'elbow': .7}, cad_limits={'slide': (0., .02)})
-    parked.compile({'offer': {'id': 11}}, [{'position': .3}, {'position': -.05}])
-    assert parked.backend.calls[-1][0] == pytest.approx({'elbow': .7, 'shoulder': -.2, 'slide': 0.})
+    parked = advisory([], fixed={'elbow': 0.7}, cad_limits={'slide': (0.0, 0.02)})
+    parked.compile({'offer': {'id': 11}}, [{'position': 0.3}, {'position': -0.05}])
+    assert parked.backend.calls[-1][0] == pytest.approx({'elbow': 0.7, 'shoulder': -0.2, 'slide': 0.0})
 
-    near = advisory([{'distance_m': .004, 'shapes': ['a', 'b']}, {'distance_m': .03, 'shapes': ['c', 'd']}])
+    near = advisory([{'distance_m': 0.004, 'shapes': ['a', 'b']}, {'distance_m': 0.03, 'shapes': ['c', 'd']}])
     assert near.compile({'offer': {'id': 9}}, feedback)['offer'] == 9
-    assert near.last_verdict == {'advisory': True, 'clear': False, 'reason': 'target_contact',
-                                 'distance_m': .004, 'shapes': ['a', 'b']}
+    assert near.last_verdict == {
+        'advisory': True,
+        'clear': False,
+        'reason': 'target_contact',
+        'distance_m': 0.004,
+        'shapes': ['a', 'b'],
+    }
     assert near.blocked == 1
-    near.backend.pairs = [{'distance_m': .03, 'shapes': ['c', 'd']}]
+    near.backend.pairs = [{'distance_m': 0.03, 'shapes': ['c', 'd']}]
     near.compile({'offer': {'id': 10}}, feedback)
     assert near.last_verdict['reason'] == 'target_near' and near.last_verdict['clear'] and near.blocked == 1
 
 
 def core(tmp_path, asset='minerva-production-01'):
-    return TeleopCore({'teleop_profile': str(TELEOP), 'routes_path': str(tmp_path / 'teleop' / 'routes.json'),
-                       'asset_id': asset})
+    return TeleopCore(
+        {'teleop_profile': str(TELEOP), 'routes_path': str(tmp_path / 'teleop' / 'routes.json'), 'asset_id': asset}
+    )
 
 
 def test_route_edits_persist_per_profile_and_asset(tmp_path):
@@ -114,11 +128,15 @@ def test_profiles_with_the_same_routes_share_their_edits_in_one_folder(tmp_path)
     """The position-only and velocity feed-forward tuning profiles run from one folder: a sign verified under one
     holds under the other. Other routes, or a file saved before the routes' digest, stay the saving profile's."""
     from robot_platform.helm.teleop import load_route_edits, routes_sha256, save_route_edits
+
     path = tmp_path / 'teleop' / 'routes.json'
     profile = json.loads(TELEOP.read_text(encoding='utf-8'))
     twin = dict(profile, id='twin-teleop')
-    other = dict(profile, id='other-teleop', routes=dict(profile['routes'], left_arm_j2=dict(
-        profile['routes']['left_arm_j2'], channel=5)))
+    other = dict(
+        profile,
+        id='other-teleop',
+        routes=dict(profile['routes'], left_arm_j2=dict(profile['routes']['left_arm_j2'], channel=5)),
+    )
     edits = {'left_arm_j2': {'sign': 1, 'verified': True, 'history': [{'action': 'flip'}]}}
     save_route_edits(path, profile, 'minerva-production-01', edits)
     assert json.loads(path.read_text(encoding='utf-8'))['routes_sha256'] == routes_sha256(twin)
@@ -138,10 +156,20 @@ def test_profiles_with_the_same_routes_share_their_edits_in_one_folder(tmp_path)
 def test_trigger_edits_from_the_released_opens_mapping_are_dropped(tmp_path):
     path = tmp_path / 'teleop' / 'routes.json'
     path.parent.mkdir()
-    path.write_text(json.dumps({'schema': 1, 'profile': 'minerva-production-01-teleop',
-                                'asset_id': 'minerva-production-01', 'runtime_approved': False, 'routes': {
-                                    'left_arm_j3': {'sign': -1, 'verified': True},
-                                    'left_gripper': {'squeeze_sign': -1, 'verified': True}}}))
+    path.write_text(
+        json.dumps(
+            {
+                'schema': 1,
+                'profile': 'minerva-production-01-teleop',
+                'asset_id': 'minerva-production-01',
+                'runtime_approved': False,
+                'routes': {
+                    'left_arm_j3': {'sign': -1, 'verified': True},
+                    'left_gripper': {'squeeze_sign': -1, 'verified': True},
+                },
+            }
+        )
+    )
     edited = core(tmp_path)
     routes = edited.routes()
     assert routes['left_arm_j3'] == {'leader': 'left', 'channel': 3, 'sign': -1, 'verified': True}
@@ -151,7 +179,7 @@ def test_trigger_edits_from_the_released_opens_mapping_are_dropped(tmp_path):
 
 
 class FakeCore:
-    period_s = .01
+    period_s = 0.01
     clock = staticmethod(time.perf_counter)
 
     def __init__(self, failure=None):
@@ -196,16 +224,20 @@ class FakeCore:
 
 
 def helm_stub(limits=True):
-    return SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
-                           mapping={}, saved_limits={'joints': {}} if limits else None,
-                           asset_id='minerva-production-01')
+    return SimpleNamespace(
+        profile_path=ROOT / 'config/devices/minerva-joint-calibration.json',
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}} if limits else None,
+        asset_id='minerva-production-01',
+    )
 
 
-def wait_until(predicate, timeout=5.):
+def wait_until(predicate, timeout=5.0):
     deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, 'timed out'
-        time.sleep(.01)
+        time.sleep(0.01)
 
 
 def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
@@ -247,11 +279,15 @@ def test_session_relays_keys_and_route_edits_and_stops_cleanly(tmp_path):
 
 class HoldingCore(FakeCore):
     """A paused session's core: it holds (or follows, `state`), pedal B offers Resume and C Shutdown."""
+
     state = 'HOLD'
 
     def view(self):
-        return dict(super().view(), state=self.state,
-                    pedals={'actions': {'b': {'action': 'resume'}, 'c': {'action': 'shutdown'}}})
+        return dict(
+            super().view(),
+            state=self.state,
+            pedals={'actions': {'b': {'action': 'resume'}, 'c': {'action': 'shutdown'}}},
+        )
 
     def prepare_pedal(self, payload):
         return {'pedal': payload['pedal'], 'action': self.view()['pedals']['actions'][payload['pedal']]['action']}
@@ -362,8 +398,10 @@ class FakeLink:
 def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.session import HelmSession
-    session = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                          limits=tmp_path / 'limits.json')
+
+    session = HelmSession(
+        ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs', limits=tmp_path / 'limits.json'
+    )
     teleop, link = FakeTeleop(session.guide), FakeLink()
 
     async def scenario(client):
@@ -376,8 +414,9 @@ def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path
         refused = await client.post('/api/helm/connect', json={}, headers=headers)
         assert refused.status == 422 and not link.running
         assert (await client.post('/api/helm/teleop/key', json={'key': 'T'}, headers=headers)).status == 200
-        routed = await client.post('/api/helm/teleop/route', json={'action': 'flip', 'motor': 'left_arm_j1'},
-                                   headers=headers)
+        routed = await client.post(
+            '/api/helm/teleop/route', json={'action': 'flip', 'motor': 'left_arm_j1'}, headers=headers
+        )
         assert routed.status == 200
         assert (await client.post('/api/helm/teleop/zero', json={}, headers=headers)).status == 200
         assert (await client.post('/api/helm/teleop/key', json={'key': 'T', 'x': 1}, headers=headers)).status == 422
@@ -391,6 +430,7 @@ def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path
     async def run():
         async with TestClient(TestServer(create_app(session, link, teleop=teleop, token='secret'))) as client:
             await scenario(client)
+
     try:
         asyncio.run(run())
     finally:
@@ -400,6 +440,7 @@ def test_web_endpoints_drive_teleop_and_take_the_motors_from_the_reader(tmp_path
 def test_scheduling_hints_apply_to_another_process(tmp_path, monkeypatch):
     import ctypes
     from robot_platform.control import scheduling
+
     monkeypatch.setattr(scheduling, 'PARTITION', str(tmp_path / 'none.json'))  # Linux: no CPU split here.
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
     try:
@@ -423,20 +464,31 @@ def test_scheduling_hints_apply_to_another_process(tmp_path, monkeypatch):
 
 def test_scheduling_hints_applied_to_itself_use_the_platform_contract():
     # Run in a child: the timer resolution lasts for the life of the process that asks.
-    code = ('from robot_platform.control.scheduling import prefer_responsive; '
-            'print(",".join(prefer_responsive()))')
-    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60,
-                            env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src')})
+    code = 'from robot_platform.control.scheduling import prefer_responsive; print(",".join(prefer_responsive()))'
+    result = subprocess.run(
+        [sys.executable, '-c', code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2] / 'src')},
+    )
     assert result.returncode == 0, result.stderr
     from robot_platform.control.scheduling import cpu_partition
-    expected = (['no_power_throttling', 'high_priority', 'timer_1ms'] if sys.platform == 'win32'
-                else ['control_cpus'] if sys.platform.startswith('linux') and cpu_partition() else [])
+
+    expected = (
+        ['no_power_throttling', 'high_priority', 'timer_1ms']
+        if sys.platform == 'win32'
+        else ['control_cpus']
+        if sys.platform.startswith('linux') and cpu_partition()
+        else []
+    )
     assert [hint for hint in result.stdout.strip().split(',') if hint] == expected, result.stderr
 
 
 def test_scheduling_hints_are_a_no_op_elsewhere(tmp_path, monkeypatch):
     """Elsewhere: Linux without a CPU partition installed (tests/unit/test_cpu_partition.py), or another OS."""
     from robot_platform.control import scheduling
+
     monkeypatch.setattr(scheduling, 'PARTITION', str(tmp_path / 'none.json'))
     for platform in ('linux', 'darwin'):
         monkeypatch.setattr(sys, 'platform', platform)
@@ -472,8 +524,8 @@ def test_a_silent_helm_ends_the_loop_after_lowering_the_arm():
     core, commands, sent = Lowering(), Inbox(), []
     commands.put(['beat'])
     started = time.monotonic()
-    run_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=.2)
-    assert .2 <= time.monotonic() - started < 2.
+    run_loop(commands, SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=0.2)
+    assert 0.2 <= time.monotonic() - started < 2.0
     assert core.gone == ['Helm went silent for 0.2 s'] and core.lowering == 0 and core.closed
 
 
@@ -483,16 +535,25 @@ def test_only_a_joint_over_its_speed_holds_the_arms_and_a_few_times_a_minute():
     core = object.__new__(TeleopCore)  # Without __init__: no pauses yet.
 
     def stopped(check, reason='limit_violation'):
-        return {'state': 'stopping', 'reason': reason,
-                'last_trip': {'reason': 'limit_violation', 'joint': 'left_arm_j4', 'check': check,
-                              'value': .86, 'limit': .78, 'at_ms': 1}}
+        return {
+            'state': 'stopping',
+            'reason': reason,
+            'last_trip': {
+                'reason': 'limit_violation',
+                'joint': 'left_arm_j4',
+                'check': check,
+                'value': 0.86,
+                'limit': 0.78,
+                'at_ms': 1,
+            },
+        }
 
-    assert core._trip_hold_due(stopped('sustained_speed'), 100.)
+    assert core._trip_hold_due(stopped('sustained_speed'), 100.0)
     for check in ('speed', 'position_below_lower', 'position_above_upper', 'effort', 'temperature'):
-        assert not core._trip_hold_due(stopped(check), 100.), check
-    assert not core._trip_hold_due(stopped('sustained_speed', reason='command_expired'), 100.)  # An older trip's.
-    assert not core._trip_hold_due({'state': 'stopping', 'reason': 'limit_violation'}, 100.)
-    assert not core._trip_hold_due({}, 100.)
-    core._pauses = deque([60., 80., 99.], maxlen=PAUSE_ATTEMPTS)
-    assert not core._trip_hold_due(stopped('sustained_speed'), 100.)  # PAUSE_ATTEMPTS in the last minute.
-    assert core._trip_hold_due(stopped('sustained_speed'), 121.)  # The first of them is over a minute old.
+        assert not core._trip_hold_due(stopped(check), 100.0), check
+    assert not core._trip_hold_due(stopped('sustained_speed', reason='command_expired'), 100.0)  # An older trip's.
+    assert not core._trip_hold_due({'state': 'stopping', 'reason': 'limit_violation'}, 100.0)
+    assert not core._trip_hold_due({}, 100.0)
+    core._pauses = deque([60.0, 80.0, 99.0], maxlen=PAUSE_ATTEMPTS)
+    assert not core._trip_hold_due(stopped('sustained_speed'), 100.0)  # PAUSE_ATTEMPTS in the last minute.
+    assert core._trip_hold_due(stopped('sustained_speed'), 121.0)  # The first of them is over a minute old.

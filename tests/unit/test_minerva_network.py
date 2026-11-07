@@ -2,6 +2,7 @@
 the mode (a network's DHCP answers: wired LAN, the Wi-Fi client steps aside; a PC: the tether at 10.42.0.1; nothing:
 the Wi-Fi client back), a tether with many clients stops serving, and the access point takes and returns the radio.
 Installing writes root's copy, the profiles, Helm's sudo rule and the unit, and records what it changes for remove."""
+
 import json
 import os
 from pathlib import Path
@@ -12,8 +13,13 @@ import pytest
 from robot_platform.ops import network
 from robot_platform.ops.network import AP, ETHERNET, LAN, LOCAL, LOCAL_DEVICE, TETHER, WIFI
 
-ADDRESSES = {LAN: '192.0.2.43/24', TETHER: '10.42.0.1/24', 'birdnest': '192.0.2.180/24', AP: '10.42.1.1/24',
-             LOCAL: '10.42.0.1/32'}
+ADDRESSES = {
+    LAN: '192.0.2.43/24',
+    TETHER: '10.42.0.1/24',
+    'birdnest': '192.0.2.180/24',
+    AP: '10.42.1.1/24',
+    LOCAL: '10.42.0.1/32',
+}
 
 
 class Bench:
@@ -69,15 +75,17 @@ class Bench:
 @pytest.fixture
 def bench(tmp_path):
     nm = Bench()
-    clock = SimpleNamespace(now=1000.)
-    service = network.Network(nm, settings=tmp_path / 'settings.json', state=tmp_path / 'state.json',
-                              clock=lambda: clock.now)
+    clock = SimpleNamespace(now=1000.0)
+    service = network.Network(
+        nm, settings=tmp_path / 'settings.json', state=tmp_path / 'state.json', clock=lambda: clock.now
+    )
 
     def state():
         return json.loads((tmp_path / 'state.json').read_text(encoding='utf-8'))
 
     def want_ap(on):
         (tmp_path / 'settings.json').write_text(json.dumps({'ap': on}), encoding='utf-8')
+
     return SimpleNamespace(nm=nm, service=service, state=state, want_ap=want_ap, clock=clock)
 
 
@@ -148,8 +156,13 @@ def test_the_access_point_takes_the_radio_and_gives_it_back(bench):
     bench.want_ap(True)
     bench.service.step()
     state = bench.state()
-    assert bench.nm.connections[WIFI] == AP and state['ap'] == {'wanted': True, 'on': True, 'ssid': 'minerva',
-                                                                 'address': '10.42.1.1', 'failed': False}
+    assert bench.nm.connections[WIFI] == AP and state['ap'] == {
+        'wanted': True,
+        'on': True,
+        'ssid': 'minerva',
+        'address': '10.42.1.1',
+        'failed': False,
+    }
     assert state['wifi']['mode'] == 'ap'
     bench.nm.cable = 'network'  # On a network with the access point on: it keeps the radio.
     bench.service.step()
@@ -171,7 +184,10 @@ def test_profiles_and_password(monkeypatch):
     files = network.profiles()
     assert set(files) == {f'{LAN}.nmconnection', f'{TETHER}.nmconnection', f'{LOCAL}.nmconnection'}
     assert 'method=auto' in files[f'{LAN}.nmconnection'] and 'dhcp-timeout=8' in files[f'{LAN}.nmconnection']
-    assert 'method=shared' in files[f'{TETHER}.nmconnection'] and 'address1=10.42.0.1/24' in files[f'{TETHER}.nmconnection']
+    assert (
+        'method=shared' in files[f'{TETHER}.nmconnection']
+        and 'address1=10.42.0.1/24' in files[f'{TETHER}.nmconnection']
+    )
     assert 'type=dummy' in files[f'{LOCAL}.nmconnection'] and 'autoconnect=true' in files[f'{LOCAL}.nmconnection']
     assert all('autoconnect=false' in text for name, text in files.items() if LOCAL not in name)
     assert network.profiles()[f'{LAN}.nmconnection'] == files[f'{LAN}.nmconnection']  # Stable ids across installs.
@@ -189,7 +205,7 @@ class FakeRun:
         self.autoconnect = {network.OLD_WIRED: 'yes', network.OLD_AP: 'yes'}
         self.enabled = {'dnsmasq.service': True}
 
-    def __call__(self, command, timeout=60.):
+    def __call__(self, command, timeout=60.0):
         self.commands.append(command)
         ok = SimpleNamespace(returncode=0, stdout='', stderr='')
         if command[:3] == ['nmcli', '-g', 'connection.autoconnect']:
@@ -198,8 +214,9 @@ class FakeRun:
         if command[:3] == ['nmcli', 'connection', 'modify']:
             self.autoconnect[command[3]] = command[-1]
         if command[:2] == ['systemctl', 'is-enabled']:
-            return SimpleNamespace(returncode=0, stdout='enabled\n' if self.enabled.get(command[2]) else 'disabled\n',
-                                   stderr='')
+            return SimpleNamespace(
+                returncode=0, stdout='enabled\n' if self.enabled.get(command[2]) else 'disabled\n', stderr=''
+            )
         if command[:2] == ['systemctl', 'disable']:
             self.enabled[command[-1]] = False
         if command[:2] == ['systemctl', 'enable']:
@@ -220,8 +237,9 @@ def test_install_and_remove_on_a_fake_root(tmp_path):
     assert (lib / 'network.py').read_bytes() == Path(network.__file__).read_bytes()
     assert 'network.py "$@"' in host.path(network.PROGRAM).read_text(encoding='utf-8')
     keyfiles = host.path(network.CONNECTIONS)
-    assert sorted(p.name for p in keyfiles.iterdir()) == sorted([f'{AP}.nmconnection', f'{LAN}.nmconnection',
-                                                                 f'{LOCAL}.nmconnection', f'{TETHER}.nmconnection'])
+    assert sorted(p.name for p in keyfiles.iterdir()) == sorted(
+        [f'{AP}.nmconnection', f'{LAN}.nmconnection', f'{LOCAL}.nmconnection', f'{TETHER}.nmconnection']
+    )
     assert 'psk=minerva-pass' in (keyfiles / f'{AP}.nmconnection').read_text(encoding='utf-8')
     if os.name == 'posix':
         assert (keyfiles / f'{AP}.nmconnection').stat().st_mode & 0o777 == 0o600
@@ -256,16 +274,17 @@ def test_install_refuses_a_bad_or_mistyped_password_before_changing_anything(tmp
 
 def test_switching_the_access_point_waits_for_the_service(tmp_path):
     settings, state = tmp_path / 'settings.json', tmp_path / 'state.json'
-    clock = SimpleNamespace(now=0.)
+    clock = SimpleNamespace(now=0.0)
 
     def sleep(seconds):
         clock.now += seconds
-        if clock.now >= 2.:  # The service gets there two seconds later.
+        if clock.now >= 2.0:  # The service gets there two seconds later.
             state.write_text(json.dumps({'ap': {'on': True}}), encoding='utf-8')
+
     reached = network.set_ap(True, settings=settings, state=state, clock=lambda: clock.now, sleep=sleep)
     assert reached['ap']['on'] is True and json.loads(settings.read_text(encoding='utf-8')) == {'ap': True}
     with pytest.raises(RuntimeError, match='did not switch off'):
-        network.set_ap(False, settings=settings, state=state, wait_s=3., clock=lambda: clock.now, sleep=sleep)
+        network.set_ap(False, settings=settings, state=state, wait_s=3.0, clock=lambda: clock.now, sleep=sleep)
 
 
 def test_the_sudo_rule_allows_only_switching_the_access_point():
@@ -278,7 +297,7 @@ def test_an_access_point_the_radio_refuses_is_retried_every_30_s_not_every_step(
     bench.want_ap(True)
     bench.service.step()
     for _ in range(5):
-        bench.clock.now += 1.
+        bench.clock.now += 1.0
         bench.service.step()
     assert bench.nm.calls.count(('up', AP)) == 1 and bench.state()['ap']['failed'] is True
     assert bench.nm.connections[WIFI] == 'birdnest'  # The client keeps the radio meanwhile.
@@ -286,7 +305,8 @@ def test_an_access_point_the_radio_refuses_is_retried_every_30_s_not_every_step(
     bench.nm.ap_refused = False
     bench.service.step()
     assert bench.nm.calls.count(('up', AP)) == 2 and bench.state()['ap'] == dict(
-        bench.state()['ap'], on=True, failed=False)
+        bench.state()['ap'], on=True, failed=False
+    )
     bench.want_ap(False)
     bench.service.step()
     bench.nm.ap_refused = True
@@ -304,12 +324,14 @@ def test_a_state_file_windows_will_not_replace_yet_is_written_once_it_will(tmp_p
         if next(refusals, False):
             raise PermissionError(5, 'Access is denied')
         replace(source, target)
+
     monkeypatch.setattr(network.os, 'replace', busy)
     network._write_json(tmp_path / 'state.json', {'mode': 'tether'})
     assert json.loads((tmp_path / 'state.json').read_text(encoding='utf-8')) == {'mode': 'tether'}
 
     def refused(source, target):
         raise PermissionError(5, 'Access is denied')
+
     monkeypatch.setattr(network.os, 'replace', refused)
     with pytest.raises(PermissionError):
-        network._replace(tmp_path / 'state.json.partial', tmp_path / 'state.json', patience_s=.05)
+        network._replace(tmp_path / 'state.json.partial', tmp_path / 'state.json', patience_s=0.05)

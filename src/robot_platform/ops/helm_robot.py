@@ -12,6 +12,7 @@
 
 Over SSH with the deploy key (AIZEE_SSH_KEY_FILE), pinned to the robot's host key and machine id (ops.ssh.connect).
 """
+
 import argparse
 import gzip
 import hashlib
@@ -29,10 +30,15 @@ from .ssh import TETHER, run
 SERVICE = 'cd ~/minerva/current && PYTHONPATH=src python3 -m robot_platform.ops.helm_service'
 # The Jetson: CPython 3.10 on aarch64 with glibc 2.35, so any of these manylinux wheels.
 PLATFORMS = ('manylinux_2_17_aarch64', 'manylinux2014_aarch64', 'manylinux_2_28_aarch64', 'manylinux_2_34_aarch64')
-BRIDGE_FILES = ('src/robot_platform', 'config/devices', 'requirements/gello-bridge.lock',
-                'scripts/install_gello_bridge.ps1', 'pyproject.toml')
+BRIDGE_FILES = (
+    'src/robot_platform',
+    'config/devices',
+    'requirements/gello-bridge.lock',
+    'scripts/install_gello_bridge.ps1',
+    'pyproject.toml',
+)
 
-VERIFY_MESHES = '''
+VERIFY_MESHES = """
 import hashlib, json, os, pathlib, sys
 store = pathlib.Path.home() / "minerva" / "meshes"
 expected, bad = json.loads(sys.stdin.read()), []
@@ -44,7 +50,7 @@ for name, sha in expected.items():
     else:
         os.replace(incoming, store / name)
 print(json.dumps({"stored": len(expected) - len(bad), "bad": bad}))
-'''
+"""
 
 
 def _sha(data):
@@ -64,6 +70,7 @@ def wanted_meshes(root=ROOT):
     from robot_platform.models import ModelProfile, UrdfModel
     from robot_platform.models.urdf import asset_digest
     from robot_platform.viewer.server import stored_mesh_name
+
     wanted = {}
     for name in (MODEL, HEAD_MODEL):
         for path in UrdfModel(ModelProfile.load(Path(root) / name)).assets:
@@ -74,6 +81,7 @@ def wanted_meshes(root=ROOT):
 def converted(name, source, cache):
     """A mesh's stored form, kept in `cache` so a second upload converts nothing."""
     from robot_platform.viewer.server import mesh_payload
+
     path = Path(cache) / name
     if not path.is_file():
         _atomic(path, gzip.compress(mesh_payload(source), compresslevel=6, mtime=0))
@@ -100,11 +108,12 @@ def meshes(client, *, root=ROOT, cache=None, log=print):
             if count % 20 == 0 or count == len(missing):
                 log(f'  {count}/{len(missing)} sent, {sent / 1e6:.0f} MB')
     if expected:
-        status, out, err = run(client, 'python3 -c ' + shlex.quote(VERIFY_MESHES), stdin=json.dumps(expected),
-                               timeout=300)
+        status, out, err = run(
+            client, 'python3 -c ' + shlex.quote(VERIFY_MESHES), stdin=json.dumps(expected), timeout=300
+        )
         report = json.loads(out.strip().splitlines()[-1]) if status == 0 else None
         if report is None or report['bad']:
-            raise RuntimeError(f"Mesh upload failed verification: {report['bad'] if report else err.strip()}")
+            raise RuntimeError(f'Mesh upload failed verification: {report["bad"] if report else err.strip()}')
     return {'wanted': len(wanted), 'uploaded': len(expected), 'bytes': sent}
 
 
@@ -116,15 +125,47 @@ def download_wheels(root=ROOT, cache=None, python=sys.executable, lock=HELM_LOCK
     """The lock's aarch64 wheels, downloaded with their hashes checked; returns their folder."""
     folder = Path(cache or Path(root) / 'build' / 'helm-robot-deps') / lock_id(root, lock)
     platforms = [option for platform in PLATFORMS for option in ('--platform', platform)]
-    subprocess.run([python, '-m', 'pip', 'download', '--disable-pip-version-check', '--quiet', '--only-binary=:all:',
-                    '--no-deps', '--require-hashes', *platforms, '--python-version', '3.10', '--implementation', 'cp',
-                    '--abi', 'cp310', '--abi', 'abi3', '--abi', 'none', '-r', str(Path(root) / lock),
-                    '-d', str(folder)], check=True)
+    subprocess.run(
+        [
+            python,
+            '-m',
+            'pip',
+            'download',
+            '--disable-pip-version-check',
+            '--quiet',
+            '--only-binary=:all:',
+            '--no-deps',
+            '--require-hashes',
+            *platforms,
+            '--python-version',
+            '3.10',
+            '--implementation',
+            'cp',
+            '--abi',
+            'cp310',
+            '--abi',
+            'abi3',
+            '--abi',
+            'none',
+            '-r',
+            str(Path(root) / lock),
+            '-d',
+            str(folder),
+        ],
+        check=True,
+    )
     return folder
 
 
-def deps(client, *, root=ROOT, cache=None, log=print, source=HELM_LOCK,
-         check='import aiohttp, yarl, multidict; print("aiohttp", aiohttp.__version__)'):
+def deps(
+    client,
+    *,
+    root=ROOT,
+    cache=None,
+    log=print,
+    source=HELM_LOCK,
+    check='import aiohttp, yarl, multidict; print("aiohttp", aiohttp.__version__)',
+):
     """Install this checkout's Helm lock (or `source`) on Minerva; returns the lock id. Nothing is fetched from there.
     `check`: run with the new folder on the path, its last line said in the log."""
     lock = lock_id(root, source)
@@ -143,11 +184,13 @@ def deps(client, *, root=ROOT, cache=None, log=print, source=HELM_LOCK,
             sftp.put(str(path), f'{incoming}/{path.name}')
     q = shlex.quote
     partial = f'~/{target}.partial'
-    command = (f'rm -rf {partial} && python3 -m pip install --disable-pip-version-check --no-index '
-               f'--find-links ~/{incoming} --require-hashes --only-binary=:all: --no-deps --target {partial} '
-               f'-r ~/{incoming}/{q(Path(source).name)} && '
-               f'PYTHONPATH={partial} python3 -c {q(check)} && '
-               f'echo {q(lock)} > {partial}/.complete && mv {partial} ~/{target} && rm -rf ~/{incoming}')
+    command = (
+        f'rm -rf {partial} && python3 -m pip install --disable-pip-version-check --no-index '
+        f'--find-links ~/{incoming} --require-hashes --only-binary=:all: --no-deps --target {partial} '
+        f'-r ~/{incoming}/{q(Path(source).name)} && '
+        f'PYTHONPATH={partial} python3 -c {q(check)} && '
+        f'echo {q(lock)} > {partial}/.complete && mv {partial} ~/{target} && rm -rf ~/{incoming}'
+    )
     status, out, err = run(client, command, timeout=600)
     if status:
         raise RuntimeError(f'Installing the dependencies failed: {(err or out).strip()[-800:]}')
@@ -159,15 +202,21 @@ def webrtc_deps(client, *, root=ROOT, cache=None, log=print):
     """The remote headset worker's lock on Minerva. Helm runs without it (the headset stays on its ordinary link), so
     a failure here is said and not raised."""
     try:
-        return deps(client, root=root, cache=cache, log=log, source=WEBRTC_LOCK,
-                    check='import aiortc, av; print("aiortc", aiortc.__version__, "av", av.__version__, '
-                          '"libx264" in av.codecs_available)')
+        return deps(
+            client,
+            root=root,
+            cache=cache,
+            log=log,
+            source=WEBRTC_LOCK,
+            check='import aiortc, av; print("aiortc", aiortc.__version__, "av", av.__version__, '
+            '"libx264" in av.codecs_available)',
+        )
     except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
         log(f'The remote headset link is not installed: {exc}')
         return None
 
 
-def remote(client, action, *args, timeout=120.):
+def remote(client, action, *args, timeout=120.0):
     """ops.helm_service on Minerva: (exit status, its JSON report or None, stderr)."""
     command = ' '.join([SERVICE, shlex.quote(action), *map(shlex.quote, args)])
     status, out, err = run(client, command, timeout=timeout)
@@ -189,11 +238,13 @@ def update(client, *, root=ROOT, log=print):
     deps(client, root=root, log=log)
     webrtc_deps(client, root=root, log=log)
     meshes(client, root=root, log=log)
-    status, report, err = remote(client, 'restart', timeout=120.)
+    status, report, err = remote(client, 'restart', timeout=120.0)
     if status:
         raise RuntimeError(err)
-    log(f"Helm restarted on Minerva: {'listening' if report['listening'] else 'NOT listening'}"
-        + (f"; missing {report['missing']}" if report['missing'] else ''))
+    log(
+        f'Helm restarted on Minerva: {"listening" if report["listening"] else "NOT listening"}'
+        + (f'; missing {report["missing"]}' if report['missing'] else '')
+    )
     return report
 
 
@@ -204,8 +255,7 @@ def bridge_package(root=ROOT, out=None):
     if git('status', '--porcelain'):
         raise RuntimeError('Commit first: the bridge package holds committed files only')
     commit = git('rev-parse', 'HEAD')
-    paths = [p for p in git('ls-files', *BRIDGE_FILES).splitlines()
-             if '/static/' not in p and '__pycache__' not in p]
+    paths = [p for p in git('ls-files', *BRIDGE_FILES).splitlines() if '/static/' not in p and '__pycache__' not in p]
     folder = Path(out or root / 'build' / 'gello-bridge')
     folder.mkdir(parents=True, exist_ok=True)
     archive = folder / f'gello-bridge-{commit[:10]}.zip'
@@ -217,24 +267,29 @@ def bridge_package(root=ROOT, out=None):
             info = zipfile.ZipInfo(path, date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             bundle.writestr(info, (root / path).read_bytes())
-        bundle.writestr(zipfile.ZipInfo('gello-bridge.json', date_time=(2026, 1, 1, 0, 0, 0)),
-                        json.dumps(manifest, indent=1))
+        bundle.writestr(
+            zipfile.ZipInfo('gello-bridge.json', date_time=(2026, 1, 1, 0, 0, 0)), json.dumps(manifest, indent=1)
+        )
     os.replace(partial, archive)
     return archive, manifest
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python -m robot_platform.ops.helm_robot', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog='python -m robot_platform.ops.helm_robot',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('action', choices=('meshes', 'deps', 'update', 'bridge', 'remote'))
     parser.add_argument('rest', nargs=argparse.REMAINDER, help='remote: the helm_service action and its options')
     parser.add_argument('--address', default=TETHER, help=f'robot address (default: the tether, {TETHER})')
     args = parser.parse_args(argv)
     if args.action == 'bridge':
         archive, manifest = bridge_package()
-        print(f"{archive} ({len(manifest['files'])} files, {archive.stat().st_size / 1e6:.1f} MB)")
+        print(f'{archive} ({len(manifest["files"])} files, {archive.stat().st_size / 1e6:.1f} MB)')
         return 0
     from .ssh import connect
+
     client = connect(address=args.address)
     try:
         if args.action == 'meshes':

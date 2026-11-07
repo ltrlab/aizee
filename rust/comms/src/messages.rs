@@ -68,19 +68,13 @@ pub enum CommandMessage {
         drive: Option<DrivePayload>,
     },
     #[serde(rename = "enable")]
-    Enable {
-        motor_ids: Vec<String>,
-    },
+    Enable { motor_ids: Vec<String> },
     #[serde(rename = "disable")]
-    Disable {
-        motor_ids: Vec<String>,
-    },
+    Disable { motor_ids: Vec<String> },
     #[serde(rename = "emergency_stop")]
     EmergencyStop,
     #[serde(rename = "zero_position")]
-    ZeroPosition {
-        motor_ids: Vec<String>,
-    },
+    ZeroPosition { motor_ids: Vec<String> },
     /// Hardware mechanical zero: send CAN `ZeroPos` (msg type 6) to the named
     /// motors so they rewrite their mechanical zero in firmware. With `save`,
     /// follow up with `SaveConfig` (msg type 22) so the new zero persists
@@ -95,13 +89,9 @@ pub enum CommandMessage {
         save: bool,
     },
     #[serde(rename = "clear_fault")]
-    ClearFault {
-        motor_ids: Vec<String>,
-    },
+    ClearFault { motor_ids: Vec<String> },
     #[serde(rename = "trigger_fault")]
-    TriggerFault {
-        motor_ids: Vec<String>,
-    },
+    TriggerFault { motor_ids: Vec<String> },
     #[serde(rename = "clear_emergency_stop")]
     ClearEmergencyStop,
 }
@@ -132,14 +122,14 @@ pub struct MotorTelemetry {
 /// LiDAR scan data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LidarScan {
-    pub sensor_id: String,        // "lidar_front" or "lidar_back"
-    pub angle_min: f32,           // radians
-    pub angle_max: f32,           // radians
-    pub angle_increment: f32,     // radians
-    pub range_min: f32,           // meters (0.15 for A1M8)
-    pub range_max: f32,           // meters (12.0 for A1M8)
-    pub ranges: Vec<f32>,         // meters (360 points typical)
-    pub intensities: Vec<u8>,     // signal quality 0-255
+    pub sensor_id: String,    // "lidar_front" or "lidar_back"
+    pub angle_min: f32,       // radians
+    pub angle_max: f32,       // radians
+    pub angle_increment: f32, // radians
+    pub range_min: f32,       // meters (0.15 for A1M8)
+    pub range_max: f32,       // meters (12.0 for A1M8)
+    pub ranges: Vec<f32>,     // meters (360 points typical)
+    pub intensities: Vec<u8>, // signal quality 0-255
 }
 
 /// Telemetry message published to ZeroMQ
@@ -208,7 +198,9 @@ mod tests {
         let json = r#"{"type":"arm_joints","positions":[0.1,0.5,-0.3],"velocities":[0.0,0.0,0.0]}"#;
         let cmd: CommandMessage = serde_json::from_str(json).unwrap();
         match cmd {
-            CommandMessage::ArmJoints { positions, torques, .. } => {
+            CommandMessage::ArmJoints {
+                positions, torques, ..
+            } => {
                 assert_eq!(positions.len(), 3);
                 assert_eq!(positions[0], 0.1);
                 assert!(torques.is_empty(), "torques should default to empty vec");
@@ -222,7 +214,9 @@ mod tests {
         let json = r#"{"type":"arm_joints","positions":[0.1,0.5,-0.3],"velocities":[0.0,0.0,0.0],"torques":[1.0,2.0,0.5]}"#;
         let cmd: CommandMessage = serde_json::from_str(json).unwrap();
         match cmd {
-            CommandMessage::ArmJoints { positions, torques, .. } => {
+            CommandMessage::ArmJoints {
+                positions, torques, ..
+            } => {
                 assert_eq!(positions.len(), 3);
                 assert_eq!(torques.len(), 3);
                 assert_eq!(torques[0], 1.0);

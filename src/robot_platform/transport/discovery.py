@@ -10,7 +10,7 @@ import socket
 from collections.abc import Iterable
 
 
-DEFAULT_FALLBACK_HOSTS = ("10.42.0.1", "192.168.50.1")
+DEFAULT_FALLBACK_HOSTS = ('10.42.0.1', '192.168.50.1')
 
 
 def split_tcp_endpoint(endpoint: str | None) -> tuple[str | None, str | None]:
@@ -19,12 +19,12 @@ def split_tcp_endpoint(endpoint: str | None) -> tuple[str | None, str | None]:
     Empty and non-TCP endpoints return ``(None, None)``. A host without a
     port returns ``(host, None)``.
     """
-    if not endpoint or not endpoint.startswith("tcp://"):
+    if not endpoint or not endpoint.startswith('tcp://'):
         return None, None
-    rest = endpoint[len("tcp://"):]
-    if rest.startswith("[") and rest.endswith("]"):
+    rest = endpoint[len('tcp://') :]
+    if rest.startswith('[') and rest.endswith(']'):
         return rest, None
-    host, separator, port = rest.rpartition(":")
+    host, separator, port = rest.rpartition(':')
     if not separator:
         return (rest or None), None
     return (host or None), (port or None)
@@ -34,7 +34,7 @@ def host_reachable(host: str, ports: Iterable[int | str], timeout: float = 0.6) 
     """Return whether TCP connects to any supplied port (no protocol writes)."""
     for port in ports:
         try:
-            with socket.create_connection((host.strip("[]"), int(port)), timeout=timeout):
+            with socket.create_connection((host.strip('[]'), int(port)), timeout=timeout):
                 return True
         except OSError:
             continue
@@ -55,11 +55,11 @@ def resolve_host(
     Pass ``fallback_hosts=()`` to disable deployment-specific fallbacks.
     """
     candidates = list(dict.fromkeys(h for h in (primary_host, *fallback_hosts) if h))
-    ports = [port for port in (cmd_port, "22") if port]
+    ports = [port for port in (cmd_port, '22') if port]
     for host in candidates:
         if host_reachable(host, ports, timeout):
             return host, candidates
     return primary_host, candidates
 
 
-__all__ = ["DEFAULT_FALLBACK_HOSTS", "split_tcp_endpoint", "host_reachable", "resolve_host"]
+__all__ = ['DEFAULT_FALLBACK_HOSTS', 'split_tcp_endpoint', 'host_reachable', 'resolve_host']

@@ -39,6 +39,7 @@ from torchvision.models import resnet18, ResNet18_Weights
 # Positional encoding
 # ---------------------------------------------------------------------------
 
+
 class PositionalEncoding(nn.Module):
     """Standard sinusoidal positional encoding for sequences."""
 
@@ -47,12 +48,10 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(dropout)
         pe = torch.zeros(max_len, d_model)
         pos = torch.arange(max_len).unsqueeze(1).float()
-        div = torch.exp(
-            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
-        )
+        div = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(pos * div)
         pe[:, 1::2] = torch.cos(pos * div)
-        self.register_buffer("pe", pe.unsqueeze(0))  # [1, max_len, d_model]
+        self.register_buffer('pe', pe.unsqueeze(0))  # [1, max_len, d_model]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """x: [B, T, d_model]"""
@@ -64,6 +63,7 @@ class PositionalEncoding(nn.Module):
 # FrozenBatchNorm2d
 # ---------------------------------------------------------------------------
 
+
 class FrozenBatchNorm2d(nn.Module):
     """BatchNorm2d with frozen running mean/var (ImageNet values).
 
@@ -74,10 +74,10 @@ class FrozenBatchNorm2d(nn.Module):
     def __init__(self, num_features: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
-        self.register_buffer("weight", torch.ones(num_features))
-        self.register_buffer("bias", torch.zeros(num_features))
-        self.register_buffer("running_mean", torch.zeros(num_features))
-        self.register_buffer("running_var", torch.ones(num_features))
+        self.register_buffer('weight', torch.ones(num_features))
+        self.register_buffer('bias', torch.zeros(num_features))
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         w = self.weight.reshape(1, -1, 1, 1)
@@ -108,6 +108,7 @@ def _replace_bn_with_frozen(module: nn.Module) -> nn.Module:
 # ---------------------------------------------------------------------------
 # Image encoder
 # ---------------------------------------------------------------------------
+
 
 class ImageEncoder(nn.Module):
     """ResNet18 backbone — strips avgpool and fc, returns feature map.
@@ -147,6 +148,7 @@ class ImageEncoder(nn.Module):
 # State encoder
 # ---------------------------------------------------------------------------
 
+
 class StateEncoder(nn.Module):
     """2-layer MLP embedding state -> d_model vector."""
 
@@ -166,6 +168,7 @@ class StateEncoder(nn.Module):
 # ---------------------------------------------------------------------------
 # CVAE encoder (training only)
 # ---------------------------------------------------------------------------
+
 
 class CVAEEncoder(nn.Module):
     """Small transformer that encodes (action_chunk, qpos) -> (mu, log_var).
@@ -207,9 +210,11 @@ class CVAEEncoder(nn.Module):
         self.pos_enc = PositionalEncoding(d_model, max_len=chunk_size + 2, dropout=dropout)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead,
+            d_model=d_model,
+            nhead=nhead,
             dim_feedforward=dim_feedforward,
-            dropout=dropout, batch_first=True,
+            dropout=dropout,
+            batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
@@ -217,9 +222,7 @@ class CVAEEncoder(nn.Module):
         self.mu_proj = nn.Linear(d_model, z_dim)
         self.logvar_proj = nn.Linear(d_model, z_dim)
 
-    def forward(
-        self, actions: torch.Tensor, qpos: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, actions: torch.Tensor, qpos: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         actions: [B, chunk_size, num_joints]
         qpos:    [B, num_joints]
@@ -234,14 +237,14 @@ class CVAEEncoder(nn.Module):
         qpos_token = self.qpos_proj(qpos).unsqueeze(1)  # [B, 1, d_model]
 
         # Action tokens
-        act_tokens = self.action_proj(actions)    # [B, chunk_size, d_model]
+        act_tokens = self.action_proj(actions)  # [B, chunk_size, d_model]
 
         # Concat [CLS | qpos | actions]
         seq = torch.cat([cls, qpos_token, act_tokens], dim=1)  # [B, chunk_size+2, d_model]
         seq = self.pos_enc(seq)
 
-        out = self.transformer(seq)   # [B, chunk_size+2, d_model]
-        cls_out = out[:, 0]           # [B, d_model]
+        out = self.transformer(seq)  # [B, chunk_size+2, d_model]
+        cls_out = out[:, 0]  # [B, d_model]
 
         mu = self.mu_proj(cls_out)
         log_var = self.logvar_proj(cls_out)
@@ -251,6 +254,7 @@ class CVAEEncoder(nn.Module):
 # ---------------------------------------------------------------------------
 # DETR-style transformer decoder
 # ---------------------------------------------------------------------------
+
 
 class ACTDecoder(nn.Module):
     """DETR-style decoder with learned query embeddings.
@@ -276,15 +280,15 @@ class ACTDecoder(nn.Module):
         self.query_embed = nn.Embedding(chunk_size, d_model)
 
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model=d_model, nhead=nhead,
+            d_model=d_model,
+            nhead=nhead,
             dim_feedforward=dim_feedforward,
-            dropout=dropout, batch_first=True,
+            dropout=dropout,
+            batch_first=True,
         )
         self.transformer = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
 
-    def forward(
-        self, memory: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, memory: torch.Tensor) -> torch.Tensor:
         """
         memory: [B, S, d_model]  — context tokens
         Returns: [B, chunk_size, d_model]
@@ -298,6 +302,7 @@ class ACTDecoder(nn.Module):
 # ---------------------------------------------------------------------------
 # Full ACT policy
 # ---------------------------------------------------------------------------
+
 
 class ACTPolicy(nn.Module):
     """ACT: Action Chunking with Transformers.
@@ -380,10 +385,14 @@ class ACTPolicy(nn.Module):
     def _init_weights(self):
         """Initialize non-pretrained weights."""
         for module in [
-            self.img_proj, self.z_proj, self.state_encoder,
-            self.action_head, self.cvae_encoder.action_proj,
+            self.img_proj,
+            self.z_proj,
+            self.state_encoder,
+            self.action_head,
+            self.cvae_encoder.action_proj,
             self.cvae_encoder.qpos_proj,
-            self.cvae_encoder.mu_proj, self.cvae_encoder.logvar_proj,
+            self.cvae_encoder.mu_proj,
+            self.cvae_encoder.logvar_proj,
         ]:
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
@@ -399,15 +408,13 @@ class ACTPolicy(nn.Module):
         backbone_ids = {id(p) for p in self.backbone_parameters()}
         return [p for p in self.parameters() if id(p) not in backbone_ids]
 
-    def _encode_images(
-        self, images_gripper: torch.Tensor
-    ) -> torch.Tensor:
+    def _encode_images(self, images_gripper: torch.Tensor) -> torch.Tensor:
         """Encode the gripper camera image into a flat sequence of tokens.
 
         images_gripper: [B, 3, H, W]
         Returns: [B, H'*W', d_model]
         """
-        feat = self.img_encoder(images_gripper)    # [B, 512, H', W']
+        feat = self.img_encoder(images_gripper)  # [B, 512, H', W']
 
         B, C, Hp, Wp = feat.shape
         # Flatten spatial -> tokens
@@ -416,9 +423,7 @@ class ACTPolicy(nn.Module):
         # Project to d_model
         return self.img_proj(feat)  # [B, H'W', d_model]
 
-    def _reparameterize(
-        self, mu: torch.Tensor, log_var: torch.Tensor
-    ) -> torch.Tensor:
+    def _reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
         """Reparameterization trick: z = mu + eps * std."""
         std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
@@ -439,10 +444,10 @@ class ACTPolicy(nn.Module):
 
         Returns: [B, S, d_model] where S = H'*W' + 2
         """
-        img_tokens = self._encode_images(images_gripper)              # [B, H'W', d_model]
-        state_token = self.state_encoder(state).unsqueeze(1)          # [B, 1, d_model]
-        z_token = self.z_proj(z).unsqueeze(1)                         # [B, 1, d_model]
-        return torch.cat([img_tokens, state_token, z_token], dim=1)   # [B, S, d_model]
+        img_tokens = self._encode_images(images_gripper)  # [B, H'W', d_model]
+        state_token = self.state_encoder(state).unsqueeze(1)  # [B, 1, d_model]
+        z_token = self.z_proj(z).unsqueeze(1)  # [B, 1, d_model]
+        return torch.cat([img_tokens, state_token, z_token], dim=1)  # [B, S, d_model]
 
     def forward(
         self,
@@ -462,7 +467,7 @@ class ACTPolicy(nn.Module):
         Returns:
             dict with keys "l1", "kl", "total" (all scalar tensors)
         """
-        assert actions is not None, "actions required for training forward pass"
+        assert actions is not None, 'actions required for training forward pass'
 
         # CVAE encode -> latent z
         mu, log_var = self.cvae_encoder(actions, qpos)
@@ -470,8 +475,8 @@ class ACTPolicy(nn.Module):
 
         # Build memory with extended state and decode
         memory = self._build_memory(state, images_gripper, z)
-        decoded = self.decoder(memory)               # [B, chunk_size, d_model]
-        pred_actions = self.action_head(decoded)     # [B, chunk_size, num_joints]
+        decoded = self.decoder(memory)  # [B, chunk_size, d_model]
+        pred_actions = self.action_head(decoded)  # [B, chunk_size, num_joints]
 
         # L1 reconstruction loss
         l1_loss = F.l1_loss(pred_actions, actions)
@@ -481,7 +486,7 @@ class ACTPolicy(nn.Module):
 
         total_loss = l1_loss + self.kl_weight * kl_loss
 
-        return {"l1": l1_loss, "kl": kl_loss, "total": total_loss}
+        return {'l1': l1_loss, 'kl': kl_loss, 'total': total_loss}
 
     @torch.no_grad()
     def select_action(

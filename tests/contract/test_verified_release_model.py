@@ -1,5 +1,6 @@
 """A verified release loads Minerva's collision model without meshes, trimesh or FCL,
 and keep-out queries match the full, mesh-verified load exactly."""
+
 import json
 import shutil
 import subprocess
@@ -35,8 +36,10 @@ def release(tmp_path):
         (target / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(MODEL_DIR / name, target / name)
     model = UrdfModel(ModelProfile.load(MODEL_DIR / 'model.json'))
-    digests = {str(target / path.relative_to(MODEL_DIR.resolve())): __import__('hashlib').sha256(
-        path.read_bytes()).hexdigest() for path in model.assets}
+    digests = {
+        str(target / path.relative_to(MODEL_DIR.resolve())): __import__('hashlib').sha256(path.read_bytes()).hexdigest()
+        for path in model.assets
+    }
     yield target, digests
     register_verified_assets({})
 
@@ -44,8 +47,10 @@ def release(tmp_path):
 def poses(model, count=6, seed=7):
     generator = np.random.default_rng(seed)
     for _ in range(count):
-        yield {name: float(generator.uniform(*model.model.by_name[name]['control_bounds']))
-               for name in model.scene.independent_joints}
+        yield {
+            name: float(generator.uniform(*model.model.by_name[name]['control_bounds']))
+            for name in model.scene.independent_joints
+        }
 
 
 def test_a_kinematics_only_load_matches_the_full_one(full, release):
@@ -55,26 +60,32 @@ def test_a_kinematics_only_load_matches_the_full_one(full, release):
     assert light.kinematics_only and not full.kinematics_only
     assert light.revision == full.revision and light.shapes == full.shapes and light.pairs == full.pairs
     assert light.keepout_scoped_pairs == full.keepout_scoped_pairs and light.pair_kinds == full.pair_kinds
-    assert (light.policy_revision, light.keepout_policy_revision) == (full.policy_revision, full.keepout_policy_revision)
+    assert (light.policy_revision, light.keepout_policy_revision) == (
+        full.policy_revision,
+        full.keepout_policy_revision,
+    )
     for ours, theirs in zip(light.keepout_motion_corners, full.keepout_motion_corners):
         assert np.array_equal(ours, theirs)
-    heavy, lean = NativeCollisionBackend(full, geometry_mode='keepout'), NativeCollisionBackend(light, geometry_mode='keepout')
+    heavy, lean = (
+        NativeCollisionBackend(full, geometry_mode='keepout'),
+        NativeCollisionBackend(light, geometry_mode='keepout'),
+    )
     try:
         for pose in poses(full):
             assert np.array_equal(light.transforms(pose), full.transforms(pose))
-            a, b = heavy.proximity(pose, threshold=.1), lean.proximity(pose, threshold=.1)
+            a, b = heavy.proximity(pose, threshold=0.1), lean.proximity(pose, threshold=0.1)
             assert a['near_pairs'] == b['near_pairs'] and a['minimum_distance_m'] == b['minimum_distance_m']
     finally:
         heavy.close()
         lean.close()
     with pytest.raises(CollisionError, match='kinematics only'):
-        light.refine(next(poses(full)), [light.pairs[0]], threshold=.1)
+        light.refine(next(poses(full)), [light.pairs[0]], threshold=0.1)
 
 
 def test_a_verified_release_needs_no_trimesh_fcl_or_meshes(release, tmp_path):
     target, digests = release
     (tmp_path / 'digests.json').write_text(json.dumps(digests))
-    script = f'''
+    script = f"""
 import json, sys
 sys.modules["trimesh"] = None  # Importing either now fails, as on the robot.
 sys.modules["fcl"] = None
@@ -87,9 +98,14 @@ model = RuntimeCollisionModel(ModelProfile.load({str(target / 'model.json')!r}))
 backend = NativeCollisionBackend(model, geometry_mode="keepout")
 pose = {{name: 0. for name in model.scene.independent_joints}}
 print(model.kinematics_only, "near_pairs" in backend.proximity(pose, threshold=.1))
-'''
-    result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True, cwd=ROOT,
-                            env={**__import__('os').environ, 'PYTHONPATH': str(ROOT / 'src')})
+"""
+    result = subprocess.run(
+        [sys.executable, '-c', script],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env={**__import__('os').environ, 'PYTHONPATH': str(ROOT / 'src')},
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == ['True', 'True']
 

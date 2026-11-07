@@ -10,6 +10,7 @@ Three phases, each SECONDS long:
 Usage: python scripts/probe_leader_timing.py [--profile config/devices/gello-dual-viewer.json] [--seconds 10]
 Writes build/leader-timing/<UTC stamp>/timing.json and prints a summary.
 """
+
 import argparse
 from datetime import datetime, timezone
 import json
@@ -19,29 +20,38 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def percentiles(values, scale=1.):
+def percentiles(values, scale=1.0):
     """p1/p50/p90/p99/max of `values` times `scale`, rounded; None when empty."""
     if not values:
         return None
     ordered = sorted(v * scale for v in values)
     pick = lambda q: round(ordered[min(len(ordered) - 1, int(q * (len(ordered) - 1)))], 3)
-    return {'n': len(ordered), 'p1': pick(.01), 'p50': pick(.5), 'p90': pick(.9), 'p99': pick(.99),
-            'max': round(ordered[-1], 3)}
+    return {
+        'n': len(ordered),
+        'p1': pick(0.01),
+        'p50': pick(0.5),
+        'p90': pick(0.9),
+        'p99': pick(0.99),
+        'max': round(ordered[-1], 3),
+    }
 
 
 def summarize_polls(polls, skipped, seconds):
     """`polls`: (round_trip_s, board_read_ms, sequence_delta) per complete back-to-back poll; `skipped`: reasons
     for polls the board reported incomplete or too old."""
-    return {'rate_hz': round(len(polls) / seconds, 1),
-            'round_trip_ms': percentiles([p[0] for p in polls], 1000),
-            'board_read_ms': percentiles([p[1] for p in polls]),
-            'usb_and_host_ms': percentiles([p[0] * 1000 - p[1] for p in polls]),
-            'sequence_steps': sorted({p[2] for p in polls}),
-            'skipped': {reason: skipped.count(reason) for reason in sorted(set(skipped))}}
+    return {
+        'rate_hz': round(len(polls) / seconds, 1),
+        'round_trip_ms': percentiles([p[0] for p in polls], 1000),
+        'board_read_ms': percentiles([p[1] for p in polls]),
+        'usb_and_host_ms': percentiles([p[0] * 1000 - p[1] for p in polls]),
+        'sequence_steps': sorted({p[2] for p in polls}),
+        'skipped': {reason: skipped.count(reason) for reason in sorted(set(skipped))},
+    }
 
 
 def solo(reader, seconds, clock=time.perf_counter):
     from robot_platform.teleop.openrb import LeaderSampleSkipped
+
     polls, skipped, previous = [], [], None
     end = clock() + seconds
     while clock() < end:
@@ -53,13 +63,14 @@ def solo(reader, seconds, clock=time.perf_counter):
             continue
         received = clock()
         step = sample.sequence - previous.sequence if previous else 1
-        polls.append((received - started, (sample.board_reply_ms - sample.board_sample_ms) & 0xffffffff, step))
+        polls.append((received - started, (sample.board_reply_ms - sample.board_sample_ms) & 0xFFFFFFFF, step))
         previous = sample
     return summarize_polls(polls, skipped, seconds)
 
 
 def pair(inputs, seconds, clock=time.perf_counter):
     from robot_platform.teleop.openrb import LeaderSampleSkipped
+
     times, skipped = [], 0
     end = clock() + seconds
     while clock() < end:
@@ -75,6 +86,7 @@ def pair(inputs, seconds, clock=time.perf_counter):
 
 def sampler(inputs, seconds, rate_hz, clock=time.perf_counter):
     from robot_platform.teleop.leader_bridge import CachedLeaderSampleStale, LatestLeaderInputs
+
     latest = LatestLeaderInputs(inputs, rate_hz=rate_hz, clock=clock)
     latest.connect()
     ages, stale, first, last = [], 0, None, None
@@ -82,8 +94,8 @@ def sampler(inputs, seconds, rate_hz, clock=time.perf_counter):
         due = clock()
         end = due + seconds
         while clock() < end:
-            due += .01
-            time.sleep(max(0., due - clock()))
+            due += 0.01
+            time.sleep(max(0.0, due - clock()))
             try:
                 samples = latest.poll()
             except CachedLeaderSampleStale:
@@ -97,23 +109,33 @@ def sampler(inputs, seconds, rate_hz, clock=time.perf_counter):
     finally:
         skipped = latest.skipped
         latest.close()
-    return {'requested_hz': rate_hz, 'consumer_hz': 100, 'age_ms': percentiles(ages, 1000), 'stale_reads': stale,
-            'usb_skipped': skipped,
-            'sample_rate_hz': {name: round((last[name] - first[name]) / seconds, 1) for name in last} if last else None}
+    return {
+        'requested_hz': rate_hz,
+        'consumer_hz': 100,
+        'age_ms': percentiles(ages, 1000),
+        'stale_reads': stale,
+        'usb_skipped': skipped,
+        'sample_rate_hz': {name: round((last[name] - first[name]) / seconds, 1) for name in last} if last else None,
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--profile', default=str(ROOT / 'config/devices/gello-dual-viewer.json'))
-    parser.add_argument('--seconds', type=float, default=10.)
+    parser.add_argument('--seconds', type=float, default=10.0)
     args = parser.parse_args()
     from robot_platform.control.scheduling import prefer_responsive
     from robot_platform.teleop.leader_bridge import SAMPLER_HZ
     from robot_platform.teleop.openrb import OpenRBInputs
+
     profile = json.loads(Path(args.profile).read_text(encoding='utf-8'))
     # As the leader-link process does (1 ms timer, no throttling), so the sampler runs as it does in a session.
-    result = {'profile': profile.get('id'), 'seconds': args.seconds, 'scheduling': prefer_responsive(),
-              'measured_at': datetime.now(timezone.utc).isoformat()}
+    result = {
+        'profile': profile.get('id'),
+        'seconds': args.seconds,
+        'scheduling': prefer_responsive(),
+        'measured_at': datetime.now(timezone.utc).isoformat(),
+    }
     inputs = OpenRBInputs(profile)
     inputs.connect()
     try:

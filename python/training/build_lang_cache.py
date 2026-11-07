@@ -29,27 +29,26 @@ from python.training.language import TextConditioner
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", required=True)
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--lang-model", default="sentence-transformers/all-MiniLM-L6-v2")
-    ap.add_argument("--paraphrases", default=None,
-                    help="optional JSON {canonical: [variant, ...]}")
+    ap.add_argument('--data-dir', required=True)
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--lang-model', default='sentence-transformers/all-MiniLM-L6-v2')
+    ap.add_argument('--paraphrases', default=None, help='optional JSON {canonical: [variant, ...]}')
     args = ap.parse_args()
 
     strings: set[str] = set()
-    for p in sorted(Path(args.data_dir).glob("episode_*.hdf5")):
-        with h5py.File(p, "r") as f:
-            s = f.attrs.get("language_instruction", f.attrs.get("task_tag", ""))
+    for p in sorted(Path(args.data_dir).glob('episode_*.hdf5')):
+        with h5py.File(p, 'r') as f:
+            s = f.attrs.get('language_instruction', f.attrs.get('task_tag', ''))
             if s:
                 strings.add(str(s))
-            seg_raw = f.attrs.get("segments")   # v7: per-phase action labels
+            seg_raw = f.attrs.get('segments')  # v7: per-phase action labels
             if seg_raw is not None:
                 try:
                     if isinstance(seg_raw, bytes):
-                        seg_raw = seg_raw.decode("utf-8")
+                        seg_raw = seg_raw.decode('utf-8')
                     for seg in json.loads(seg_raw):
-                        if isinstance(seg, dict) and seg.get("label"):
-                            strings.add(str(seg["label"]))
+                        if isinstance(seg, dict) and seg.get('label'):
+                            strings.add(str(seg['label']))
                 except Exception:
                     pass
     if args.paraphrases:
@@ -58,11 +57,11 @@ def main():
             strings.add(k)
             strings.update(variants)
 
-    print(f"{len(strings)} unique task strings to encode")
+    print(f'{len(strings)} unique task strings to encode')
     tc = TextConditioner(model_name=args.lang_model)
     tc.build_cache(sorted(strings), args.out)
-    print(f"wrote {Path(args.out).with_suffix('.npz')} (dim={tc.embed_dim})")
+    print(f'wrote {Path(args.out).with_suffix(".npz")} (dim={tc.embed_dim})')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

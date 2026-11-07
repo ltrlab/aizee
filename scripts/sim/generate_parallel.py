@@ -12,6 +12,7 @@ The poses go row by row through the grid, so give each worker a whole pass: epis
 episodes over 4 workers: a 6x5 grid). Four workers made 120 episodes from 121 attempts in about 2.5 h on the 16 GB
 development laptop and used most of its memory; a fifth process (training, say) beside them ran it out.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,8 +46,21 @@ def main(argv=None):
     for k, share in enumerate(shares):
         if not share:
             continue
-        command = [sys.executable, '-m', 'robot_platform.evaluation', 'generate', '--episodes', str(share),
-                   '--out', str(out / f'w{k}'), '--seed', str(args.seed + 100 * k), '--plant-seed', str(k + 1), *extra]
+        command = [
+            sys.executable,
+            '-m',
+            'robot_platform.evaluation',
+            'generate',
+            '--episodes',
+            str(share),
+            '--out',
+            str(out / f'w{k}'),
+            '--seed',
+            str(args.seed + 100 * k),
+            '--plant-seed',
+            str(k + 1),
+            *extra,
+        ]
         log = open(out / f'w{k}.log', 'w', encoding='utf-8')
         workers.append((k, command, log, subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)))
     codes = {}
@@ -71,9 +85,14 @@ def main(argv=None):
     outcomes = {}
     for entry in manifest:
         outcomes[entry['outcome']] = outcomes.get(entry['outcome'], 0) + 1
-    summary = {'exit_codes': codes, 'episodes': sum(1 for entry in manifest if entry.get('episode')),
-               'attempts': len(manifest), 'outcomes': outcomes, 'wall_s': round(time.time() - started, 1),
-               'commands': [command for _, command, *_ in workers]}
+    summary = {
+        'exit_codes': codes,
+        'episodes': sum(1 for entry in manifest if entry.get('episode')),
+        'attempts': len(manifest),
+        'outcomes': outcomes,
+        'wall_s': round(time.time() - started, 1),
+        'commands': [command for _, command, *_ in workers],
+    }
     (out / 'summary.json').write_text(json.dumps(summary, indent=1) + '\n', encoding='utf-8')
     print(json.dumps({key: summary[key] for key in ('exit_codes', 'episodes', 'attempts', 'outcomes', 'wall_s')}))
     return 0 if all(code == 0 for code in codes.values()) else 1

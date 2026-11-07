@@ -11,6 +11,7 @@ proxies without them. A release never changes after it is built.
 Build and verify on the PC; `verify_tree` and `activate` also run on the robot
 with the standard library and the platform's own modules.
 """
+
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -53,13 +54,19 @@ def _git(*args, root=ROOT):
 
 def _aarch64(path):
     header = Path(path).read_bytes()[:20]
-    return (len(header) == 20 and header[:4] == b'\x7fELF' and header[4] == 2 and header[5] == 1
-            and int.from_bytes(header[18:20], 'little') == EM_AARCH64)
+    return (
+        len(header) == 20
+        and header[:4] == b'\x7fELF'
+        and header[4] == 2
+        and header[5] == 1
+        and int.from_bytes(header[18:20], 'little') == EM_AARCH64
+    )
 
 
 def collect(root=ROOT):
     """{release path: source file} for everything the robot runs."""
     from robot_platform.models import ModelProfile
+
     root = Path(root)
     files = {}
     for path in sorted((root / 'src/robot_platform').rglob('*')):
@@ -92,18 +99,27 @@ def collect(root=ROOT):
 
 def check_binaries(files, root=ROOT):
     """Cross-built binaries must exist, be AArch64 and be newer than their crate's Rust sources."""
-    newest = {prefix: max(path.stat().st_mtime for path in (Path(root) / source).rglob('*')
-                          if path.is_file() and path.suffix in ('.rs', '.toml'))
-              for prefix, source in RUST_SOURCES.items()}
+    newest = {
+        prefix: max(
+            path.stat().st_mtime
+            for path in (Path(root) / source).rglob('*')
+            if path.is_file() and path.suffix in ('.rs', '.toml')
+        )
+        for prefix, source in RUST_SOURCES.items()
+    }
     for key, path in files.items():
-        prefix = key[:key.find('/') + 1]
+        prefix = key[: key.find('/') + 1]
         if prefix in RUST_SOURCES:
             if not path.is_file() or not _aarch64(path):
-                raise ValueError(f'{key}: missing or not an AArch64 build. Run '
-                                 'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision')
+                raise ValueError(
+                    f'{key}: missing or not an AArch64 build. Run '
+                    'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision'
+                )
             if path.stat().st_mtime < newest[prefix]:
-                raise ValueError(f'{key} is older than the Rust sources. Run '
-                                 'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision')
+                raise ValueError(
+                    f'{key} is older than the Rust sources. Run '
+                    'scripts/build_jetson.ps1 -Offline -Package robot_control, robot_collision'
+                )
 
 
 def verify_model(root=ROOT):
@@ -111,15 +127,24 @@ def verify_model(root=ROOT):
     from robot_platform.control.joint_calibration import load_plan
     from robot_platform.models import ModelProfile, UrdfModel
     from robot_platform.simulation.runtime_model import RuntimeCollisionModel
+
     profile = ModelProfile.load(Path(root) / MODEL)
     model = UrdfModel(profile)  # Hashes every mesh against the limit review.
     runtime = RuntimeCollisionModel(profile)  # Proxies enclose the source CAD.
     load_plan(Path(root) / CALIBRATION)  # Calibration, reference and model agree.
     digests = {_key(path, root): _sha(path.read_bytes()) for path in model.assets}
-    digests.update({_key(path, root): _sha(path.read_bytes())
-                    for path in UrdfModel(ModelProfile.load(Path(root) / HEAD_MODEL)).assets})
-    facts = {'model_id': profile.id, 'urdf_sha256': model.sha256, 'collision_model_revision': runtime.revision,
-             'meshes': len(digests)}
+    digests.update(
+        {
+            _key(path, root): _sha(path.read_bytes())
+            for path in UrdfModel(ModelProfile.load(Path(root) / HEAD_MODEL)).assets
+        }
+    )
+    facts = {
+        'model_id': profile.id,
+        'urdf_sha256': model.sha256,
+        'collision_model_revision': runtime.revision,
+        'meshes': len(digests),
+    }
     return digests, facts
 
 
@@ -138,12 +163,18 @@ def build(out_dir, root=ROOT, *, robot='minerva-production-01', now=None):
     dirty = bool(_git('status', '--porcelain', root=root))
     stamp = (now or datetime.now(timezone.utc)).strftime('%Y%m%dT%H%M%SZ')
     release_id = f'{stamp}-{commit[:7]}' + (f'-dirty{content_sha[:6]}' if dirty else '')
-    manifest = {'schema': 1, 'kind': 'robot_release', 'id': release_id, 'robot': robot,
-                'created_at': datetime.now(timezone.utc).isoformat(), 'content_sha256': content_sha,
-                'source': {'commit': commit, 'branch': _git('branch', '--show-current', root=root), 'dirty': dirty},
-                'verified': {**facts, 'assets_lock_sha256': _sha(lock)},
-                'requires': {'python': '>=3.10', 'modules': ['numpy', 'scipy', 'msgpack', 'zmq', 'h5py', 'PIL']},
-                'files': listing}
+    manifest = {
+        'schema': 1,
+        'kind': 'robot_release',
+        'id': release_id,
+        'robot': robot,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'content_sha256': content_sha,
+        'source': {'commit': commit, 'branch': _git('branch', '--show-current', root=root), 'dirty': dirty},
+        'verified': {**facts, 'assets_lock_sha256': _sha(lock)},
+        'requires': {'python': '>=3.10', 'modules': ['numpy', 'scipy', 'msgpack', 'zmq', 'h5py', 'PIL']},
+        'files': listing,
+    }
     out_dir.mkdir(parents=True, exist_ok=True)
     archive = out_dir / f'{release_id}.tar.gz'
     executables = {f'bin/{name}' for name in BINARIES}
@@ -164,11 +195,12 @@ def release_drift(manifest, root=ROOT):
     listed = collect(root)
     files = {key: path for key, path in listed.items() if path.is_file()}
     deployed = {key: entry['sha256'] for key, entry in manifest['files'].items() if key != LOCK}
-    return sorted([f'changed {key}' for key in files.keys() & deployed.keys()
-                   if _sha(files[key].read_bytes()) != deployed[key]]
-                  + [f'new {key}' for key in files.keys() - deployed.keys()]
-                  + [f'removed {key}' for key in deployed.keys() - listed.keys()],
-                  key=lambda item: item.split(' ', 1)[1])
+    return sorted(
+        [f'changed {key}' for key in files.keys() & deployed.keys() if _sha(files[key].read_bytes()) != deployed[key]]
+        + [f'new {key}' for key in files.keys() - deployed.keys()]
+        + [f'removed {key}' for key in deployed.keys() - listed.keys()],
+        key=lambda item: item.split(' ', 1)[1],
+    )
 
 
 def verify_tree(root):
@@ -199,6 +231,7 @@ def verify_tree(root):
 def activate(root):
     """Use a verified release in this process: its mesh digests and native binaries."""
     from robot_platform.models.urdf import register_verified_assets
+
     root = Path(root).resolve()
     problems = verify_tree(root)
     if problems:

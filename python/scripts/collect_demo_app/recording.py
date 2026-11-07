@@ -2,4 +2,4 @@
 
 from robot_platform.data.formats.aizee import save_episode
 
-__all__ = ["save_episode"]
+__all__ = ['save_episode']

@@ -25,6 +25,7 @@ report naming the world they are in.
 
     python train_head_scene.py <capture> <out.ply> [--steps 7000] [--sh 3]
 """
+
 import argparse
 import io
 import json
@@ -37,12 +38,12 @@ import numpy as np
 from PIL import Image
 
 HOLD_OUT = 8  # Every eighth frame scored, never trained on.
-VOXEL_M = .01  # The starting Gaussians: one per centimetre cube of depth.
-DEPTH_RANGE_M = (.15, 3.)
-DEPTH_WEIGHT = .2  # Of the depth's L1 (metres) in the loss.
-SSIM_WEIGHT = .2
+VOXEL_M = 0.01  # The starting Gaussians: one per centimetre cube of depth.
+DEPTH_RANGE_M = (0.15, 3.0)
+DEPTH_WEIGHT = 0.2  # Of the depth's L1 (metres) in the loss.
+SSIM_WEIGHT = 0.2
 C0 = 0.28209479177387814  # The zeroth spherical harmonic.
-MIN_OPACITY = .005  # Fainter Gaussians are left out of the .splat: nothing would show.
+MIN_OPACITY = 0.005  # Fainter Gaussians are left out of the .splat: nothing would show.
 
 
 def pose_matrix(pose):
@@ -50,9 +51,11 @@ def pose_matrix(pose):
     n = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
     qx, qy, qz, qw = qx / n, qy / n, qz / n, qw / n
     m = np.eye(4)
-    m[:3, :3] = [[1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
-                 [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
-                 [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)]]
+    m[:3, :3] = [
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+    ]
     m[:3, 3] = x, y, z
     return m
 
@@ -114,7 +117,7 @@ def starting_points(images, poses, color_k, depths, voxel=VOXEL_M):
         z = depth[v, u]
         camera = np.stack([(u - color_k[0, 2]) / color_k[0, 0] * z, (v - color_k[1, 2]) / color_k[1, 1] * z, z], 1)
         points.append(camera @ pose[:3, :3].T + pose[:3, 3])
-        colours.append(image[v, u] / 255.)
+        colours.append(image[v, u] / 255.0)
     points, colours = np.concatenate(points), np.concatenate(colours)
     cells = np.floor(points / voxel).astype(np.int64)
     _keys, first, inverse = np.unique(cells, axis=0, return_index=True, return_inverse=True)
@@ -128,15 +131,16 @@ def ssim(a, b, window=11, sigma=1.5):
     """Structural similarity of two images (B, 3, H, W), Gaussian-windowed."""
     import torch
     import torch.nn.functional as F
+
     coords = torch.arange(window, dtype=a.dtype, device=a.device) - window // 2
-    g = torch.exp(-coords ** 2 / (2 * sigma ** 2))
+    g = torch.exp(-(coords**2) / (2 * sigma**2))
     g = g / g.sum()
     kernel = torch.outer(g, g).expand(3, 1, window, window).contiguous()
     blur = lambda x: F.conv2d(x, kernel, padding=window // 2, groups=3)  # noqa: E731
     mu_a, mu_b = blur(a), blur(b)
-    var_a, var_b, cov = blur(a * a) - mu_a ** 2, blur(b * b) - mu_b ** 2, blur(a * b) - mu_a * mu_b
-    c1, c2 = .01 ** 2, .03 ** 2
-    return (((2 * mu_a * mu_b + c1) * (2 * cov + c2)) / ((mu_a ** 2 + mu_b ** 2 + c1) * (var_a + var_b + c2))).mean()
+    var_a, var_b, cov = blur(a * a) - mu_a**2, blur(b * b) - mu_b**2, blur(a * b) - mu_a * mu_b
+    c1, c2 = 0.01**2, 0.03**2
+    return (((2 * mu_a * mu_b + c1) * (2 * cov + c2)) / ((mu_a**2 + mu_b**2 + c1) * (var_a + var_b + c2))).mean()
 
 
 def write_ply(path, params, sh_degree):
@@ -144,6 +148,7 @@ def write_ply(path, params, sh_degree):
     rotation (w x y z)."""
     import torch.nn.functional as F
     from plyfile import PlyData, PlyElement
+
     means = params['means'].detach().cpu().numpy()
     count = len(means)
     sh0 = params['sh0'].detach().cpu().numpy().reshape(count, 3)
@@ -172,11 +177,12 @@ def splat_bytes(means, log_scales, quats, opacity_logits, sh0):
     alpha = 1 / (1 + np.exp(-np.asarray(opacity_logits, np.float64).reshape(-1)))
     quats = np.asarray(quats, np.float64).reshape(-1, 4)
     quats = quats / np.maximum(np.linalg.norm(quats, axis=1, keepdims=True), 1e-12)
-    rgb = .5 + C0 * np.asarray(sh0, np.float64).reshape(-1, 3)
+    rgb = 0.5 + C0 * np.asarray(sh0, np.float64).reshape(-1, 3)
     keep = alpha >= MIN_OPACITY
     order = np.argsort(-(scales.prod(axis=1) * alpha)[keep], kind='stable')
-    record = np.zeros(int(keep.sum()), dtype=[('mean', '<f4', 3), ('scale', '<f4', 3), ('rgba', 'u1', 4),
-                                               ('rot', 'u1', 4)])
+    record = np.zeros(
+        int(keep.sum()), dtype=[('mean', '<f4', 3), ('scale', '<f4', 3), ('rgba', 'u1', 4), ('rot', 'u1', 4)]
+    )
     record['mean'] = means[keep][order]
     record['scale'] = scales[keep][order]
     record['rgba'][:, :3] = np.clip(np.round(rgb[keep][order] * 255), 0, 255)
@@ -186,8 +192,9 @@ def splat_bytes(means, log_scales, quats, opacity_logits, sh0):
 
 
 def write_splat(path, params):
-    Path(path).write_bytes(splat_bytes(*(params[name].detach().cpu().numpy() for name in (
-        'means', 'scales', 'quats', 'opacities', 'sh0'))))
+    Path(path).write_bytes(
+        splat_bytes(*(params[name].detach().cpu().numpy() for name in ('means', 'scales', 'quats', 'opacities', 'sh0')))
+    )
 
 
 def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
@@ -195,6 +202,7 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
     import torch.nn.functional as F
     from gsplat import rasterization
     from gsplat.strategy import DefaultStrategy
+
     torch.manual_seed(0)
     started = time.time()
     images, poses, color_k, depths = load(capture)
@@ -204,24 +212,37 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
     points, tint = starting_points(images[trained], poses[trained], color_k, depths[trained])
     centre = poses[:, :3, 3].mean(0)
     scene_scale = float(np.percentile(np.linalg.norm(points - centre, axis=1), 90)) * 1.1
-    print(f'{count} frames ({len(held)} held out), {width}x{height}; {len(points)} starting Gaussians; '
-          f'scene radius {scene_scale:.2f} m', flush=True)
+    print(
+        f'{count} frames ({len(held)} held out), {width}x{height}; {len(points)} starting Gaussians; '
+        f'scene radius {scene_scale:.2f} m',
+        flush=True,
+    )
 
     sh_count = (sh_degree + 1) ** 2
-    params = torch.nn.ParameterDict({
-        'means': torch.nn.Parameter(torch.tensor(points, device=device)),
-        'scales': torch.nn.Parameter(torch.full((len(points), 3), math.log(VOXEL_M), device=device)),
-        'quats': torch.nn.Parameter(torch.tensor([[1., 0, 0, 0]], device=device).repeat(len(points), 1)),
-        'opacities': torch.nn.Parameter(torch.logit(torch.full((len(points),), .1, device=device))),
-        'sh0': torch.nn.Parameter(((torch.tensor(tint, device=device) - .5) / C0)[:, None, :]),
-        'shN': torch.nn.Parameter(torch.zeros((len(points), sh_count - 1, 3), device=device)),
-    })
-    rates = {'means': 1.6e-4 * scene_scale, 'scales': 5e-3, 'quats': 1e-3, 'opacities': 5e-2, 'sh0': 2.5e-3,
-             'shN': 2.5e-3 / 20}
-    optimizers = {name: torch.optim.Adam([{'params': params[name], 'lr': rate, 'name': name}], eps=1e-15)
-                  for name, rate in rates.items()}
-    decay = torch.optim.lr_scheduler.ExponentialLR(optimizers['means'], gamma=.01 ** (1 / steps))
-    strategy = DefaultStrategy(verbose=False, refine_stop_iter=int(steps * .7), reset_every=max(3000, steps // 2))
+    params = torch.nn.ParameterDict(
+        {
+            'means': torch.nn.Parameter(torch.tensor(points, device=device)),
+            'scales': torch.nn.Parameter(torch.full((len(points), 3), math.log(VOXEL_M), device=device)),
+            'quats': torch.nn.Parameter(torch.tensor([[1.0, 0, 0, 0]], device=device).repeat(len(points), 1)),
+            'opacities': torch.nn.Parameter(torch.logit(torch.full((len(points),), 0.1, device=device))),
+            'sh0': torch.nn.Parameter(((torch.tensor(tint, device=device) - 0.5) / C0)[:, None, :]),
+            'shN': torch.nn.Parameter(torch.zeros((len(points), sh_count - 1, 3), device=device)),
+        }
+    )
+    rates = {
+        'means': 1.6e-4 * scene_scale,
+        'scales': 5e-3,
+        'quats': 1e-3,
+        'opacities': 5e-2,
+        'sh0': 2.5e-3,
+        'shN': 2.5e-3 / 20,
+    }
+    optimizers = {
+        name: torch.optim.Adam([{'params': params[name], 'lr': rate, 'name': name}], eps=1e-15)
+        for name, rate in rates.items()
+    }
+    decay = torch.optim.lr_scheduler.ExponentialLR(optimizers['means'], gamma=0.01 ** (1 / steps))
+    strategy = DefaultStrategy(verbose=False, refine_stop_iter=int(steps * 0.7), reset_every=max(3000, steps // 2))
     strategy.check_sanity(params, optimizers)
     state = strategy.initialize_state(scene_scale=scene_scale)
 
@@ -233,19 +254,30 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
     def render(index, degree):
         colors = torch.cat([params['sh0'], params['shN']], 1)
         out, alphas, info = rasterization(
-            params['means'], params['quats'], torch.exp(params['scales']), torch.sigmoid(params['opacities']),
-            colors, viewmats[index][None].to(device), K, width, height, sh_degree=degree, render_mode='RGB+ED',
-            packed=False)  # As the densification's step_post_backward(packed=False) reads it.
+            params['means'],
+            params['quats'],
+            torch.exp(params['scales']),
+            torch.sigmoid(params['opacities']),
+            colors,
+            viewmats[index][None].to(device),
+            K,
+            width,
+            height,
+            sh_degree=degree,
+            render_mode='RGB+ED',
+            packed=False,
+        )  # As the densification's step_post_backward(packed=False) reads it.
         return out[0, ..., :3], out[0, ..., 3], info
 
     for step in range(steps):
         index = trained[np.random.randint(len(trained))]
-        truth = images_t[index].to(device).float() / 255.
+        truth = images_t[index].to(device).float() / 255.0
         depth_truth = depths_t[index].to(device)
         rgb, depth, info = render(index, min(sh_degree, step // 1000))
         strategy.step_pre_backward(params, optimizers, state, step, info)
         loss = (1 - SSIM_WEIGHT) * F.l1_loss(rgb, truth) + SSIM_WEIGHT * (
-            1 - ssim(rgb.permute(2, 0, 1)[None], truth.permute(2, 0, 1)[None]))
+            1 - ssim(rgb.permute(2, 0, 1)[None], truth.permute(2, 0, 1)[None])
+        )
         seen = depth_truth > 0
         if seen.any():
             loss = loss + DEPTH_WEIGHT * (depth[seen] - depth_truth[seen]).abs().mean()
@@ -256,22 +288,31 @@ def train(capture, out, steps=7000, sh_degree=3, device='cuda'):
         decay.step()
         strategy.step_post_backward(params, optimizers, state, step, info, packed=False)
         if step % 1000 == 0 or step == steps - 1:
-            print(f'step {step}: loss {loss.item():.4f}, {len(params["means"])} Gaussians, '
-                  f'{time.time() - started:.0f} s', flush=True)
+            print(
+                f'step {step}: loss {loss.item():.4f}, {len(params["means"])} Gaussians, {time.time() - started:.0f} s',
+                flush=True,
+            )
 
     with torch.no_grad():
         scores = []
         for index in held:
             rgb, _depth, _info = render(index, sh_degree)
-            truth = images_t[index].to(device).float() / 255.
+            truth = images_t[index].to(device).float() / 255.0
             scores.append(float(-10 * torch.log10(F.mse_loss(rgb.clamp(0, 1), truth))))
     write_ply(out, params, sh_degree)
     write_splat(Path(out).with_suffix('.splat'), params)
     scene = json.loads((Path(capture) / 'scene.json').read_text())
-    report = {'world': scene.get('world', 'robot'), 'capture': Path(capture).name, 'frames': count,
-              'held_out': len(held), 'gaussians': len(params['means']), 'steps': steps,
-              'psnr_held_out': float(np.mean(scores)) if scores else None, 'seconds': round(time.time() - started),
-              'scene_radius_m': scene_scale}
+    report = {
+        'world': scene.get('world', 'robot'),
+        'capture': Path(capture).name,
+        'frames': count,
+        'held_out': len(held),
+        'gaussians': len(params['means']),
+        'steps': steps,
+        'psnr_held_out': float(np.mean(scores)) if scores else None,
+        'seconds': round(time.time() - started),
+        'scene_radius_m': scene_scale,
+    }
     Path(out).with_suffix('.json').write_text(json.dumps(report, indent=1) + '\n')
     print(json.dumps(report), flush=True)
     return report

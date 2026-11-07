@@ -4,6 +4,7 @@
 checkout's last passing check, in seconds rather than minutes. It refuses a motion-contract change, and it does not
 stand in for `check` before a branch is handed off.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,97 +26,207 @@ PYTHON = ROOT / '.venv-dev' / ('Scripts/python.exe' if os.name == 'nt' else 'bin
 CORE = [
     # Every other test file that runs without torch or OpenCV (2026-11-01): Helm's leaders, limits, cameras and
     # Tune tab, live and virtual teleop, the collision model, the neck's clearance and the shared session transport.
-    'tests/unit/test_actuator_char.py', 'tests/unit/test_camera_node_orientation.py',
-    'tests/unit/test_can_driver_maintenance.py', 'tests/unit/test_characterization_measurements.py',
-    'tests/unit/test_collision.py', 'tests/unit/test_collision_cli.py', 'tests/unit/test_commissioning.py',
-    'tests/unit/test_compose_collision_model.py', 'tests/unit/test_gravity.py', 'tests/unit/test_helm_cameras.py',
-    'tests/unit/test_helm_leaders.py', 'tests/unit/test_helm_limits.py', 'tests/unit/test_leader_input.py',
-    'tests/unit/test_leader_ranges.py', 'tests/unit/test_leader_routes.py', 'tests/unit/test_leader_shadow.py',
-    'tests/unit/test_leader_viewer.py', 'tests/unit/test_limit_probe.py', 'tests/unit/test_limit_sweep.py',
-    'tests/unit/test_mechanical_zero.py', 'tests/unit/test_minerva_guarded_adapter.py',
-    'tests/unit/test_model_audit.py', 'tests/unit/test_model_audit_cli.py', 'tests/unit/test_model_viewer.py',
-    'tests/unit/test_neck_clearance.py', 'tests/unit/test_openrb_parallel.py', 'tests/unit/test_power_on_range.py',
-    'tests/unit/test_profiles.py', 'tests/unit/test_servo_analysis.py', 'tests/unit/test_servo_sweep.py',
-    'tests/unit/test_transmission_calibration.py', 'tests/unit/test_vision_geometry.py',
-    'tests/contract/test_aizee_session_adapter.py', 'tests/contract/test_application_launch.py',
-    'tests/contract/test_head_only.py', 'tests/contract/test_helm_teleop_live.py',
-    'tests/contract/test_helm_teleop_virtual.py', 'tests/contract/test_helm_tune.py',
-    'tests/contract/test_minerva_session_adapter.py', 'tests/contract/test_session_background.py',
-    'tests/contract/test_session_inproc.py', 'tests/contract/test_session_routing.py',
-    'tests/contract/test_session_transport.py', 'tests/contract/test_shared_discovery.py',
-    'tests/contract/test_shared_recording.py', 'tests/contract/test_shared_wire.py',
-    'tests/contract/test_source_freshness.py', 'tests/contract/test_verified_release_model.py',
-    'tests/unit/test_approach.py', 'tests/unit/test_joint_box_bound.py',
-    'tests/unit/test_runtime_collision.py', 'tests/contract/test_guarded_controller.py',
-    'tests/contract/test_collision_envelope.py', 'tests/contract/test_motion_envelope.py',
-    'tests/contract/test_guarded_lifecycle_session.py', 'tests/contract/test_rehearsal.py',
-    'tests/unit/test_mujoco_plant.py', 'tests/unit/test_physics_audit.py',
-    'tests/unit/test_response_fit.py', 'tests/unit/test_sim2real.py',
+    'tests/unit/test_actuator_char.py',
+    'tests/unit/test_camera_node_orientation.py',
+    'tests/unit/test_can_driver_maintenance.py',
+    'tests/unit/test_characterization_measurements.py',
+    'tests/unit/test_collision.py',
+    'tests/unit/test_collision_cli.py',
+    'tests/unit/test_commissioning.py',
+    'tests/unit/test_compose_collision_model.py',
+    'tests/unit/test_gravity.py',
+    'tests/unit/test_helm_cameras.py',
+    'tests/unit/test_helm_leaders.py',
+    'tests/unit/test_helm_limits.py',
+    'tests/unit/test_leader_input.py',
+    'tests/unit/test_leader_ranges.py',
+    'tests/unit/test_leader_routes.py',
+    'tests/unit/test_leader_shadow.py',
+    'tests/unit/test_leader_viewer.py',
+    'tests/unit/test_limit_probe.py',
+    'tests/unit/test_limit_sweep.py',
+    'tests/unit/test_mechanical_zero.py',
+    'tests/unit/test_minerva_guarded_adapter.py',
+    'tests/unit/test_model_audit.py',
+    'tests/unit/test_model_audit_cli.py',
+    'tests/unit/test_model_viewer.py',
+    'tests/unit/test_neck_clearance.py',
+    'tests/unit/test_openrb_parallel.py',
+    'tests/unit/test_power_on_range.py',
+    'tests/unit/test_profiles.py',
+    'tests/unit/test_servo_analysis.py',
+    'tests/unit/test_servo_sweep.py',
+    'tests/unit/test_transmission_calibration.py',
+    'tests/unit/test_vision_geometry.py',
+    'tests/contract/test_aizee_session_adapter.py',
+    'tests/contract/test_application_launch.py',
+    'tests/contract/test_head_only.py',
+    'tests/contract/test_helm_teleop_live.py',
+    'tests/contract/test_helm_teleop_virtual.py',
+    'tests/contract/test_helm_tune.py',
+    'tests/contract/test_minerva_session_adapter.py',
+    'tests/contract/test_session_background.py',
+    'tests/contract/test_session_inproc.py',
+    'tests/contract/test_session_routing.py',
+    'tests/contract/test_session_transport.py',
+    'tests/contract/test_shared_discovery.py',
+    'tests/contract/test_shared_recording.py',
+    'tests/contract/test_shared_wire.py',
+    'tests/contract/test_source_freshness.py',
+    'tests/contract/test_verified_release_model.py',
+    'tests/unit/test_approach.py',
+    'tests/unit/test_joint_box_bound.py',
+    'tests/unit/test_runtime_collision.py',
+    'tests/contract/test_guarded_controller.py',
+    'tests/contract/test_collision_envelope.py',
+    'tests/contract/test_motion_envelope.py',
+    'tests/contract/test_guarded_lifecycle_session.py',
+    'tests/contract/test_rehearsal.py',
+    'tests/unit/test_mujoco_plant.py',
+    'tests/unit/test_physics_audit.py',
+    'tests/unit/test_response_fit.py',
+    'tests/unit/test_sim2real.py',
     'tests/unit/test_mjcf_export.py',
     'tests/contract/test_mujoco_receiver.py',
-    'tests/contract/test_helm_sim.py', 'tests/contract/test_helm_capture_failure.py',
+    'tests/contract/test_helm_sim.py',
+    'tests/contract/test_helm_capture_failure.py',
     'tests/contract/test_two_arm_teleop.py',
     'tests/contract/test_direct_teleop.py',
-    'tests/contract/test_manual_teleop.py', 'tests/unit/test_manual_tuning.py',
-    'tests/unit/test_manual_teleop_lifecycle.py', 'tests/unit/test_manual_tuning_api.py',
+    'tests/contract/test_manual_teleop.py',
+    'tests/unit/test_manual_tuning.py',
+    'tests/unit/test_manual_teleop_lifecycle.py',
+    'tests/unit/test_manual_tuning_api.py',
     'tests/unit/test_manual_tuning_rejections.py',
-    'tests/unit/test_teleop_ui_budget.py', 'tests/unit/test_helm_recording.py',
-    'tests/unit/test_teleop_recording.py', 'tests/unit/test_helm_pedals.py',
+    'tests/unit/test_teleop_ui_budget.py',
+    'tests/unit/test_helm_recording.py',
+    'tests/unit/test_teleop_recording.py',
+    'tests/unit/test_helm_pedals.py',
     'tests/contract/test_helm_pedals.py',
-    'tests/unit/test_direct_teleop.py', 'tests/unit/test_direct_latency.py', 'tests/unit/test_leader_bridge.py',
-    'tests/unit/test_qualify_direct_motion.py', 'tests/unit/test_position_only_trial.py',
-    'tests/unit/test_teleop_lifecycle.py', 'tests/unit/test_guarded_config.py',
-    'tests/unit/test_helm_teleop.py', 'tests/unit/test_live_receiver.py',
+    'tests/unit/test_direct_teleop.py',
+    'tests/unit/test_direct_latency.py',
+    'tests/unit/test_leader_bridge.py',
+    'tests/unit/test_qualify_direct_motion.py',
+    'tests/unit/test_position_only_trial.py',
+    'tests/unit/test_teleop_lifecycle.py',
+    'tests/unit/test_guarded_config.py',
+    'tests/unit/test_helm_teleop.py',
+    'tests/unit/test_live_receiver.py',
     'tests/contract/test_helm_teleop_virtual.py',
-    'tests/contract/test_direct_benchmark.py', 'tests/unit/test_benchmark_direct_loop.py',
-    'tests/unit/test_direct_readiness.py', 'tests/unit/test_ssh_worktree.py',
-    'tests/unit/test_minerva_check.py', 'tests/unit/test_helm_check.py',
-    'tests/unit/test_ops_release.py', 'tests/unit/test_joint_calibration.py',
-    'tests/contract/test_helm_settings.py', 'tests/unit/test_helm_settings_api.py',
-    'tests/unit/test_helm_telemetry.py', 'tests/unit/test_helm_app.py', 'tests/unit/test_helm_live_view.py', 'tests/unit/test_qualify_manual_tuning.py', 'tests/unit/test_plain_data.py',
-    'tests/unit/test_joint_capture_preflight.py', 'tests/unit/test_leader_link.py', 'tests/unit/test_helm_edge.py',
-    'tests/unit/test_cpu_partition.py', 'tests/unit/test_cpu_partition_install.py',
-    'tests/unit/test_openrb_leader_setup.py', 'tests/unit/test_gripper_zero.py',
-    'tests/unit/test_velocity_feedforward.py', 'tests/unit/test_browser_scripts.py',
-    'tests/unit/test_helm_task_workflow.py', 'tests/unit/test_helm_task_capture.py',
-    'tests/unit/test_helm_episodes.py', 'tests/unit/test_grip_feedback.py', 'tests/unit/test_ups.py',
-    'tests/unit/test_helm_ups.py', 'tests/unit/test_lerobot_export.py',
-    'tests/unit/test_episode_source.py', 'tests/unit/test_helm_live_replay.py', 'tests/contract/test_live_replay.py',
-    'tests/unit/test_policy_source.py', 'tests/unit/test_policy_worker.py', 'tests/contract/test_policy_mode.py',
+    'tests/contract/test_direct_benchmark.py',
+    'tests/unit/test_benchmark_direct_loop.py',
+    'tests/unit/test_direct_readiness.py',
+    'tests/unit/test_ssh_worktree.py',
+    'tests/unit/test_minerva_check.py',
+    'tests/unit/test_helm_check.py',
+    'tests/unit/test_ops_release.py',
+    'tests/unit/test_joint_calibration.py',
+    'tests/contract/test_helm_settings.py',
+    'tests/unit/test_helm_settings_api.py',
+    'tests/unit/test_helm_telemetry.py',
+    'tests/unit/test_helm_app.py',
+    'tests/unit/test_helm_live_view.py',
+    'tests/unit/test_qualify_manual_tuning.py',
+    'tests/unit/test_plain_data.py',
+    'tests/unit/test_joint_capture_preflight.py',
+    'tests/unit/test_leader_link.py',
+    'tests/unit/test_helm_edge.py',
+    'tests/unit/test_cpu_partition.py',
+    'tests/unit/test_cpu_partition_install.py',
+    'tests/unit/test_openrb_leader_setup.py',
+    'tests/unit/test_gripper_zero.py',
+    'tests/unit/test_velocity_feedforward.py',
+    'tests/unit/test_browser_scripts.py',
+    'tests/unit/test_helm_task_workflow.py',
+    'tests/unit/test_helm_task_capture.py',
+    'tests/unit/test_helm_episodes.py',
+    'tests/unit/test_grip_feedback.py',
+    'tests/unit/test_ups.py',
+    'tests/unit/test_helm_ups.py',
+    'tests/unit/test_lerobot_export.py',
+    'tests/unit/test_episode_source.py',
+    'tests/unit/test_helm_live_replay.py',
+    'tests/contract/test_live_replay.py',
+    'tests/unit/test_policy_source.py',
+    'tests/unit/test_policy_worker.py',
+    'tests/contract/test_policy_mode.py',
     'tests/contract/test_policy_takeover.py',
-    'tests/unit/test_lerobot_policy.py', 'tests/unit/test_helm_policy_mode.py',
-    'tests/unit/test_gello_bridge.py', 'tests/unit/test_helm_on_robot.py', 'tests/unit/test_helm_service.py',
-    'tests/unit/test_task_capture.py', 'tests/unit/test_task_scene.py', 'tests/unit/test_workcell.py',
-    'tests/unit/test_task_scene_grippers.py', 'tests/contract/test_driven_grippers.py',
-    'tests/unit/test_demonstrator.py', 'tests/contract/test_demonstrator.py',
-    'tests/contract/test_generate.py', 'tests/contract/test_generate_layouts.py',
-    'tests/unit/test_scene_appearance.py', 'tests/unit/test_robot_finish.py', 'tests/unit/test_layouts.py',
+    'tests/unit/test_lerobot_policy.py',
+    'tests/unit/test_helm_policy_mode.py',
+    'tests/unit/test_gello_bridge.py',
+    'tests/unit/test_helm_on_robot.py',
+    'tests/unit/test_helm_service.py',
+    'tests/unit/test_task_capture.py',
+    'tests/unit/test_task_scene.py',
+    'tests/unit/test_workcell.py',
+    'tests/unit/test_task_scene_grippers.py',
+    'tests/contract/test_driven_grippers.py',
+    'tests/unit/test_demonstrator.py',
+    'tests/contract/test_demonstrator.py',
+    'tests/contract/test_generate.py',
+    'tests/contract/test_generate_layouts.py',
+    'tests/unit/test_scene_appearance.py',
+    'tests/unit/test_robot_finish.py',
+    'tests/unit/test_layouts.py',
     'tests/unit/test_room.py',
     'tests/contract/test_eval_disturbances.py',
-    'tests/unit/test_capture_process.py', 'tests/contract/test_task_receiver_capture.py',
-    'tests/unit/test_eval_stats.py', 'tests/unit/test_eval_report.py', 'tests/unit/test_eval_plants.py',
+    'tests/unit/test_capture_process.py',
+    'tests/contract/test_task_receiver_capture.py',
+    'tests/unit/test_eval_stats.py',
+    'tests/unit/test_eval_report.py',
+    'tests/unit/test_eval_plants.py',
     'tests/contract/test_eval_reference_policies.py',
-    'tests/unit/test_ci_windows_gl.py', 'tests/unit/test_dev_gate.py', 'tests/unit/test_gate_time_study.py',
-    'tests/unit/test_platform_packaging.py', 'tests/unit/test_neck_feetech.py', 'tests/unit/test_neck_head.py',
-    'tests/contract/test_helm_tune_head.py', 'tests/contract/test_head_teleop.py',
-    'tests/contract/test_teleop_head.py', 'tests/unit/test_helm_xr.py', 'tests/unit/test_helm_webrtc.py', 'tests/unit/test_minerva_network.py',
-    'tests/unit/test_helm_network.py', 'tests/unit/test_helm_display_model.py', 'tests/unit/test_helm_head_setup.py',
-    'tests/unit/test_head_pose.py', 'tests/unit/test_head_loop.py', 'tests/unit/test_helm_camera_video.py',
-    'tests/unit/test_wrist_calibration.py', 'tests/unit/test_helm_calibration.py', 'tests/unit/test_head_alignment.py',
-    'tests/unit/test_helm_head_alignment.py', 'tests/unit/test_splat_scene.py', 'tests/unit/test_helm_maps.py',
-    'tests/unit/test_twin.py', 'tests/unit/test_helm_twin.py',
-    'tests/unit/test_joint_zero.py', 'tests/unit/test_camera_watch.py',
-    'tests/unit/test_camera_node_orientation.py', 'tests/unit/test_camera_node_usb3.py',
-    'tests/contract/test_headset_mode.py', 'tests/unit/test_arm_ik.py', 'tests/unit/test_headset_source.py',
-    'tests/unit/test_vr_arms.py', 'tests/unit/test_vr_worker.py',
+    'tests/unit/test_ci_windows_gl.py',
+    'tests/unit/test_dev_gate.py',
+    'tests/unit/test_gate_time_study.py',
+    'tests/unit/test_platform_packaging.py',
+    'tests/unit/test_neck_feetech.py',
+    'tests/unit/test_neck_head.py',
+    'tests/contract/test_helm_tune_head.py',
+    'tests/contract/test_head_teleop.py',
+    'tests/contract/test_teleop_head.py',
+    'tests/unit/test_helm_xr.py',
+    'tests/unit/test_helm_webrtc.py',
+    'tests/unit/test_minerva_network.py',
+    'tests/unit/test_helm_network.py',
+    'tests/unit/test_helm_display_model.py',
+    'tests/unit/test_helm_head_setup.py',
+    'tests/unit/test_head_pose.py',
+    'tests/unit/test_head_loop.py',
+    'tests/unit/test_helm_camera_video.py',
+    'tests/unit/test_wrist_calibration.py',
+    'tests/unit/test_helm_calibration.py',
+    'tests/unit/test_head_alignment.py',
+    'tests/unit/test_helm_head_alignment.py',
+    'tests/unit/test_splat_scene.py',
+    'tests/unit/test_helm_maps.py',
+    'tests/unit/test_twin.py',
+    'tests/unit/test_helm_twin.py',
+    'tests/unit/test_joint_zero.py',
+    'tests/unit/test_camera_watch.py',
+    'tests/unit/test_camera_node_orientation.py',
+    'tests/unit/test_camera_node_usb3.py',
+    'tests/contract/test_headset_mode.py',
+    'tests/unit/test_arm_ik.py',
+    'tests/unit/test_headset_source.py',
+    'tests/unit/test_vr_arms.py',
+    'tests/unit/test_vr_worker.py',
 ]
 # The motion contract (AGENTS.md: approach, collision envelope, guarded lifecycle and receiver checks, the receiver
 # and collision crates) and the locks: a change there runs the whole check, never the quick lane.
-MOTION_CONTRACT = ('rust/', 'requirements/', 'pyproject.toml', 'src/robot_platform/control/approach.py',
-                   'src/robot_platform/control/collision_envelope.py', 'src/robot_platform/control/collision_guard.py',
-                   'src/robot_platform/control/guarded', 'src/robot_platform/control/live_receiver.py',
-                   'src/robot_platform/control/freshness.py', 'src/robot_platform/teleop/guarded_lifecycle.py',
-                   'src/robot_platform/teleop/lifecycle.py', 'src/robot_platform/simulation/native_collision.py')
+MOTION_CONTRACT = (
+    'rust/',
+    'requirements/',
+    'pyproject.toml',
+    'src/robot_platform/control/approach.py',
+    'src/robot_platform/control/collision_envelope.py',
+    'src/robot_platform/control/collision_guard.py',
+    'src/robot_platform/control/guarded',
+    'src/robot_platform/control/live_receiver.py',
+    'src/robot_platform/control/freshness.py',
+    'src/robot_platform/teleop/guarded_lifecycle.py',
+    'src/robot_platform/teleop/lifecycle.py',
+    'src/robot_platform/simulation/native_collision.py',
+)
 PAGES = ('src/robot_platform/helm/static/', 'src/robot_platform/viewer/static/', 'tests/ui/')
 
 
@@ -129,17 +240,22 @@ def capture(*args):
 
 def source_identity():
     # Includes tracked and untracked source, excluding ignored build outputs.
-    paths = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others',
-                                     '--exclude-standard'], cwd=ROOT).decode().split('\0')
+    paths = (
+        subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=ROOT)
+        .decode()
+        .split('\0')
+    )
     digest = hashlib.sha256()
     for name in sorted(set(filter(None, paths))):
         path = ROOT / name
         digest.update(name.encode())
         digest.update(bytes.fromhex(sha(path)) if path.is_file() else b'<deleted>')
-    return {'commit': capture('git', 'rev-parse', 'HEAD'),
-            'branch': capture('git', 'branch', '--show-current'),
-            'status': capture('git', 'status', '--porcelain'),
-            'content_sha256': digest.hexdigest()}
+    return {
+        'commit': capture('git', 'rev-parse', 'HEAD'),
+        'branch': capture('git', 'branch', '--show-current'),
+        'status': capture('git', 'status', '--porcelain'),
+        'content_sha256': digest.hexdigest(),
+    }
 
 
 def rust_environment():
@@ -153,10 +269,14 @@ def rust_environment():
         raise RuntimeError('Install Rust 1.98.1, or set ROBOT_RUST_TOOLCHAIN_ROOT to an existing toolchain root')
     env['CARGO_TARGET_DIR'] = str(ROOT / 'rust/target')
     env.setdefault('CARGO_BUILD_JOBS', '2')
-    env['ROBOT_CONTROL_HARNESS'] = str(ROOT / 'rust/target/debug' / (
-        'control_harness.exe' if os.name == 'nt' else 'control_harness'))
-    lib = 'robot_collision.dll' if os.name == 'nt' else (
-        'librobot_collision.dylib' if sys.platform == 'darwin' else 'librobot_collision.so')
+    env['ROBOT_CONTROL_HARNESS'] = str(
+        ROOT / 'rust/target/debug' / ('control_harness.exe' if os.name == 'nt' else 'control_harness')
+    )
+    lib = (
+        'robot_collision.dll'
+        if os.name == 'nt'
+        else ('librobot_collision.dylib' if sys.platform == 'darwin' else 'librobot_collision.so')
+    )
     env['ROBOT_COLLISION_LIBRARY'] = str(ROOT / 'rust/target/release' / lib)
     return env
 
@@ -169,23 +289,37 @@ def setup():
         venv.EnvBuilder(with_pip=True).create(PYTHON.parent.parent)
     if not capture(str(PYTHON), '--version').startswith('Python 3.12.'):
         raise RuntimeError('Existing .venv-dev uses another Python version; recreate it with Python 3.12')
-    subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--require-hashes',
-                    '-r', str(ROOT / 'requirements/dev.lock')], cwd=ROOT, check=True)
-    subprocess.run([str(PYTHON), '-m', 'pip', 'install', '--no-deps', '--no-build-isolation',
-                    '-e', '.'], cwd=ROOT, check=True)
+    subprocess.run(
+        [str(PYTHON), '-m', 'pip', 'install', '--require-hashes', '-r', str(ROOT / 'requirements/dev.lock')],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        [str(PYTHON), '-m', 'pip', 'install', '--no-deps', '--no-build-isolation', '-e', '.'], cwd=ROOT, check=True
+    )
 
 
 def release_artifacts(env):
     """Fail early on absent/stale/wrong-architecture mandatory release inputs."""
-    result = subprocess.run([str(PYTHON), '-c',
-        'import hashlib, json; from robot_platform.ops.release import collect, check_binaries; '
-        'files = collect(); check_binaries(files); '
-        'print(json.dumps({key: {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} '
-        'for key, path in files.items() if key.startswith(("bin/", "lib/"))}))'],
-        cwd=ROOT, env=env, capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            '-c',
+            'import hashlib, json; from robot_platform.ops.release import collect, check_binaries; '
+            'files = collect(); check_binaries(files); '
+            'print(json.dumps({key: {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} '
+            'for key, path in files.items() if key.startswith(("bin/", "lib/"))}))',
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
     if result.returncode:
-        raise RuntimeError('Release prerequisites failed. Run python scripts/build_release.py --bootstrap '
-                           '(or the existing provisioned Windows cross-build).\n' + result.stderr.strip())
+        raise RuntimeError(
+            'Release prerequisites failed. Run python scripts/build_release.py --bootstrap '
+            '(or the existing provisioned Windows cross-build).\n' + result.stderr.strip()
+        )
     return json.loads(result.stdout)
 
 
@@ -204,8 +338,7 @@ def required_test_results(paths, report=None):
 
 def new_run(folder, gate):
     """A run's directory, its report and the command runner that logs into it."""
-    run_dir = ROOT / 'build' / folder / (
-        datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8])
+    run_dir = ROOT / 'build' / folder / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8])
     run_dir.mkdir(parents=True)
     report = {'schema_version': 1, 'gate': gate, 'passed': False, 'commands': []}
 
@@ -220,6 +353,7 @@ def new_run(folder, gate):
         report['commands'].append({'args': args, 'returncode': result.returncode})
         if result.returncode not in ok:
             raise RuntimeError(f'Command failed ({result.returncode}); see {run_dir / "output.log"}')
+
     return run_dir, report, run
 
 
@@ -247,11 +381,40 @@ def run_tests(run, env, run_dir, tests, report):
     test's 20 s wait ran out at 8 workers). Both phases count, and neither may skip. A worker that crashes fails the
     run at once, naming its test: xdist's replacement worker crashed its loadgroup scheduler, or hung it for hours."""
     common = [PYTHON, '-m', 'pytest', '-q', '--strict-markers', '-o', 'xfail_strict=true']
-    run([*common, '-n', workers(tests), '--max-worker-restart', '0', '--dist', 'loadgroup', '-m', f'not {SERIAL}',
-         '--basetemp', run_dir / 'pytest', '--junitxml', run_dir / 'tests.xml', *tests], {**env, **WORKER_ENV},
-        ok=(0, NO_TESTS))
-    run([*common, '-m', SERIAL, '--basetemp', run_dir / 'pytest-serial', '--junitxml', run_dir / 'tests-serial.xml',
-         *tests], env, ok=(0, NO_TESTS))
+    run(
+        [
+            *common,
+            '-n',
+            workers(tests),
+            '--max-worker-restart',
+            '0',
+            '--dist',
+            'loadgroup',
+            '-m',
+            f'not {SERIAL}',
+            '--basetemp',
+            run_dir / 'pytest',
+            '--junitxml',
+            run_dir / 'tests.xml',
+            *tests,
+        ],
+        {**env, **WORKER_ENV},
+        ok=(0, NO_TESTS),
+    )
+    run(
+        [
+            *common,
+            '-m',
+            SERIAL,
+            '--basetemp',
+            run_dir / 'pytest-serial',
+            '--junitxml',
+            run_dir / 'tests-serial.xml',
+            *tests,
+        ],
+        env,
+        ok=(0, NO_TESTS),
+    )
     return required_test_results([run_dir / 'tests.xml', run_dir / 'tests-serial.xml'], report)
 
 
@@ -273,11 +436,25 @@ def check(offline=False):
         if not PYTHON.is_file():
             raise RuntimeError('Run python scripts/dev.py setup first')
         env = gate_environment(run_dir)
-        run([PYTHON, '-c', 'from pathlib import Path; import robot_platform; '
-             'assert Path(robot_platform.__file__).resolve().parent == '
-             'Path("src/robot_platform").resolve(), "Wrong editable install"'], env)
-        run([PYTHON, '-c', 'from robot_platform.models import UrdfModel, ModelProfile; '
-             'UrdfModel(ModelProfile.load("urdf/minerva/model.json"))'], env)
+        run(
+            [
+                PYTHON,
+                '-c',
+                'from pathlib import Path; import robot_platform; '
+                'assert Path(robot_platform.__file__).resolve().parent == '
+                'Path("src/robot_platform").resolve(), "Wrong editable install"',
+            ],
+            env,
+        )
+        run(
+            [
+                PYTHON,
+                '-c',
+                'from robot_platform.models import UrdfModel, ModelProfile; '
+                'UrdfModel(ModelProfile.load("urdf/minerva/model.json"))',
+            ],
+            env,
+        )
         report['python'] = capture(str(PYTHON), '--version')
         if not report['python'].startswith('Python 3.12.'):
             raise RuntimeError('The development gate requires Python 3.12')
@@ -293,12 +470,21 @@ def check(offline=False):
         run(['cargo', 'test', '-p', 'robot_control', '-p', 'robot_collision', *flags], env)
         run(['cargo', 'build', '-p', 'robot_control', '--bin', 'control_harness', *flags], env)
         run(['cargo', 'build', '-p', 'robot_collision', '--release', *flags], env)
-        report['binaries'] = {key: {'path': env[key], 'sha256': sha(env[key])}
-                              for key in ('ROBOT_CONTROL_HARNESS', 'ROBOT_COLLISION_LIBRARY')}
+        report['binaries'] = {
+            key: {'path': env[key], 'sha256': sha(env[key])}
+            for key in ('ROBOT_CONTROL_HARNESS', 'ROBOT_COLLISION_LIBRARY')
+        }
         # A broken ABI must fail before tests can skip missing native prerequisites.
-        run([PYTHON, '-c', 'import ctypes, os; '
-             'lib=ctypes.CDLL(os.environ["ROBOT_COLLISION_LIBRARY"]); '
-             'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis'], env)
+        run(
+            [
+                PYTHON,
+                '-c',
+                'import ctypes, os; '
+                'lib=ctypes.CDLL(os.environ["ROBOT_COLLISION_LIBRARY"]); '
+                'assert lib.rpc_abi_version() == 3; import fcl, numpy, scipy, pytest, mujoco, hypothesis',
+            ],
+            env,
+        )
         run_tests(run, env, run_dir, CORE, report)
         report['source_after'] = source_identity()
         if report['source_before'] != report['source_after']:
@@ -341,14 +527,23 @@ def module_name(path):
 def select_tests(changed, named=()):
     """What the quick lane runs: the named test files, or else the gate's tests that name a changed module (or a
     changed config or script file); with either, every changed test and, for a changed page file, the page checks."""
-    selected = set(named) | {path for path in changed if path.startswith('tests/') and path.endswith('.py')
-                             and Path(path).name.startswith('test_') and (ROOT / path).is_file()}
+    selected = set(named) | {
+        path
+        for path in changed
+        if path.startswith('tests/')
+        and path.endswith('.py')
+        and Path(path).name.startswith('test_')
+        and (ROOT / path).is_file()
+    }
     if not named:
-        modules = {module_name(path) for path in changed
-                   if path.startswith('src/robot_platform/') and path.endswith('.py')}
+        modules = {
+            module_name(path) for path in changed if path.startswith('src/robot_platform/') and path.endswith('.py')
+        }
         patterns = [re.compile(r'\b' + re.escape(name) + r'\b') for name in modules]
-        patterns += [re.compile(r'from ' + re.escape(parent) + r' import [^\n]*\b' + re.escape(leaf) + r'\b')
-                     for parent, _, leaf in (name.rpartition('.') for name in modules)]
+        patterns += [
+            re.compile(r'from ' + re.escape(parent) + r' import [^\n]*\b' + re.escape(leaf) + r'\b')
+            for parent, _, leaf in (name.rpartition('.') for name in modules)
+        ]
         files = [Path(path).name for path in changed if path.startswith(('config/', 'scripts/'))]
         for test in CORE:
             text = (ROOT / test).read_text(encoding='utf-8')
@@ -376,8 +571,9 @@ def quick(base=None, named=()):
         report.update(base=base, changed=changed)
         contract = [path for path in changed if path.startswith(MOTION_CONTRACT)]
         if contract:
-            raise RuntimeError('The motion contract or a lock changed; run python scripts/dev.py check:\n  '
-                               + '\n  '.join(contract))
+            raise RuntimeError(
+                'The motion contract or a lock changed; run python scripts/dev.py check:\n  ' + '\n  '.join(contract)
+            )
         tests = select_tests(changed, named)
         report['selected'] = tests
         print(f'{len(changed)} file(s) changed since {base[:10]}; {len(tests)} test file(s) touch them', flush=True)

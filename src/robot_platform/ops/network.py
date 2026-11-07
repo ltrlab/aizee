@@ -21,6 +21,7 @@ point both reach it there. State for Helm: /run/minerva-net/state.json.
 
 Standard library only: the installed copy runs without a release (python3 -I).
 """
+
 import argparse
 import getpass
 import json
@@ -58,9 +59,9 @@ OLD_DHCP = PurePosixPath('/etc/dnsmasq.d/aizee-poe.conf')  # The fixed tether's 
 DHCP_TIMEOUT_S = 8
 TETHER_CLIENTS_MAX = 4
 LAN_ATTEMPTS = 3  # A port that stopped serving as a tether asks this many times, then waits for a replug.
-RETRY_S = 30.  # A connection that failed to come up (the access point, the 10.42.0.1 dummy) is tried again after this.
+RETRY_S = 30.0  # A connection that failed to come up (the access point, the 10.42.0.1 dummy) is tried again after this.
 LEASES = PurePosixPath(f'/var/lib/NetworkManager/dnsmasq-{ETHERNET}.leases')
-PERIOD_S = 1.
+PERIOD_S = 1.0
 
 
 def log(event, **fields):
@@ -68,6 +69,7 @@ def log(event, **fields):
 
 
 # -- the NetworkManager profiles ---------------------------------------------------------------------------------
+
 
 def _uuid(name):
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f'minerva-net:{name}'))
@@ -94,21 +96,25 @@ def profiles(psk=None):
     ipv6 = '\n[ipv6]\nmethod=disabled\n'
 
     def head(name, kind, device, autoconnect=False):
-        return (f'[connection]\nid={name}\nuuid={_uuid(name)}\ntype={kind}\ninterface-name={device}\n'
-                f"autoconnect={'true' if autoconnect else 'false'}\n")
+        return (
+            f'[connection]\nid={name}\nuuid={_uuid(name)}\ntype={kind}\ninterface-name={device}\n'
+            f'autoconnect={"true" if autoconnect else "false"}\n'
+        )
+
     files = {
         f'{LAN}.nmconnection': head(LAN, 'ethernet', ETHERNET) + '\n[ethernet]\n\n[ipv4]\nmethod=auto\n'
-                                f'dhcp-timeout={DHCP_TIMEOUT_S}\nmay-fail=false\n' + ipv6,
+        f'dhcp-timeout={DHCP_TIMEOUT_S}\nmay-fail=false\n' + ipv6,
         f'{TETHER}.nmconnection': head(TETHER, 'ethernet', ETHERNET) + '\n[ethernet]\n\n[ipv4]\nmethod=shared\n'
-                                   f'address1={TETHER_NETWORK}\n' + ipv6,
+        f'address1={TETHER_NETWORK}\n' + ipv6,
         f'{LOCAL}.nmconnection': head(LOCAL, 'dummy', LOCAL_DEVICE, autoconnect=True) + '\n[dummy]\n\n[ipv4]\n'
-                                  f'method=manual\naddress1={LOCAL_ADDRESS}/32\n' + ipv6,
+        f'method=manual\naddress1={LOCAL_ADDRESS}/32\n' + ipv6,
     }
     if psk is not None:
         files[f'{AP}.nmconnection'] = (
             head(AP, 'wifi', WIFI) + f'\n[wifi]\nmode=ap\nssid={AP_SSID}\nband={AP_BAND}\nchannel={AP_CHANNEL}\n'
             '\n[wifi-security]\nkey-mgmt=wpa-psk\nproto=rsn;\npairwise=ccmp;\ngroup=ccmp;\n'
-            f'psk={_keyfile_value(check_psk(psk))}\n\n[ipv4]\nmethod=shared\naddress1={AP_NETWORK}\n' + ipv6)
+            f'psk={_keyfile_value(check_psk(psk))}\n\n[ipv4]\nmethod=shared\naddress1={AP_NETWORK}\n' + ipv6
+        )
     return files
 
 
@@ -124,7 +130,8 @@ SUDOERS_TEXT = f"""# Helm (the robot's user) switches Minerva's access point; no
 
 # -- NetworkManager and the port, as the service sees them ------------------------------------------------------
 
-def _run(command, timeout=60.):
+
+def _run(command, timeout=60.0):
     return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
 
 
@@ -175,8 +182,10 @@ class Manager:
         return [fields[3] for fields in (line.split() for line in result.stdout.splitlines()) if len(fields) > 3]
 
     def up(self, connection, wait):
-        return self.run(['nmcli', '--wait', str(int(wait)), 'connection', 'up', connection],
-                        timeout=wait + 15).returncode == 0
+        return (
+            self.run(['nmcli', '--wait', str(int(wait)), 'connection', 'up', connection], timeout=wait + 15).returncode
+            == 0
+        )
 
     def down(self, connection):
         return self.run(['nmcli', 'connection', 'down', connection]).returncode == 0
@@ -184,8 +193,9 @@ class Manager:
     def wifi_client(self, on):
         """The Wi-Fi client back (NetworkManager joins a known network when one is in range, without waiting
         here), or stepping aside until asked back."""
-        self.run(['nmcli', 'device', 'set', WIFI, 'autoconnect', 'yes'] if on else
-                 ['nmcli', 'device', 'disconnect', WIFI])
+        self.run(
+            ['nmcli', 'device', 'set', WIFI, 'autoconnect', 'yes'] if on else ['nmcli', 'device', 'disconnect', WIFI]
+        )
 
     def leases(self):
         """The hardware addresses holding a lease from the tether's DHCP server."""
@@ -210,7 +220,7 @@ class Network:
     def bring_up(self, connection, wait):
         """Activate `connection`, unless it failed less than RETRY_S ago: an access point the radio refuses must not
         churn NetworkManager every step."""
-        if self.clock() < self.retry_at.get(connection, 0.):
+        if self.clock() < self.retry_at.get(connection, 0.0):
             return False
         ok = self.nm.up(connection, wait)
         if ok:
@@ -263,8 +273,7 @@ class Network:
         elif carrier and self.mode in ('lan', 'tether') and active.get(ETHERNET) not in (LAN, TETHER):
             log('lost_address', mode=self.mode)  # Its lease ran out, or NetworkManager let it go.
             self.probe(ap)
-        elif (carrier and self.mode == 'tether'
-              and len(self.nm.leases() - self.served) > TETHER_CLIENTS_MAX):
+        elif carrier and self.mode == 'tether' and len(self.nm.leases() - self.served) > TETHER_CLIENTS_MAX:
             # A tether serves a PC or two: this many clients means a network whose DHCP server was slow.
             log('tether_is_a_network', clients=len(self.nm.leases() - self.served))
             self.nm.down(TETHER)
@@ -279,7 +288,7 @@ class Network:
         if not ap:
             self.retry_at.pop(AP, None)  # Wanted again later, it is tried at once.
         if ap and not on_ap:
-            if self.clock() >= self.retry_at.get(AP, 0.):
+            if self.clock() >= self.retry_at.get(AP, 0.0):
                 log('ap_on', ok=self.bring_up(AP, 30))
         elif not ap and on_ap:
             self.nm.down(AP)
@@ -292,13 +301,29 @@ class Network:
 
     def snapshot(self, active, ap):
         wifi = active.get(WIFI)
-        return {'version': VERSION, 'mode': self.mode, 'updated_at': self.clock(), 'local': LOCAL_ADDRESS,
-                'ethernet': {'carrier': self.carrier, 'connection': active.get(ETHERNET),
-                             'addresses': self.nm.addresses(ETHERNET)},
-                'wifi': {'connection': wifi, 'mode': 'ap' if wifi == AP else ('client' if wifi else 'off'),
-                         'addresses': self.nm.addresses(WIFI)},
-                'ap': {'wanted': ap, 'on': wifi == AP, 'ssid': AP_SSID, 'address': AP_NETWORK.split('/')[0],
-                       'failed': ap and wifi != AP and AP in self.retry_at}}
+        return {
+            'version': VERSION,
+            'mode': self.mode,
+            'updated_at': self.clock(),
+            'local': LOCAL_ADDRESS,
+            'ethernet': {
+                'carrier': self.carrier,
+                'connection': active.get(ETHERNET),
+                'addresses': self.nm.addresses(ETHERNET),
+            },
+            'wifi': {
+                'connection': wifi,
+                'mode': 'ap' if wifi == AP else ('client' if wifi else 'off'),
+                'addresses': self.nm.addresses(WIFI),
+            },
+            'ap': {
+                'wanted': ap,
+                'on': wifi == AP,
+                'ssid': AP_SSID,
+                'address': AP_NETWORK.split('/')[0],
+                'failed': ap and wifi != AP and AP in self.retry_at,
+            },
+        }
 
     def write(self, active, ap):
         _write_json(self.state, self.snapshot(active, ap))
@@ -313,7 +338,7 @@ def _write_json(path, value, mode=0o644):
     _replace(partial, path)
 
 
-def _replace(partial, path, patience_s=1.):
+def _replace(partial, path, patience_s=1.0):
     """os.replace, waiting out Windows' brief refusal while another process (a virus scanner) still has a new file
     open. Linux, where the service runs, never refuses; the tests on Windows did, under the gate's 11 workers: 0.3 %
     of replaces, each for at most 82 ms (2026-11-01). A refusal that outlasts the patience is raised."""
@@ -324,7 +349,7 @@ def _replace(partial, path, patience_s=1.):
         except PermissionError:
             if time.monotonic() >= deadline:
                 raise
-            time.sleep(.01)
+            time.sleep(0.01)
 
 
 def serve(network, *, sleep=time.sleep, stop=lambda: False):
@@ -336,7 +361,7 @@ def serve(network, *, sleep=time.sleep, stop=lambda: False):
         sleep(PERIOD_S)
 
 
-def set_ap(on, *, settings=SETTINGS, state=STATE, wait_s=45., clock=time.monotonic, sleep=time.sleep):
+def set_ap(on, *, settings=SETTINGS, state=STATE, wait_s=45.0, clock=time.monotonic, sleep=time.sleep):
     """Want the access point on or off, and wait for the service to get there: the state it reached."""
     _write_json(settings, {'ap': bool(on)})
     deadline = clock() + wait_s
@@ -348,12 +373,14 @@ def set_ap(on, *, settings=SETTINGS, state=STATE, wait_s=45., clock=time.monoton
         if current is not None and current['ap']['on'] == bool(on):
             return current
         if clock() > deadline:
-            raise RuntimeError(f"The access point did not switch {'on' if on else 'off'} in {wait_s:g} s: "
-                               f'journalctl -u {UNIT} -n 30')
-        sleep(.5)
+            raise RuntimeError(
+                f'The access point did not switch {"on" if on else "off"} in {wait_s:g} s: journalctl -u {UNIT} -n 30'
+            )
+        sleep(0.5)
 
 
 # -- installing --------------------------------------------------------------------------------------------------
+
 
 class Host:
     """The robot computer as install and remove change it (a fake root in tests)."""
@@ -441,14 +468,16 @@ def install(host=None, source=None, *, psk=None, ask=getpass.getpass, start=True
     before = lib / 'before.json'
     if not before.exists():
         old_dhcp = host.path(OLD_DHCP)
-        record = {'old_wired_autoconnect': host.autoconnect(OLD_WIRED), 'old_ap_autoconnect': host.autoconnect(OLD_AP),
-                  'dnsmasq_enabled': host.enabled('dnsmasq.service'),
-                  'old_dhcp': old_dhcp.read_text(encoding='utf-8') if old_dhcp.exists() else None}
+        record = {
+            'old_wired_autoconnect': host.autoconnect(OLD_WIRED),
+            'old_ap_autoconnect': host.autoconnect(OLD_AP),
+            'dnsmasq_enabled': host.enabled('dnsmasq.service'),
+            'old_dhcp': old_dhcp.read_text(encoding='utf-8') if old_dhcp.exists() else None,
+        }
         _write(before, json.dumps(record, indent=1).encode(), mode=0o600)
     _write(lib / 'network.py', source.read_bytes())
     _write(lib / 'README', README.encode())
-    _write(host.path(PROGRAM), f'#!/bin/sh\nexec /usr/bin/python3 -I -B {LIB}/network.py "$@"\n'.encode(),
-           mode=0o755)
+    _write(host.path(PROGRAM), f'#!/bin/sh\nexec /usr/bin/python3 -I -B {LIB}/network.py "$@"\n'.encode(), mode=0o755)
     for name, text in keyfiles.items():
         _write(host.path(CONNECTIONS / name), text.encode(), mode=0o600)  # NetworkManager reads root-only keyfiles.
     _write(host.path(NM_CONF), NM_CONF_TEXT.encode())
@@ -470,8 +499,11 @@ def install(host=None, source=None, *, psk=None, ask=getpass.getpass, start=True
     host.systemctl('daemon-reload')
     host.systemctl('enable', UNIT)
     if start:
-        print('Starting minerva-net. If the Ethernet cable is on a network, Minerva\'s Wi-Fi steps aside and this '
-              'session may end: reconnect at aizee-rover.local, its wired address, or 10.42.0.1.', flush=True)
+        print(
+            "Starting minerva-net. If the Ethernet cable is on a network, Minerva's Wi-Fi steps aside and this "
+            'session may end: reconnect at aizee-rover.local, its wired address, or 10.42.0.1.',
+            flush=True,
+        )
         host.systemctl('restart', UNIT)
     return {'installed': True, 'started': start}
 
@@ -486,7 +518,11 @@ def remove(host=None):
     except (OSError, ValueError):
         record = {}
     for path in [host.path(CONNECTIONS / name) for name in (*profiles(), f'{AP}.nmconnection')] + [
-            host.path(NM_CONF), host.path(SUDOERS), host.path(PROGRAM), host.path(UNITS / UNIT)]:
+        host.path(NM_CONF),
+        host.path(SUDOERS),
+        host.path(PROGRAM),
+        host.path(UNITS / UNIT),
+    ]:
         if path.exists():
             if not os.access(path, os.W_OK):
                 os.chmod(path, 0o600)  # The read-only sudoers rule, where deleting honours that.
@@ -513,11 +549,14 @@ def status(state=STATE):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='minerva-net', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog='minerva-net', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('action', choices=('run', 'install', 'remove', 'status', 'ap'))
     parser.add_argument('switch', nargs='?', choices=('on', 'off'), help='ap: on or off')
-    parser.add_argument('--new-password', action='store_true', help="install: ask for the access point's password again")
+    parser.add_argument(
+        '--new-password', action='store_true', help="install: ask for the access point's password again"
+    )
     args = parser.parse_args(argv)
     root = getattr(os, 'geteuid', lambda: -1)() == 0
     try:
@@ -540,8 +579,11 @@ def main(argv=None):
                 print(f'{args.action} changes NetworkManager and systemd: run it with sudo.', file=sys.stderr)
                 return 2
             if args.action == 'install' and not sys.flags.dont_write_bytecode:
-                print('Run as sudo python3 -B -m robot_platform.ops.network, so no root-owned bytecode is left in '
-                      'the release.', file=sys.stderr)
+                print(
+                    'Run as sudo python3 -B -m robot_platform.ops.network, so no root-owned bytecode is left in '
+                    'the release.',
+                    file=sys.stderr,
+                )
                 return 2
             if args.action == 'install':
                 psk = None

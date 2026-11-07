@@ -13,7 +13,9 @@ class _BaseSocket {
     this.backoff = 250;
     this.onState = () => {};
   }
-  _setState(s) { this.onState(s); }
+  _setState(s) {
+    this.onState(s);
+  }
   _scheduleReconnect(open) {
     setTimeout(() => open(), this.backoff);
     this.backoff = Math.min(this.backoff * 2, 5000);
@@ -21,13 +23,23 @@ class _BaseSocket {
 }
 
 export class ControlSocket extends _BaseSocket {
-  constructor() { super('/ws/control'); }
+  constructor() {
+    super('/ws/control');
+  }
   connect() {
     this._setState('connecting');
     const ws = new WebSocket(WS_BASE + this.path);
-    ws.onopen = () => { this.backoff = 250; this._setState('connected'); };
-    ws.onclose = () => { this._setState('disconnected'); this._scheduleReconnect(() => this.connect()); };
-    ws.onerror = () => { this._setState('error'); };
+    ws.onopen = () => {
+      this.backoff = 250;
+      this._setState('connected');
+    };
+    ws.onclose = () => {
+      this._setState('disconnected');
+      this._scheduleReconnect(() => this.connect());
+    };
+    ws.onerror = () => {
+      this._setState('error');
+    };
     this.ws = ws;
   }
   send(frame) {
@@ -37,20 +49,31 @@ export class ControlSocket extends _BaseSocket {
 }
 
 export class TelemSocket extends _BaseSocket {
-  constructor() { super('/ws/telem'); this.onTelem = null; }
+  constructor() {
+    super('/ws/telem');
+    this.onTelem = null;
+  }
   connect(onTelem) {
     this.onTelem = onTelem ?? this.onTelem;
     this._setState('connecting');
     const ws = new WebSocket(WS_BASE + this.path);
-    ws.onopen = () => { this.backoff = 250; this._setState('connected'); };
+    ws.onopen = () => {
+      this.backoff = 250;
+      this._setState('connected');
+    };
     ws.onmessage = (e) => {
       try {
         const telem = JSON.parse(e.data);
         if (this.onTelem) this.onTelem(telem);
       } catch {}
     };
-    ws.onclose = () => { this._setState('disconnected'); this._scheduleReconnect(() => this.connect()); };
-    ws.onerror = () => { this._setState('error'); };
+    ws.onclose = () => {
+      this._setState('disconnected');
+      this._scheduleReconnect(() => this.connect());
+    };
+    ws.onerror = () => {
+      this._setState('error');
+    };
     this.ws = ws;
   }
 }

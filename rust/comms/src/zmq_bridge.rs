@@ -43,9 +43,7 @@ impl CommandSubscriber {
                 tracing::info!("Parsed command: {:?}", cmd);
                 Ok(Some(cmd))
             }
-            Err(zmq::Error::EAGAIN) => {
-                Ok(None)
-            }
+            Err(zmq::Error::EAGAIN) => Ok(None),
             Err(e) => {
                 tracing::error!("ZMQ receive error: {}", e);
                 Err(e.into())
@@ -74,8 +72,8 @@ impl TelemetryPublisher {
     /// fields (`to_vec_named`) — every Python consumer reconstructs a
     /// dict shaped like the old JSON form via `unpack_msg(...)`.
     pub fn publish(&mut self, msg: &TelemetryMessage) -> Result<()> {
-        let bytes = rmp_serde::to_vec_named(msg)
-            .context("Failed to serialize telemetry to msgpack")?;
+        let bytes =
+            rmp_serde::to_vec_named(msg).context("Failed to serialize telemetry to msgpack")?;
         self.socket.send(&bytes, 0)?;
         Ok(())
     }

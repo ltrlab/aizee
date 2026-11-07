@@ -40,7 +40,7 @@ camera:
       # output_height: 768
       # Camera is mounted upright on the gripper — adjust to "180" /
       # "horizontal" / "vertical" if the physical orientation is off.
-      flip: "none"
+      flip: 'none'
 
   # V4L2 controls applied via `v4l2-ctl --set-ctrl name=value` after the
   # device is opened. List `auto_exposure` first — `exposure_time_absolute`
@@ -53,28 +53,28 @@ camera:
   # mean~83/255 with p95~230 (highlights have headroom, shadows aren't
   # crushed).
   v4l2_controls:
-    auto_exposure: 1               # 1=Manual, 3=Aperture Priority
-    exposure_time_absolute: 150    # in 100µs units (≈15 ms here); range [1, 5000]
-    gain: 30                       # [0, 100] — modest amplification, low noise
-    brightness: 0                  # [-64, 64] — AE/setpoint shift; manual mode mostly ignores it
-    saturation: 60                 # [0, 128] — default
-    backlight_compensation: 2      # [0, 2] — max, helps when bright bg is behind the workspace
+    auto_exposure: 1 # 1=Manual, 3=Aperture Priority
+    exposure_time_absolute: 150 # in 100µs units (≈15 ms here); range [1, 5000]
+    gain: 30 # [0, 100] — modest amplification, low noise
+    brightness: 0 # [-64, 64] — AE/setpoint shift; manual mode mostly ignores it
+    saturation: 60 # [0, 128] — default
+    backlight_compensation: 2 # [0, 2] — max, helps when bright bg is behind the workspace
 
 network:
   device:
-    ip: 192.168.0.27          # Jetson WiFi
+    ip: 192.168.0.27 # Jetson WiFi
     hostname: aizee-jetson
     zmq:
-      camera_pub:  "tcp://*:5563"   # PUB — same port the old arm_cam_left used
-      camera_ctrl: "tcp://*:5573"   # REP — runtime V4L2 control changes (GUI sliders)
+      camera_pub: 'tcp://*:5563' # PUB — same port the old arm_cam_left used
+      camera_ctrl: 'tcp://*:5573' # REP — runtime V4L2 control changes (GUI sliders)
 
 # Position and orientation of the camera sensor relative to the wrist_roll
 # joint. NOTE: measure and update once the camera is physically mounted.
 # Coordinate frame of joint_wrist_roll: +X toward gripper tip, +Z up.
 spatial:
   parent_joint: wrist_roll
-  position: [0.02, 0.0, 0.04]      # [x, y, z] metres — above + slightly forward
-  orientation: [0.0, 0.0, 0.0]     # [roll, pitch, yaw] — placeholder
+  position: [0.02, 0.0, 0.04] # [x, y, z] metres — above + slightly forward
+  orientation: [0.0, 0.0, 0.0] # [roll, pitch, yaw] — placeholder
 
 logging:
   level: INFO

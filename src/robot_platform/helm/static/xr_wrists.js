@@ -8,9 +8,9 @@
 // as each camera takes them. No socket here: xr.js streams the pictures (xr_camera.js).
 import * as THREE from 'three';
 
-export const WRIST_W = .2;  // Metres: each picture's width; it sits as far ahead of the lens as fills the view.
+export const WRIST_W = 0.2; // Metres: each picture's width; it sits as far ahead of the lens as fills the view.
 export const CAMERAS = ['left_wrist', 'right_wrist'];
-const FLIP = new THREE.Matrix4().makeScale(1, -1, -1);  // Optical axes to the plane's (x right, y up, facing back).
+const FLIP = new THREE.Matrix4().makeScale(1, -1, -1); // Optical axes to the plane's (x right, y up, facing back).
 
 // A mount as Helm sends it (four rows of four) as a matrix.
 export function mountMatrix(rows, target = new THREE.Matrix4()) {
@@ -36,8 +36,8 @@ export function squared(mount, axis, target = new THREE.Matrix4()) {
 // How far ahead of the lens a picture WRIST_W wide fills the view, and its height: [distance, height] in metres,
 // from the field of view in degrees ([horizontal, vertical]).
 export function windowAt([horizontal, vertical], width = WRIST_W) {
-  const distance = width / 2 / Math.tan(horizontal * Math.PI / 360);
-  return [distance, 2 * distance * Math.tan(vertical * Math.PI / 360)];
+  const distance = width / 2 / Math.tan((horizontal * Math.PI) / 360);
+  return [distance, 2 * distance * Math.tan((vertical * Math.PI) / 360)];
 }
 
 export class WristScreens {
@@ -47,16 +47,28 @@ export class WristScreens {
     for (const role of CAMERAS) {
       const texture = new THREE.Texture();
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.flipY = false;  // ImageBitmaps upload top row first: the UVs are flipped instead.
-      const material = new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide,
-        depthTest: false, toneMapped: false});
+      texture.flipY = false; // ImageBitmaps upload top row first: the UVs are flipped instead.
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        toneMapped: false,
+      });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
       mesh.matrixAutoUpdate = false;
-      mesh.renderOrder = 2;  // Over the 3D picture and the model, as a screen is.
+      mesh.renderOrder = 2; // Over the 3D picture and the model, as a screen is.
       mesh.visible = false;
       this.group.add(mesh);
-      this.screens[role] = {mesh, material, texture, framed: false, mount: null, link: null,
-        local: new THREE.Matrix4()};
+      this.screens[role] = {
+        mesh,
+        material,
+        texture,
+        framed: false,
+        mount: null,
+        link: null,
+        local: new THREE.Matrix4(),
+      };
     }
     this.opacity = 1;
     this.placed = false;
@@ -80,10 +92,12 @@ export class WristScreens {
       screen.mesh.geometry = geometry;
       screen.link = mount.link;
       screen.mount = mountMatrix(mount.matrix);
-      const axis = Array.isArray(mount.axis) && mount.axis.length === 3 && mount.axis.every(Number.isFinite)
-        ? mount.axis : null;
-      screen.local.copy(axis ? squared(screen.mount, axis) : screen.mount)
-        .multiply(new THREE.Matrix4().makeTranslation(0, 0, distance)).multiply(FLIP);
+      const axis =
+        Array.isArray(mount.axis) && mount.axis.length === 3 && mount.axis.every(Number.isFinite) ? mount.axis : null;
+      screen.local
+        .copy(axis ? squared(screen.mount, axis) : screen.mount)
+        .multiply(new THREE.Matrix4().makeTranslation(0, 0, distance))
+        .multiply(FLIP);
     }
   }
 

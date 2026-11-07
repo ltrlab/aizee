@@ -37,6 +37,7 @@ Layout:
     ~/minerva/helm/logs/helm.log  what Helm prints
 Standard library only, besides the release's own modules.
 """
+
 import argparse
 import hashlib
 import ipaddress
@@ -102,7 +103,7 @@ class Host:
             env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')  # systemctl --user over plain SSH.
         result = subprocess.run(list(args), capture_output=True, text=True, env=env)
         if check and result.returncode != 0:
-            raise RuntimeError(f"{' '.join(args)}: {(result.stderr or result.stdout).strip()}")
+            raise RuntimeError(f'{" ".join(args)}: {(result.stderr or result.stdout).strip()}')
         return result.stdout
 
     def systemctl(self, *args, check=True):
@@ -133,7 +134,7 @@ class Host:
                     found.append(int(entry.name))
         return sorted(found)
 
-    def listening(self, port=PORT, timeout=.5):
+    def listening(self, port=PORT, timeout=0.5):
         try:
             with socket.create_connection(('127.0.0.1', port), timeout=timeout):
                 return True
@@ -144,6 +145,7 @@ class Host:
 def lock_id(release=ROOT, lock=None):
     """The dependency folder name of a release: its Helm lock's digest, or `lock`'s."""
     from .release import HELM_LOCK
+
     return hashlib.sha256((Path(release) / (lock or HELM_LOCK)).read_bytes()).hexdigest()[:12]
 
 
@@ -159,6 +161,7 @@ def _write(path, data, mode=0o644):
 
 # -- prepare: folders, Helm's SSH key, the HTTPS certificate --------------------------------------------------------
 
+
 def addresses(profile=None, network_state=None):
     """(IP addresses, DNS names) the certificate names: the tether, loopback, the Wi-Fi address of the device profile,
     every address Minerva's network service reports now (wired, local, Wi-Fi: helm.network), and this computer's
@@ -166,6 +169,7 @@ def addresses(profile=None, network_state=None):
     wired address once its Ethernet is plugged in."""
     from robot_platform.helm.network import STATE, NetworkView
     from .ssh import TETHER, robot_identity
+
     device = robot_identity(profile or ROOT / PROFILE)[0]
     ips = [TETHER, '127.0.0.1'] + ([device['address']] if device.get('address') else [])
     ips += NetworkView(network_state or STATE).addresses()
@@ -177,9 +181,11 @@ def certificate_config(ips, names):
     """An OpenSSL request config for a self-signed server certificate that browsers on phones and tablets accept once
     trusted: names in subjectAltName, not a CA, serverAuth (Apple also limits it to 825 days)."""
     alt = ', '.join([f'IP:{ip}' for ip in ips] + [f'DNS:{name}' for name in names])
-    return (f'[req]\ndistinguished_name = dn\nx509_extensions = ext\nprompt = no\n[dn]\nCN = {names[0]}\n'
-            f'O = Minerva Helm\n[ext]\nsubjectAltName = {alt}\nbasicConstraints = critical, CA:FALSE\n'
-            'keyUsage = critical, digitalSignature\nextendedKeyUsage = serverAuth\nsubjectKeyIdentifier = hash\n')
+    return (
+        f'[req]\ndistinguished_name = dn\nx509_extensions = ext\nprompt = no\n[dn]\nCN = {names[0]}\n'
+        f'O = Minerva Helm\n[ext]\nsubjectAltName = {alt}\nbasicConstraints = critical, CA:FALSE\n'
+        'keyUsage = critical, digitalSignature\nextendedKeyUsage = serverAuth\nsubjectKeyIdentifier = hash\n'
+    )
 
 
 def prepare(host=None, *, profile=None):
@@ -206,8 +212,24 @@ def _issue(host, profile=None):
         config = Path(scratch) / 'helm-certificate.cnf'
         config.write_text(certificate_config(ips, names), encoding='utf-8')
         key, cert = p.tls / 'helm.key.partial', p.tls / 'helm.crt.partial'
-        host.run('openssl', 'req', '-x509', '-config', str(config), '-newkey', 'ec', '-pkeyopt',
-                 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '825', '-keyout', str(key), '-out', str(cert))
+        host.run(
+            'openssl',
+            'req',
+            '-x509',
+            '-config',
+            str(config),
+            '-newkey',
+            'ec',
+            '-pkeyopt',
+            'ec_paramgen_curve:prime256v1',
+            '-nodes',
+            '-days',
+            '825',
+            '-keyout',
+            str(key),
+            '-out',
+            str(cert),
+        )
         os.chmod(key, 0o600)
         os.replace(key, p.tls_key)
         os.replace(cert, p.cert)
@@ -228,11 +250,13 @@ def certificate(host=None, *, force=False, profile=None):
 
 # -- authorized keys -------------------------------------------------------------------------------------------------
 
+
 def bridge_networks(profile=None):
     """Where the GELLO bridge may connect from: the tether and the access point (10.42.0.0/16: their PCs get 10.42.0.x
     and 10.42.1.x, ops.network) and the network of the device profile's address (the operator PC on the same
     network as Minerva; the user allowed it, 2026-10-25)."""
     from .ssh import TETHER, robot_identity
+
     networks = [str(ipaddress.ip_network(f'{TETHER}/16', strict=False))]
     address = robot_identity(profile or ROOT / PROFILE)[0].get('address')
     if address:
@@ -250,11 +274,14 @@ def bridge_line(public_key, name):
     """The GELLO bridge's key: Helm's relay only (a forced command), from the tether, the access point or Minerva's
     network only (bridge_networks)."""
     from robot_platform.helm.bridge import RELAY_COMMAND
+
     if not NAME.match(name or ''):
         raise ValueError('A bridge name is 1-40 letters, digits, dots, dashes or underscores')
     kind, blob = _parse(public_key)
-    return (f'command="{RELAY_COMMAND}",from="{bridge_networks()}",no-agent-forwarding,no-port-forwarding,'
-            f'no-X11-forwarding,no-pty {kind} {blob} {BRIDGE_NAME}:{name}')
+    return (
+        f'command="{RELAY_COMMAND}",from="{bridge_networks()}",no-agent-forwarding,no-port-forwarding,'
+        f'no-X11-forwarding,no-pty {kind} {blob} {BRIDGE_NAME}:{name}'
+    )
 
 
 def _parse(public_key):
@@ -329,12 +356,18 @@ def authorized(host):
     lines = host.paths.authorized.read_text(encoding='utf-8').splitlines() if host.paths.authorized.is_file() else []
     public = host.paths.local_key.with_suffix('.pub')
     local = local_line(public.read_text(encoding='utf-8')) if public.is_file() else None
-    return {'local': local is not None and local in (line.strip() for line in lines),
-            'bridges': [line.split()[-1].split(':', 1)[1] for line in lines
-                        if line.split()[-1:] and line.split()[-1].startswith(BRIDGE_NAME + ':')]}
+    return {
+        'local': local is not None and local in (line.strip() for line in lines),
+        'bridges': [
+            line.split()[-1].split(':', 1)[1]
+            for line in lines
+            if line.split()[-1:] and line.split()[-1].startswith(BRIDGE_NAME + ':')
+        ],
+    }
 
 
 # -- the unit --------------------------------------------------------------------------------------------------------
+
 
 def unit_text(*, teleop=TELEOP, capture=CAPTURE, live=False):
     options = f'--teleop {teleop} --capture-profile {capture}' + (' --live' if live else '')
@@ -363,8 +396,9 @@ WantedBy=default.target
 """
 
 
-def install(host=None, *, teleop=TELEOP, capture=CAPTURE, live=False, wait_s=60., clock=time.monotonic,
-            sleep=time.sleep):
+def install(
+    host=None, *, teleop=TELEOP, capture=CAPTURE, live=False, wait_s=60.0, clock=time.monotonic, sleep=time.sleep
+):
     host = host or Host()
     p = host.paths
     if not (p.local_key.is_file() and p.cert.is_file()):
@@ -388,19 +422,21 @@ def _await(host, wait_s, clock, sleep):
             return report
         if report['service'].get('ActiveState') == 'failed':
             return report
-        sleep(.5)
+        sleep(0.5)
 
 
-def restart(host=None, *, wait_s=60., clock=time.monotonic, sleep=time.sleep):
+def restart(host=None, *, wait_s=60.0, clock=time.monotonic, sleep=time.sleep):
     """Restart Helm (a deploy switched the release), never under a running session or check."""
     host = host or Host()
     if host.unit_state().get('LoadState') != 'loaded':
         return status(host)
     busy = host.sessions()
     if busy:
-        raise RuntimeError(f"Not restarting Helm: a session or Minerva Check runs on the robot (process "
-                           f"{', '.join(map(str, busy))}). Restart it when that ends: python3 -m "
-                           'robot_platform.ops.helm_service restart')
+        raise RuntimeError(
+            f'Not restarting Helm: a session or Minerva Check runs on the robot (process '
+            f'{", ".join(map(str, busy))}). Restart it when that ends: python3 -m '
+            'robot_platform.ops.helm_service restart'
+        )
     host.systemctl('restart', UNIT)
     return _await(host, wait_s, clock, sleep)
 
@@ -426,28 +462,42 @@ def _certificate(host, profile=None):
     if not host.paths.cert.is_file():
         return None
     try:
-        text = host.run('openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-enddate', '-fingerprint',
-                        '-sha256', check=False)
-        alt = host.run('openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-ext', 'subjectAltName',
-                       check=False)
+        text = host.run(
+            'openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-enddate', '-fingerprint', '-sha256', check=False
+        )
+        alt = host.run('openssl', 'x509', '-in', str(host.paths.cert), '-noout', '-ext', 'subjectAltName', check=False)
     except OSError:
         return {'present': True}
     from robot_platform.helm.network import alt_names
+
     facts = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
     names = alt_names(alt)
     wanted = addresses(profile, host.network_state)[0]
-    return {'present': True, 'expires': facts.get('notAfter'),
-            'sha256': next((value for key, value in facts.items() if 'Fingerprint' in key), None),
-            'names': names, 'uncovered': [ip for ip in wanted if ip not in names] if names else None}
+    return {
+        'present': True,
+        'expires': facts.get('notAfter'),
+        'sha256': next((value for key, value in facts.items() if 'Fingerprint' in key), None),
+        'names': names,
+        'uncovered': [ip for ip in wanted if ip not in names] if names else None,
+    }
 
 
 def status(host=None, *, release=ROOT):
     """What is in place, and `missing`: what keeps Helm from starting."""
     host = host or Host()
     p = host.paths
-    report = {'service': host.unit_state(), 'linger': host.linger(), 'listening': host.listening(),
-              'key': p.local_key.is_file(), 'certificate': _certificate(host), 'password': p.access.is_file(),
-              'authorized': authorized(host), 'dependencies': None, 'meshes': None, 'missing': []}
+    report = {
+        'service': host.unit_state(),
+        'linger': host.linger(),
+        'listening': host.listening(),
+        'key': p.local_key.is_file(),
+        'certificate': _certificate(host),
+        'password': p.access.is_file(),
+        'authorized': authorized(host),
+        'dependencies': None,
+        'meshes': None,
+        'missing': [],
+    }
     try:
         lock = lock_id(release)
         report['dependencies'] = {'lock': lock, 'installed': (p.deps / lock / COMPLETE).is_file()}
@@ -456,6 +506,7 @@ def status(host=None, *, release=ROOT):
     try:
         from .release import LOCK
         from robot_platform.viewer.server import stored_mesh_name
+
         wanted = set(json.loads((Path(release) / LOCK).read_text(encoding='utf-8')).values())
         have = {path.name for path in p.meshes.glob('*.gz')} if p.meshes.is_dir() else set()
         report['meshes'] = {'wanted': len(wanted), 'missing': sum(stored_mesh_name(sha) not in have for sha in wanted)}
@@ -473,6 +524,7 @@ def status(host=None, *, release=ROOT):
 
 # -- run: what the unit runs -----------------------------------------------------------------------------------------
 
+
 def run(argv=None, host=None, *, release=ROOT, main=None):
     """Helm with Minerva's options: on the robot, beyond loopback with a login, its state outside the release."""
     parser = argparse.ArgumentParser(prog='python3 -m robot_platform.ops.helm_service run')
@@ -489,6 +541,7 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
     sys.path.insert(0, str(p.deps / report['dependencies']['lock']))  # Before anything imports aiohttp.
     os.environ['AIZEE_SSH_KEY_FILE'] = str(p.local_key)  # Every robot path: pinned SSH to 127.0.0.1 (ops.ssh).
     from .release import WEBRTC_LOCK
+
     try:  # The remote headset worker's own dependencies (helm.webrtc_link): Helm's path does not get them.
         webrtc = p.deps / lock_id(release, WEBRTC_LOCK)
     except OSError:
@@ -497,10 +550,29 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
         os.environ['HELM_WEBRTC_DEPS'] = str(webrtc)
         os.environ['HELM_WEBRTC_EVIDENCE'] = str(p.base / 'evidence')
     devices = Path(release) / 'config/devices'
-    options = ['--on-robot', '--profile', str(Path(release) / PROFILE), '--host', '0.0.0.0', '--port', str(PORT),
-               '--loopback-port', str(LOOPBACK_PORT), '--access', str(p.access), '--runs', str(p.runs), '--operator-files', str(p.operator),
-               '--mesh-store', str(p.meshes), '--teleop', str(devices / args.teleop),
-               '--capture-profile', str(devices / args.capture_profile)]
+    options = [
+        '--on-robot',
+        '--profile',
+        str(Path(release) / PROFILE),
+        '--host',
+        '0.0.0.0',
+        '--port',
+        str(PORT),
+        '--loopback-port',
+        str(LOOPBACK_PORT),
+        '--access',
+        str(p.access),
+        '--runs',
+        str(p.runs),
+        '--operator-files',
+        str(p.operator),
+        '--mesh-store',
+        str(p.meshes),
+        '--teleop',
+        str(devices / args.teleop),
+        '--capture-profile',
+        str(devices / args.capture_profile),
+    ]
     if not args.live:
         options.append('--no-live')
     if p.cert.is_file() and p.tls_key.is_file():
@@ -510,6 +582,7 @@ def run(argv=None, host=None, *, release=ROOT, main=None):
     # Onto the partition's background CPUs, where its children start too: the partition may keep one of the unit's
     # CPUs for the head's receiver alone (control.scheduling.prefer_head).
     from robot_platform.control.scheduling import prefer_background
+
     prefer_background()
     return main(options)
 
@@ -518,12 +591,27 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ['run']:
         return run(argv[1:])  # Its own options (run --help).
-    parser = argparse.ArgumentParser(prog='python3 -m robot_platform.ops.helm_service', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('action', choices=('prepare', 'certificate', 'authorize-local', 'authorize-bridge', 'install',
-                                           'restart', 'status', 'remove', 'run'))
+    parser = argparse.ArgumentParser(
+        prog='python3 -m robot_platform.ops.helm_service',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        'action',
+        choices=(
+            'prepare',
+            'certificate',
+            'authorize-local',
+            'authorize-bridge',
+            'install',
+            'restart',
+            'status',
+            'remove',
+            'run',
+        ),
+    )
     parser.add_argument('--force', action='store_true', help='certificate: issue it again even if it names them all')
-    parser.add_argument('--key', help='authorize-bridge: the bridge PC\'s public key line')
+    parser.add_argument('--key', help="authorize-bridge: the bridge PC's public key line")
     parser.add_argument('--name', help='authorize-bridge: a name for that PC, e.g. operator-3080')
     parser.add_argument('--teleop', default=TELEOP, help=f'install: teleop profile in config/devices ({TELEOP})')
     parser.add_argument('--capture-profile', default=CAPTURE, help=f'install: capture profile ({CAPTURE})')
@@ -551,8 +639,11 @@ def main(argv=None):
         return 1
     print(json.dumps(report, indent=2))
     if args.action in ('install', 'restart') and not report['linger']:
-        print('Lingering is off: Helm stops when the last login session ends. Once, as root: '
-              'sudo loginctl enable-linger ' + (os.environ.get('USER') or 'ltr'), file=sys.stderr)
+        print(
+            'Lingering is off: Helm stops when the last login session ends. Once, as root: '
+            'sudo loginctl enable-linger ' + (os.environ.get('USER') or 'ltr'),
+            file=sys.stderr,
+        )
     return 0
 
 

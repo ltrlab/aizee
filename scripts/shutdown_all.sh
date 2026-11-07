@@ -47,8 +47,8 @@ JETSON_SERVICES=(
 
 for svc in "${JETSON_SERVICES[@]}"; do
     echo "  Stopping $svc..."
-    echo "$JETSON_PASS" | $JETSON_SSH "sudo -S systemctl stop $svc" 2>/dev/null \
-        || echo "  Warning: $svc may already be stopped"
+    echo "$JETSON_PASS" | $JETSON_SSH "sudo -S systemctl stop $svc" 2>/dev/null ||
+        echo "  Warning: $svc may already be stopped"
 done
 
 # ── Step 2: Shutdown Jetson ──────────────────────────────────────────────────

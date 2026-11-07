@@ -27,26 +27,30 @@ _REG_CALIBRATION = 0x05
 
 class BusVoltageRange:
     """Constants for bus_voltage_range"""
+
     RANGE_16V = 0x00  # set bus voltage range to 16V
     RANGE_32V = 0x01  # set bus voltage range to 32V (default)
 
 
 class Gain:
     """Constants for gain"""
-    DIV_1_40MV = 0x00   # shunt prog. gain set to  1, 40 mV range
-    DIV_2_80MV = 0x01   # shunt prog. gain set to /2, 80 mV range
+
+    DIV_1_40MV = 0x00  # shunt prog. gain set to  1, 40 mV range
+    DIV_2_80MV = 0x01  # shunt prog. gain set to /2, 80 mV range
     DIV_4_160MV = 0x02  # shunt prog. gain set to /4, 160 mV range
     DIV_8_320MV = 0x03  # shunt prog. gain set to /8, 320 mV range
 
 
 class ADCResolution:
     """ADC resolution and averaging constants"""
-    ADCRES_9BIT_1S = 0x00    # 9-bit, 1 sample
+
+    ADCRES_9BIT_1S = 0x00  # 9-bit, 1 sample
     ADCRES_12BIT_32S = 0x0D  # 12-bit, 32 samples (averaged)
 
 
 class Mode:
     """Operating mode constants"""
+
     SANDBVOLT_CONTINUOUS = 0x07  # Continuous shunt and bus voltage
 
 
@@ -134,11 +138,13 @@ class INA219:
         # - Gain /2 (80mV shunt voltage range)
         # - 12-bit ADC resolution with 32 sample averaging
         # - Continuous shunt and bus voltage measurement
-        config = (BusVoltageRange.RANGE_16V << 13) | \
-                 (Gain.DIV_2_80MV << 11) | \
-                 (ADCResolution.ADCRES_12BIT_32S << 7) | \
-                 (ADCResolution.ADCRES_12BIT_32S << 3) | \
-                 Mode.SANDBVOLT_CONTINUOUS
+        config = (
+            (BusVoltageRange.RANGE_16V << 13)
+            | (Gain.DIV_2_80MV << 11)
+            | (ADCResolution.ADCRES_12BIT_32S << 7)
+            | (ADCResolution.ADCRES_12BIT_32S << 3)
+            | Mode.SANDBVOLT_CONTINUOUS
+        )
         self.write(_REG_CONFIG, config)
 
     def getShuntVoltage_mV(self):
@@ -190,8 +196,8 @@ if __name__ == '__main__':
     # Use address 0x41 for Waveshare UPS Module (C)
     ina219 = INA219(i2c_bus=7, addr=0x41)
 
-    print("INA219 Test - Waveshare UPS Power Module (C)")
-    print("=" * 50)
+    print('INA219 Test - Waveshare UPS Power Module (C)')
+    print('=' * 50)
 
     while True:
         try:
@@ -204,17 +210,17 @@ if __name__ == '__main__':
             percentage = (bus_voltage - 9.0) / 3.6 * 100
             percentage = max(0, min(percentage, 100))
 
-            print(f"Load Voltage:  {bus_voltage:6.3f} V")
-            print(f"Current:       {current/1000:9.6f} A")
-            print(f"Power:         {power:9.6f} W")
-            print(f"Percentage:    {percentage:6.2f} %")
-            print("-" * 50)
+            print(f'Load Voltage:  {bus_voltage:6.3f} V')
+            print(f'Current:       {current / 1000:9.6f} A')
+            print(f'Power:         {power:9.6f} W')
+            print(f'Percentage:    {percentage:6.2f} %')
+            print('-' * 50)
 
             time.sleep(2)
 
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print('\nExiting...')
             break
         except Exception as e:
-            print(f"Error: {e}")
+            print(f'Error: {e}')
             break

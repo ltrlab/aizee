@@ -4,6 +4,7 @@ Never steps physics: the model's masses are exporter placeholders, so only forwa
 kinematics is meaningful. Positions are URDF joint coordinates (arm radians, jaw
 metres); mimic jaws follow their source. No sockets, devices or motor commands.
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -33,8 +34,8 @@ def main():
     parser.add_argument('--profile', type=Path, default=ROOT / 'urdf/minerva/model.json')
     parser.add_argument('--pose', help='JSON object of joint positions, for example {"left_arm_j2": 0.5}')
     parser.add_argument('--render', type=Path, help='write a PNG instead of opening the viewer')
-    parser.add_argument('--azimuth', type=float, default=90., help='degrees; 90 looks at the front')
-    parser.add_argument('--elevation', type=float, default=-15.)
+    parser.add_argument('--azimuth', type=float, default=90.0, help='degrees; 90 looks at the front')
+    parser.add_argument('--elevation', type=float, default=-15.0)
     parser.add_argument('--collision', action='store_true', help='show source collision meshes, not visuals')
     args = parser.parse_args()
     model = mujoco.MjModel.from_xml_path(str(args.scene))
@@ -44,6 +45,7 @@ def main():
     groups = (0, 3) if args.collision else (0, 2)  # Floor is group 0.
     if args.render:
         from PIL import Image
+
         options = mujoco.MjvOption()
         options.geomgroup[:] = [int(g in groups) for g in range(len(options.geomgroup))]
         camera = mujoco.MjvCamera()
@@ -55,6 +57,7 @@ def main():
         print(args.render)
         return 0
     from mujoco import viewer as mujoco_viewer
+
     # Joint sliders edit qpos; only kinematics is recomputed, never integrated.
     with mujoco_viewer.launch_passive(model, data) as viewer:
         for group in range(len(viewer.opt.geomgroup)):

@@ -42,21 +42,48 @@ SKIP_BUILD=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --ap-pass)   AP_PASS="$2"; shift 2 ;;
-        --usb-eth)   USB_ETH="$2"; shift 2 ;;
-        --hostname)  NEW_HOSTNAME="$2"; shift 2 ;;
-        --with-lidar) WITH_LIDAR=1; shift ;;
-        --skip-build) SKIP_BUILD=1; shift ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+    --ap-pass)
+        AP_PASS="$2"
+        shift 2
+        ;;
+    --usb-eth)
+        USB_ETH="$2"
+        shift 2
+        ;;
+    --hostname)
+        NEW_HOSTNAME="$2"
+        shift 2
+        ;;
+    --with-lidar)
+        WITH_LIDAR=1
+        shift
+        ;;
+    --skip-build)
+        SKIP_BUILD=1
+        shift
+        ;;
+    *)
+        echo "Unknown option: $1"
+        exit 1
+        ;;
     esac
 done
 
 PASS=()
 WARN=()
 FAIL=()
-step_ok()   { echo "  [ok] $1"; PASS+=("$1"); }
-step_warn() { echo "  [WARN] $1"; WARN+=("$1"); }
-step_fail() { echo "  [FAIL] $1"; FAIL+=("$1"); }
+step_ok() {
+    echo "  [ok] $1"
+    PASS+=("$1")
+}
+step_warn() {
+    echo "  [WARN] $1"
+    WARN+=("$1")
+}
+step_fail() {
+    echo "  [FAIL] $1"
+    FAIL+=("$1")
+}
 
 if [[ "$(uname -m)" != "aarch64" ]]; then
     echo "ERROR: this script runs ON the Jetson (aarch64), not the dev machine."
@@ -83,7 +110,7 @@ step_ok "line endings normalized"
 # ------------------------------------------------------------------- 1. apt
 echo "[1/10] Installing apt packages..."
 APT_PKGS=(can-utils i2c-tools v4l-utils python3-pip python3-dev python3-opencv
-          python3-smbus build-essential pkg-config libzmq3-dev libudev-dev curl git)
+    python3-smbus build-essential pkg-config libzmq3-dev libudev-dev curl git)
 if $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "${APT_PKGS[@]}"; then
     step_ok "apt packages (${APT_PKGS[*]})"
 else
@@ -105,8 +132,8 @@ if command -v cargo >/dev/null 2>&1; then
     step_ok "cargo present ($(cargo --version))"
 else
     echo "  installing rustup (minimal profile)..."
-    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
-        && source "$HOME/.cargo/env"; then
+    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal &&
+        source "$HOME/.cargo/env"; then
         step_ok "rustup installed ($(cargo --version))"
     else
         step_fail "rustup install — motor_control cannot be built"
@@ -120,8 +147,8 @@ if python3 -m pip install --user -q -r "$REPO_DIR/requirements_jetson.txt"; then
 else
     step_fail "pip install -r requirements_jetson.txt"
 fi
-if python3 -m pip install --user 'setuptools>=68' wheel && \
-   python3 -m pip install --user --no-deps --no-build-isolation -e "$REPO_DIR"; then
+if python3 -m pip install --user 'setuptools>=68' wheel &&
+    python3 -m pip install --user --no-deps --no-build-isolation -e "$REPO_DIR"; then
     step_ok "shared robot_platform package (editable)"
 else
     step_fail "pip install editable robot_platform package"
@@ -144,7 +171,7 @@ if $SUDO install -m 755 "$REPO_DIR/scripts/aizee-reset-usb-can" /usr/local/bin/a
 else
     step_fail "install aizee-reset-usb-can"
 fi
-$SUDO tee /etc/sudoers.d/aizee-can >/dev/null << SUDOERS
+$SUDO tee /etc/sudoers.d/aizee-can >/dev/null <<SUDOERS
 # Allow $AIZEE_USER to run USB-CAN reset (systemd ExecStartPre + runtime recovery)
 $AIZEE_USER ALL=(ALL) NOPASSWD: /usr/local/bin/aizee-reset-usb-can
 # Allow $AIZEE_USER to manage CAN interfaces (runtime ip link down/up recovery)
@@ -216,10 +243,10 @@ if nmcli -t -f NAME con show 2>/dev/null | grep -qx "aizee-ap"; then
     step_ok "WiFi AP connection 'aizee-ap' already exists"
 elif [[ -n "$AP_PASS" ]]; then
     if $SUDO nmcli con add type wifi ifname wlan0 con-name aizee-ap autoconnect yes ssid aizee \
-            802-11-wireless.mode ap 802-11-wireless.band bg \
-            ipv4.method shared ipv4.addresses 192.168.50.1/24 \
-            wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$AP_PASS" \
-        && $SUDO nmcli con up aizee-ap; then
+        802-11-wireless.mode ap 802-11-wireless.band bg \
+        ipv4.method shared ipv4.addresses 192.168.50.1/24 \
+        wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$AP_PASS" &&
+        $SUDO nmcli con up aizee-ap; then
         step_ok "WiFi AP 'aizee' up at 192.168.50.1"
     else
         step_warn "WiFi AP creation failed — check 'nmcli device' for wlan0"
@@ -231,8 +258,8 @@ if [[ -n "$USB_ETH" ]]; then
     if nmcli -t -f NAME con show 2>/dev/null | grep -qx "aizee-usb"; then
         step_ok "USB-C shared connection 'aizee-usb' already exists"
     elif $SUDO nmcli con add type ethernet ifname "$USB_ETH" con-name aizee-usb autoconnect yes \
-            ipv4.method shared ipv4.addresses 10.42.0.1/24 \
-        && $SUDO nmcli con up aizee-usb; then
+        ipv4.method shared ipv4.addresses 10.42.0.1/24 &&
+        $SUDO nmcli con up aizee-usb; then
         step_ok "USB-C share up at 10.42.0.1 ($USB_ETH)"
     else
         step_warn "USB-C shared connection failed on $USB_ETH"

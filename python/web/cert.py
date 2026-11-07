@@ -26,18 +26,19 @@ try:
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
+
     _CRYPTO_AVAILABLE = True
 except ImportError:
     _CRYPTO_AVAILABLE = False
 
 
 def _default_cert_dir() -> Path:
-    return Path.home() / ".aizee"
+    return Path.home() / '.aizee'
 
 
 def _local_ipv4s() -> list[str]:
     """Best-effort enumeration of local IPv4 addresses for SAN entries."""
-    addrs: set[str] = {"127.0.0.1"}
+    addrs: set[str] = {'127.0.0.1'}
     try:
         hostname = socket.gethostname()
         for info in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
@@ -47,7 +48,9 @@ def _local_ipv4s() -> list[str]:
     # Also the route-out address (works without DNS).
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))  # ltr-code: allow private-ip (no packet: a UDP connect only picks the route)
+            s.connect(
+                ('10.255.255.255', 1)  # ltr-code: allow private-ip (no packet: a UDP connect only picks the route)
+            )
             addrs.add(s.getsockname()[0])
     except Exception:
         pass
@@ -57,7 +60,7 @@ def _local_ipv4s() -> list[str]:
 def ensure_self_signed(
     cert_dir: Optional[Path] = None,
     *,
-    common_name: str = "aizee-quest-teleop",
+    common_name: str = 'aizee-quest-teleop',
     days_valid: int = 365 * 5,
 ) -> tuple[Path, Path, str]:
     """Return (cert_path, key_path, sha256_fingerprint).
@@ -67,28 +70,27 @@ def ensure_self_signed(
     every detected local IPv4.
     """
     if not _CRYPTO_AVAILABLE:
-        raise RuntimeError(
-            "The `cryptography` package is required for HTTPS — "
-            "install via: pip install cryptography"
-        )
+        raise RuntimeError('The `cryptography` package is required for HTTPS — install via: pip install cryptography')
     d = cert_dir if cert_dir is not None else _default_cert_dir()
     d.mkdir(parents=True, exist_ok=True)
-    cert_path = d / "quest_cert.pem"
-    key_path = d / "quest_key.pem"
+    cert_path = d / 'quest_cert.pem'
+    key_path = d / 'quest_key.pem'
 
     if not (cert_path.exists() and key_path.exists()):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         ips = _local_ipv4s()
-        san_entries: list[x509.GeneralName] = [x509.DNSName("localhost")]
+        san_entries: list[x509.GeneralName] = [x509.DNSName('localhost')]
         for ip in ips:
             try:
                 san_entries.append(x509.IPAddress(ipaddress.ip_address(ip)))
             except ValueError:
                 continue
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "AIZEE"),
-        ])
+        subject = issuer = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'AIZEE'),
+            ]
+        )
         now = _dt.datetime.now(_dt.timezone.utc)
         cert = (
             x509.CertificateBuilder()
@@ -113,12 +115,13 @@ def ensure_self_signed(
 
     cert_bytes = cert_path.read_bytes()
     fp = hashlib.sha256(_pem_der(cert_bytes)).hexdigest()
-    fp_colon = ":".join(fp[i:i + 2] for i in range(0, len(fp), 2)).upper()
+    fp_colon = ':'.join(fp[i : i + 2] for i in range(0, len(fp), 2)).upper()
     return cert_path, key_path, fp_colon
 
 
 def _pem_der(pem: bytes) -> bytes:
     """Extract the DER body from a PEM block for fingerprinting."""
     import base64
-    lines = [ln for ln in pem.decode().splitlines() if "-----" not in ln and ln.strip()]
-    return base64.b64decode("".join(lines))
+
+    lines = [ln for ln in pem.decode().splitlines() if '-----' not in ln and ln.strip()]
+    return base64.b64decode(''.join(lines))

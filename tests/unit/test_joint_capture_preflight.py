@@ -1,4 +1,5 @@
 """Stopped-reader preflight names every silent motor; identity changes stay fatal."""
+
 import pytest
 
 from robot_platform.control.joint_capture import MotorSilent, live_preflight, live_scan, paced
@@ -61,6 +62,7 @@ def test_the_scan_reads_each_drives_power_on_range_and_tolerates_firmware_withou
                     raise TimeoutError('no such parameter')
                 return 1
             return super().request(motor, kind, parameter)
+
     rows = live_scan(Ranges(), MOTORS)
     assert [row['zero_sta'] for row in rows] == [1, 1, None, 1]
     assert [row['position_rad'] for row in rows] == [0] * 4
@@ -72,8 +74,11 @@ def test_a_silent_motor_during_a_scan_is_identified():
     assert error.value.motor == 'm1' and isinstance(error.value, TimeoutError)
 
 
-TWO_BUSES = [dict(name=f'{side}{i}', bus='can' + side, id=1 + i, uid=f'{side}{i}', firmware='1.0')
-             for side in 'LR' for i in range(3)]
+TWO_BUSES = [
+    dict(name=f'{side}{i}', bus='can' + side, id=1 + i, uid=f'{side}{i}', firmware='1.0')
+    for side in 'LR'
+    for i in range(3)
+]
 
 
 def test_the_scan_alternates_buses_and_keeps_rows_in_roster_order():
@@ -81,8 +86,14 @@ def test_the_scan_alternates_buses_and_keeps_rows_in_roster_order():
     rows = live_scan(reader, TWO_BUSES)
     buses = [name[0] for name, _ in reader.calls]
     assert all(a != b for a, b in zip(buses, buses[1:]))
-    assert reader.calls[:6] == [('L0', 'stop'), ('R0', 'stop'), ('L0', 'read'), ('R0', 'read'),
-                                ('L0', 'read'), ('R0', 'read')]
+    assert reader.calls[:6] == [
+        ('L0', 'stop'),
+        ('R0', 'stop'),
+        ('L0', 'read'),
+        ('R0', 'read'),
+        ('L0', 'read'),
+        ('R0', 'read'),
+    ]
     assert [row['name'] for row in rows] == [m['name'] for m in TWO_BUSES]
 
 
@@ -94,10 +105,10 @@ def test_the_live_stream_skips_the_power_on_range():
 
 
 def test_requests_are_spaced_on_each_adapter_not_across_both():
-    clock, waits = [0.], []
+    clock, waits = [0.0], []
 
     class Io:
-        last_tx = 0.
+        last_tx = 0.0
 
         def __call__(self, bus, *args):
             self.last_tx = clock[0]
@@ -106,11 +117,12 @@ def test_requests_are_spaced_on_each_adapter_not_across_both():
     def sleep(seconds):
         waits.append(round(seconds, 6))
         clock[0] += seconds
+
     exchange = paced(Io(), clock=lambda: clock[0], sleep=sleep)
     for bus in ('canL', 'canR', 'canL', 'canR'):
         exchange(bus, None)
-        clock[0] += .002  # Each reply takes 2 ms.
-    assert waits == [0., 0., .006, 0.]  # The right adapter had its 10 ms while the left one waited.
+        clock[0] += 0.002  # Each reply takes 2 ms.
+    assert waits == [0.0, 0.0, 0.006, 0.0]  # The right adapter had its 10 ms while the left one waited.
 
 
 def test_the_live_audit_keeps_the_can_trace_only_for_the_first_frame_and_rejected_scans(tmp_path, monkeypatch, capsys):
@@ -146,13 +158,18 @@ def test_the_live_audit_keeps_the_can_trace_only_for_the_first_frame_and_rejecte
         result = {'success': True, 'events': [{'kind': 'identity', 'motor': 'm0'}]}  # From the preflight.
         live(Traced(result, slow_scans={3}), MOTORS, result)
         return result
+
     monkeypatch.setattr(module, 'run_capture', capture)
     module.main()
     report = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert report['frames'] == 3 and report['rejected_scans'] == 1
     audit = [json.loads(line) for line in open(report['raw_frames'])]
-    assert [sorted(entry) for entry in audit] == [['events', 'frame'], ['frame'], ['events', 'rejected_scan'],
-                                                  ['frame']]
+    assert [sorted(entry) for entry in audit] == [
+        ['events', 'frame'],
+        ['frame'],
+        ['events', 'rejected_scan'],
+        ['frame'],
+    ]
     assert audit[0]['events'][0] == {'kind': 'identity', 'motor': 'm0'} and len(audit[0]['events']) == 9
     assert all(frame['frame']['motors'] for frame in audit if 'frame' in frame)
 
@@ -161,7 +178,8 @@ def test_each_scan_row_carries_the_temperature_its_stop_reply_reported():
     class Warm(Reader):
         def request(self, motor, kind, parameter=None):
             reply = super().request(motor, kind, parameter)
-            return dict(reply, temperature_c=40. + motor['id']) if kind == 'stop' else reply
+            return dict(reply, temperature_c=40.0 + motor['id']) if kind == 'stop' else reply
+
     rows = live_scan(Warm(), TWO_BUSES, power_on=False)
-    assert [row['temperature_c'] for row in rows] == [41., 42., 43., 41., 42., 43.]
+    assert [row['temperature_c'] for row in rows] == [41.0, 42.0, 43.0, 41.0, 42.0, 43.0]
     assert all(row['temperature_c'] is None for row in live_scan(Reader(), TWO_BUSES, power_on=False))

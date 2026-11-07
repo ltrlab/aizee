@@ -3,14 +3,19 @@
 No USB, CAN, SSH or motors. The `armplant` runs need the native control harness
 (cargo build -p robot_control --bin control_harness), as the other receiver contracts do.
 """
+
 import numpy as np
 import pytest
 
 from robot_platform.evaluation import trials as trial_records
 from robot_platform.evaluation.grid import GridSpec, cube_poses
 from robot_platform.evaluation.plants import derive_stack
-from robot_platform.evaluation.policies import (FixtureReplayPolicy, HoldStillPolicy, PenetratingPolicy,
-                                                fixture_trajectory)
+from robot_platform.evaluation.policies import (
+    FixtureReplayPolicy,
+    HoldStillPolicy,
+    PenetratingPolicy,
+    fixture_trajectory,
+)
 from robot_platform.evaluation.reach import GraspIK
 from robot_platform.evaluation.runner import RunConfig, TrialRunner, evaluate
 from robot_platform.simulation.control_harness import default_binary
@@ -33,7 +38,7 @@ def armplant():
 def test_fixture_replay_from_its_own_start_passes_the_arms_through_each_other(stack):
     # With exact tracking the fixture picks the cube up, then drives the two arms through each other on its way to
     # the handoff (it predates the arm-to-arm audit): the scene's verdict, carried into the record unchanged.
-    report = evaluate(FixtureReplayPolicy(), RunConfig(plant='ideal', timeout_s=20., trials=(0,)), stack=stack)
+    report = evaluate(FixtureReplayPolicy(), RunConfig(plant='ideal', timeout_s=20.0, trials=(0,)), stack=stack)
     trial = report['trials_detail'][0]
     assert trial['cube_start']['cell'] == 'nominal'
     assert trial['outcome'] == 'forbidden_penetration' and not trial['eligible']
@@ -48,7 +53,7 @@ def test_fixture_replay_from_its_own_start_passes_the_arms_through_each_other(st
 def test_fixture_replay_through_the_receiver_reports_what_the_scene_says(stack):
     """No success is asserted: an open-loop millimetre-margin replay through tracking error is the question.
     The record must be exactly the scene's verdict (MINERVA_EVAL.md records the measured result)."""
-    runner = TrialRunner(RunConfig(plant=armplant(), timeout_s=12.), stack=stack)
+    runner = TrialRunner(RunConfig(plant=armplant(), timeout_s=12.0), stack=stack)
     try:
         trial = runner.run_trial(FixtureReplayPolicy(), cube_poses(GridSpec())[0], 0)
     finally:
@@ -56,21 +61,22 @@ def test_fixture_replay_through_the_receiver_reports_what_the_scene_says(stack):
     checked = trial_records.validate(trial)
     assert checked['counted'] and trial['staging']['duration_s'] > 0
     assert (trial['stages'], trial['outcome'], trial['eligible']) == trial_records.outcome_from_events(
-        trial['events'], timed_out=trial['outcome'] == 'timeout')[:3]
+        trial['events'], timed_out=trial['outcome'] == 'timeout'
+    )[:3]
     assert trial['eligible'] == (not any(e['kind'] in trial_records.FORBIDDEN_EVENTS for e in trial['events']))
 
 
 def test_hold_still_scores_zero_with_timeouts(stack):
-    report = evaluate(HoldStillPolicy(), RunConfig(plant=armplant(), timeout_s=2., trials=(0, 1, 9)), stack=stack)
+    report = evaluate(HoldStillPolicy(), RunConfig(plant=armplant(), timeout_s=2.0, trials=(0, 1, 9)), stack=stack)
     assert [t['outcome'] for t in report['trials_detail']] == ['timeout'] * 3
-    assert all(t['duration_s'] == pytest.approx(2., abs=.02) for t in report['trials_detail'])
-    assert report['success'] == {'count': 0, 'rate': 0., 'wilson95': [0., pytest.approx(.5615, abs=1e-4)]}
-    assert report['stage_completion']['score'] == 0. and report['outcomes']['timeout'] == 3
+    assert all(t['duration_s'] == pytest.approx(2.0, abs=0.02) for t in report['trials_detail'])
+    assert report['success'] == {'count': 0, 'rate': 0.0, 'wilson95': [0.0, pytest.approx(0.5615, abs=1e-4)]}
+    assert report['stage_completion']['score'] == 0.0 and report['outcomes']['timeout'] == 3
     assert report['trials']['eligible'] == 3
 
 
 def test_penetrating_policy_is_ineligible(stack):
-    report = evaluate(PenetratingPolicy(), RunConfig(plant=armplant(), timeout_s=5., trials=(0,)), stack=stack)
+    report = evaluate(PenetratingPolicy(), RunConfig(plant=armplant(), timeout_s=5.0, trials=(0,)), stack=stack)
     trial = report['trials_detail'][0]
     assert trial['outcome'] == 'forbidden_penetration' and trial['eligible'] is False
     assert 'task/table' in trial['detail']
@@ -89,12 +95,13 @@ def test_policy_errors_and_bad_chunks_abort_one_trial_and_the_run_goes_on(stack)
             self.trial += 1
 
         def __call__(self, observation):
-            if self.trial == 0 and observation['t'] > .2:
+            if self.trial == 0 and observation['t'] > 0.2:
                 raise RuntimeError('model exploded')
             if self.trial == 1:
                 return np.zeros((2, 13))
             return observation['q'][None, :]
-    report = evaluate(Broken(), RunConfig(plant='ideal', timeout_s=.5, trials=(0, 1, 2)), stack=stack)
+
+    report = evaluate(Broken(), RunConfig(plant='ideal', timeout_s=0.5, trials=(0, 1, 2)), stack=stack)
     outcomes = [(t['outcome'], t['detail']) for t in report['trials_detail']]
     assert outcomes[0][0] == outcomes[1][0] == 'source_gap_or_abort'
     assert 'model exploded' in outcomes[0][1] and '(H, 14)' in outcomes[1][1]
@@ -113,7 +120,7 @@ def test_default_grid_poses_are_reachable_without_penetration(stack):
             solved = ik.solve('left', pose['x'], pose['y'], pose['yaw'], seed=seed)
             assert solved['ok'], (pose, solved)
             # Public scene API: move there, reset (clearing the move's audit), then audit the pose itself.
-            scene.update(solved['q'], .05)
+            scene.update(solved['q'], 0.05)
             scene.reset()
             state = scene.update(solved['q'], PHYSICS_DT)
             assert not state['forbidden_contacts'], (pose, state['forbidden_contacts'])

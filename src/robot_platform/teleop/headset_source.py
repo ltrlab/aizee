@@ -26,6 +26,7 @@ Each B/Y press the worker counts asks for Hold while engaged: never Engage, neve
 The loop sees an ordinary target: every move still goes through the lifecycle (alignment, speed limits) and the
 receiver's limits, and the operator's Hold, Return, Disable and the foot switch stay in charge.
 """
+
 import math
 
 from .arm_ik import ARM_JOINTS, ARMS, cad_limits
@@ -37,8 +38,8 @@ ENGAGED = ('ENGAGING', 'TELEOP')
 # value is 0.16 (the phase 2 working poses'), and J2-J4 sit 0.42 rad or more inside Minerva's swept limits, so a 6 cm
 # drag any way converges with no joint at a limit (2026-11-02). The arms mirror each other: J2 turns the other way on
 # the right. Rising, the forearm swings forward first: halfway the hand is 18 cm ahead and 7 cm up.
-READY = {'left': (0., -.3, -1.6, -.7, 0., 0.), 'right': (0., .3, -1.6, -.7, 0., 0.)}
-HANGING_RAD = .25  # An arm hangs while J2, J3 and J4 (its parallel pitch joints) are this close to the reference.
+READY = {'left': (0.0, -0.3, -1.6, -0.7, 0.0, 0.0), 'right': (0.0, 0.3, -1.6, -0.7, 0.0, 0.0)}
+HANGING_RAD = 0.25  # An arm hangs while J2, J3 and J4 (its parallel pitch joints) are this close to the reference.
 
 
 def validate_request(payload):
@@ -51,24 +52,35 @@ def validate_request(payload):
 def worker_limits(report, names):
     """{arm: {cad joint: (low, high)}} for the arms this receiver drives whole (all six joints in `names`)."""
     driven = {row['cad_joint'] for row in report if row['motor'] in set(names)}
-    return {arm: cad_limits(report, arm) for arm in ARMS
-            if all(f'{arm}_arm_j{n}' in driven for n in range(1, ARM_JOINTS + 1))}
+    return {
+        arm: cad_limits(report, arm)
+        for arm in ARMS
+        if all(f'{arm}_arm_j{n}' in driven for n in range(1, ARM_JOINTS + 1))
+    }
 
 
 class HeadsetSource:
     """`reference` ({motor: position}, the lifecycle's zero positions): where a hanging arm hangs. Without it no arm
     rises on Engage."""
 
-    def __init__(self, names, report, *, reference=None, max_age_s=.2, start_s=.5):
+    def __init__(self, names, report, *, reference=None, max_age_s=0.2, start_s=0.5):
         for value, label in ((max_age_s, 'max_age_s'), (start_s, 'start_s')):
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f'{label} must be a positive number of seconds')
         self.names, self.max_age_s, self.start_s = tuple(names), float(max_age_s), float(start_s)
         rows = {row['motor']: row for row in report if row['motor'] in set(self.names)}
         by_cad = {row['cad_joint']: row for row in rows.values()}
-        self.arms = {arm: [(by_cad[f'{arm}_arm_j{n}']['motor'], by_cad[f'{arm}_arm_j{n}']['scale'],
-                            by_cad[f'{arm}_arm_j{n}']['offset']) for n in range(1, ARM_JOINTS + 1)]
-                     for arm in worker_limits(report, self.names)}
+        self.arms = {
+            arm: [
+                (
+                    by_cad[f'{arm}_arm_j{n}']['motor'],
+                    by_cad[f'{arm}_arm_j{n}']['scale'],
+                    by_cad[f'{arm}_arm_j{n}']['offset'],
+                )
+                for n in range(1, ARM_JOINTS + 1)
+            ]
+            for arm in worker_limits(report, self.names)
+        }
         if not self.arms:
             raise ValueError('The headset drives whole arms: this receiver has none')
         self.grippers = {}  # {arm: (motor, open, closed)}: the opening direction picks the usable range's end.
@@ -82,17 +94,22 @@ class HeadsetSource:
             self.reference = {arm: self._cad(arm, reference) for arm in self.arms}
             for arm in self.arms:
                 limits = cad_limits(report, arm)
-                outside = [n for n, q in enumerate(READY[arm], 1)
-                           if not limits[f'{arm}_arm_j{n}'][0] < q < limits[f'{arm}_arm_j{n}'][1]]
+                outside = [
+                    n
+                    for n, q in enumerate(READY[arm], 1)
+                    if not limits[f'{arm}_arm_j{n}'][0] < q < limits[f'{arm}_arm_j{n}'][1]
+                ]
                 if outside:
-                    raise ValueError(f"The headset's ready pose is outside the {arm} arm's limits at "
-                                     + ', '.join(f'J{n}' for n in outside))
-        self.raised = ()        # The arms this Engage raises to READY.
-        self.seed = 0           # The latest seed's number: answers computed from another are not followed.
+                    raise ValueError(
+                        f"The headset's ready pose is outside the {arm} arm's limits at "
+                        + ', '.join(f'J{n}' for n in outside)
+                    )
+        self.raised = ()  # The arms this Engage raises to READY.
+        self.seed = 0  # The latest seed's number: answers computed from another are not followed.
         self.pending_seed = None  # (number, {arm: CAD positions}) for the loop to hand the worker.
-        self.aligned = None     # ENGAGING/TELEOP: the pose Engage aligned to, {motor: position}.
+        self.aligned = None  # ENGAGING/TELEOP: the pose Engage aligned to, {motor: position}.
         self.grip_targets = {}  # Each gripper's last target while following.
-        self.answer = None      # The newest answer and its arrival, as given to `receive`.
+        self.answer = None  # The newest answer and its arrival, as given to `receive`.
         self.holds_seen = {}
         self.sequence = self.answers = self.stale_cycles = self.hold_requests = 0
         self.last_error = None
@@ -149,7 +166,7 @@ class HeadsetSource:
 
     def _gripper(self, arm, closure):
         motor, opened, closed = self.grippers[arm]
-        return opened + min(1., max(0., closure)) * (closed - opened)
+        return opened + min(1.0, max(0.0, closure)) * (closed - opened)
 
     def _held_pose(self, now, measured):
         """Where the arms are, each gripper at its trigger if a hand is fresh."""
@@ -217,16 +234,37 @@ class HeadsetSource:
             self.pause()
             return None
         self.sequence += 1
-        return [dict(name=name, position=float(pose[name]), sampled_at=now, sequence=self.sequence)
-                for name in self.names]
+        return [
+            dict(name=name, position=float(pose[name]), sampled_at=now, sequence=self.sequence) for name in self.names
+        ]
 
     def snapshot(self, now=None):
         commands = (self.answer[0].get('commands') if self.answer else None) or {}
-        arms = {arm: {key: (commands.get(arm) or {}).get(key) for key in
-                      ('gripped', 'tracking', 'clamped', 'converged', 'near_singular', 'at_limit', 'sigma', 'trigger')}
-                for arm in self.arms}
-        return dict(arms=arms, answers=self.answers, stale_cycles=self.stale_cycles, seed=self.seed,
-                    following=self.aligned is not None, raised=list(self.raised), hold_requests=self.hold_requests,
-                    error=self.last_error,
-                    compute_ms=self.answer[0].get('compute_ms') if self.answer else None,
-                    answer_age_s=None if self.answer is None or now is None else round(now - self.answer[1], 3))
+        arms = {
+            arm: {
+                key: (commands.get(arm) or {}).get(key)
+                for key in (
+                    'gripped',
+                    'tracking',
+                    'clamped',
+                    'converged',
+                    'near_singular',
+                    'at_limit',
+                    'sigma',
+                    'trigger',
+                )
+            }
+            for arm in self.arms
+        }
+        return dict(
+            arms=arms,
+            answers=self.answers,
+            stale_cycles=self.stale_cycles,
+            seed=self.seed,
+            following=self.aligned is not None,
+            raised=list(self.raised),
+            hold_requests=self.hold_requests,
+            error=self.last_error,
+            compute_ms=self.answer[0].get('compute_ms') if self.answer else None,
+            answer_age_s=None if self.answer is None or now is None else round(now - self.answer[1], 3),
+        )

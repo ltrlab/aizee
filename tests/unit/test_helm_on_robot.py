@@ -1,5 +1,6 @@
 """Helm on Minerva: a login and one device in control (stopping always allowed), the robot connection that counts as
 wired, Check's tether item, and teleop through the GELLO bridge (refused without one, its link bound on the tether)."""
+
 import asyncio
 from pathlib import Path
 import time
@@ -20,7 +21,7 @@ TELEOP = ROOT / 'config/devices/minerva-teleop.json'
 
 class Clock:
     def __init__(self):
-        self.now = 1000.
+        self.now = 1000.0
 
     def __call__(self):
         return self.now
@@ -42,7 +43,7 @@ def test_a_password_logs_a_device_in_and_one_device_at_a_time_is_in_control(tmp_
     assert access.in_control(pc) and not access.in_control(tablet)
     access.logout(pc)
     assert access.view(tablet)['holder'] is None and access.session(pc) is None
-    clock.now += 13 * 3600.
+    clock.now += 13 * 3600.0
     assert access.session(tablet) is None  # Twelve hours unused: logged out.
     with pytest.raises(PermissionError, match='Log in first'):
         access.claim(tablet)
@@ -62,15 +63,19 @@ def test_wrong_passwords_wait_longer_each_time(tmp_path):
     clock.now += 1.1
     with pytest.raises(PermissionError):
         access.login('minerva-helm', device='x', address='192.0.2.99')  # Two failures: a two-second wait.
-    clock.now += 1.
+    clock.now += 1.0
     assert access.login('minerva-helm', device='x', address='192.0.2.99')
     assert access.login('minerva-helm', device='y', address='192.0.2.98')  # Another address never waited.
 
 
 def test_only_stopping_is_a_stop():
     assert stop_request('/api/helm/teleop/key', {'key': 'H'}) and stop_request('/api/helm/tune/key', {'key': 'X'})
-    for path, payload in (('/api/helm/teleop/key', {'key': 'T'}), ('/api/helm/teleop/key', {'key': 'H', 'x': 1}),
-                          ('/api/helm/teleop/start', {'key': 'H'}), ('/api/helm/teleop/key', None)):
+    for path, payload in (
+        ('/api/helm/teleop/key', {'key': 'T'}),
+        ('/api/helm/teleop/key', {'key': 'H', 'x': 1}),
+        ('/api/helm/teleop/start', {'key': 'H'}),
+        ('/api/helm/teleop/key', None),
+    ):
         assert not stop_request(path, payload)
 
 
@@ -102,6 +107,7 @@ class Link:
 
 def test_the_page_needs_a_login_and_changes_need_control_but_any_device_may_stop(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
+
     save_password(tmp_path / 'access.json', 'minerva-helm')
     session = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=tmp_path / 'limits.json', on_robot=True)
     teleop = Teleop()
@@ -119,7 +125,10 @@ def test_the_page_needs_a_login_and_changes_need_control_but_any_device_may_stop
         wrong = await client.post('/api/helm/login', json={'password': 'nope-nope', 'device': 'Tablet'})
         assert wrong.status == 401
         await asyncio.sleep(1.1)  # The wait after one wrong password.
-        right = await client.post('/api/helm/login', json={'password': 'minerva-helm', 'device': 'Tablet'})  # ltr-code: allow password-assignment (a test's)
+        right = await client.post(
+            '/api/helm/login',
+            json={'password': 'minerva-helm', 'device': 'Tablet'},  # ltr-code: allow password-assignment (a test's)
+        )
         assert right.status == 200 and 'helm_session' in right.cookies
         state = await (await client.get('/api/helm/state')).json()
         assert state['access'] == {'enabled': True, 'device': 'Tablet', 'in_control': False, 'holder': None}
@@ -137,10 +146,17 @@ def test_the_page_needs_a_login_and_changes_need_control_but_any_device_may_stop
         assert (await client.get('/api/helm/state')).status == 401
 
     async def run():
-        app = create_app(session, Link(), teleop=teleop, token='secret', access=Access(tmp_path / 'access.json'),
-                         simulation_only=False)
+        app = create_app(
+            session,
+            Link(),
+            teleop=teleop,
+            token='secret',
+            access=Access(tmp_path / 'access.json'),
+            simulation_only=False,
+        )
         async with TestClient(TestServer(app)) as client:
             await scenario(client)
+
     try:
         asyncio.run(run())
     finally:
@@ -157,19 +173,28 @@ def test_on_the_robot_the_connection_is_wired_and_check_passes_the_tether(tmp_pa
     finally:
         session.close()
     from robot_platform.ops import check
+
     status, detail = check._tether(SimpleNamespace(address='127.0.0.1', facts={}))
     assert status == check.PASS and 'Helm runs on Minerva' in detail
 
 
 def test_teleop_on_the_robot_needs_the_bridge_and_binds_its_link_on_the_tether(tmp_path):
-    helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
-                           asset_id='minerva-production-01', connection='robot', address='127.0.0.1')
+    helm = SimpleNamespace(
+        profile_path=PROFILE,
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}},
+        asset_id='minerva-production-01',
+        connection='robot',
+        address='127.0.0.1',
+    )
     bridge = SimpleNamespace(connected=False, serve_link=lambda *a, **k: None)
     made = []
 
     class Robot:
         def __init__(self, bundle, leader_profile, **options):
             from robot_platform.helm.edge import Inbox
+
             made.append(options)
             self.views, self.commands = Inbox(), SimpleNamespace(send=lambda message: None, close=lambda: None)
 
@@ -181,8 +206,16 @@ def test_teleop_on_the_robot_needs_the_bridge_and_binds_its_link_on_the_tether(t
 
         def join(self, timeout=None):
             pass
-    session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, bridge=bridge,
-                            leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+
+    session = TeleopSession(
+        helm,
+        TELEOP,
+        runs=tmp_path,
+        target='jetson',
+        edge_factory=Robot,
+        bridge=bridge,
+        leaders=SimpleNamespace(saved=None, missing=lambda routes: []),
+    )
     helm.on_robot = True
     session.set_receiver('virtual')
     with pytest.raises(ValueError, match='never inside Helm'):
@@ -201,8 +234,10 @@ def test_teleop_on_the_robot_needs_the_bridge_and_binds_its_link_on_the_tether(t
 
 # -- the operator's files, kept out of the release ---------------------------------------------------------------
 
+
 def test_operator_files_start_from_the_release_and_a_release_change_wins_without_losing_a_save(tmp_path):
     from robot_platform.helm.operator_files import operator_files, prepare
+
     release, mine = tmp_path / 'release', tmp_path / 'operator'
     release.mkdir()
     files = {name: release / name for name in ('limits.json', 'servo.json', 'ranges.json')}
@@ -218,7 +253,7 @@ def test_operator_files_start_from_the_release_and_a_release_change_wins_without
     # A deploy brings committed copies: never saved over (servo) -> updated; saved over (limits) -> kept aside.
     files['servo.json'].write_text('servo v2')
     files['limits.json'].write_text('limits v2')
-    notices = {notice['file']: notice for notice in prepare(files, mine, clock=lambda: 0.)}
+    notices = {notice['file']: notice for notice in prepare(files, mine, clock=lambda: 0.0)}
     assert notices['servo.json']['kind'] == 'updated' and (mine / 'servo.json').read_text() == 'servo v2'
     assert notices['limits.json']['kind'] == 'replaced' and (mine / 'limits.json').read_text() == 'limits v2'
     kept = Path(notices['limits.json']['kept'])
@@ -229,11 +264,16 @@ def test_operator_files_start_from_the_release_and_a_release_change_wins_without
     files['servo.json'].write_text('servo v3')
     assert prepare(files, mine) == [] and (mine / 'servo.json').read_text() == 'servo v3'
     found = operator_files(PROFILE, 'minerva-production-01', TELEOP)
-    assert set(found) == {'minerva-production-01-joint-limits.json', 'minerva-production-01-servo.json',
-                          'minerva-production-01-arms-reference.json', 'gello-dual-leader-ranges.json'}
+    assert set(found) == {
+        'minerva-production-01-joint-limits.json',
+        'minerva-production-01-servo.json',
+        'minerva-production-01-arms-reference.json',
+        'gello-dual-leader-ranges.json',
+    }
     assert all(path.parent == PROFILE.parent.resolve() for path in found.values())
     # The arms' reference starts as the profile's own; Joint zero revises Helm's copy (helm.joint_zero).
     import json
+
     reference = json.loads(PROFILE.read_text(encoding='utf-8'))['reference']
     assert found['minerva-production-01-arms-reference.json'] == (PROFILE.parent / reference).resolve()
 
@@ -242,6 +282,7 @@ def test_helm_reads_and_saves_the_operator_files_in_their_folder(tmp_path):
     from robot_platform.control.servo_calibration import servo_path
     from robot_platform.helm.leaders import LeaderWorkspace
     from robot_platform.ops.check import Context
+
     folder = tmp_path / 'operator'
     session = HelmSession(PROFILE, runs=tmp_path / 'runs', on_robot=True, operator_files=folder)
     try:
@@ -252,28 +293,50 @@ def test_helm_reads_and_saves_the_operator_files_in_their_folder(tmp_path):
     assert servo_path(PROFILE, 'minerva-production-01') == PROFILE.parent.resolve() / 'minerva-production-01-servo.json'
     leaders = LeaderWorkspace(TELEOP, operator_files=folder)
     assert leaders.path == folder.resolve() / 'gello-dual-leader-ranges.json'
-    context = Context(root=ROOT, profile=PROFILE, teleop=TELEOP, runs=tmp_path, limits=None, address=None, motors=False,
-                      open_ssh=None, operator_files=folder)
+    context = Context(
+        root=ROOT,
+        profile=PROFILE,
+        teleop=TELEOP,
+        runs=tmp_path,
+        limits=None,
+        address=None,
+        motors=False,
+        open_ssh=None,
+        operator_files=folder,
+    )
     assert context.operator_files == folder
 
 
 # -- the 3D view's meshes, converted on the build PC ---------------------------------------------------------------
+
 
 def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_path):
     import gzip
     import hashlib
     import json
     import struct
+
     trimesh = pytest.importorskip('trimesh')
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.models import ModelProfile
-    from robot_platform.viewer.server import (ModelStore, coarse_payload, create_app as viewer_app, mesh_payload,
-                                              stored_mesh_name)
+    from robot_platform.viewer.server import (
+        ModelStore,
+        coarse_payload,
+        create_app as viewer_app,
+        mesh_payload,
+        stored_mesh_name,
+    )
+
     trimesh.creation.box().export(tmp_path / 'shape.stl')
-    (tmp_path / 'machine.urdf').write_text('<robot name="m"><link name="base"><visual><geometry>'
-                                           '<mesh filename="package://parts/shape.stl"/></geometry></visual></link></robot>')
-    (tmp_path / 'model.json').write_text(json.dumps({'schema_version': 1, 'id': 'fixture', 'title': 'Box',
-                                                     'urdf': 'machine.urdf', 'packages': {'parts': '.'}}))
+    (tmp_path / 'machine.urdf').write_text(
+        '<robot name="m"><link name="base"><visual><geometry>'
+        '<mesh filename="package://parts/shape.stl"/></geometry></visual></link></robot>'
+    )
+    (tmp_path / 'model.json').write_text(
+        json.dumps(
+            {'schema_version': 1, 'id': 'fixture', 'title': 'Box', 'urdf': 'machine.urdf', 'packages': {'parts': '.'}}
+        )
+    )
     profile = ModelProfile.load(tmp_path / 'model.json')
     store = tmp_path / 'meshes'
     store.mkdir()
@@ -302,6 +365,7 @@ def test_the_mesh_store_serves_converted_meshes_by_digest_and_revalidates(tmp_pa
     async def run():
         async with TestClient(TestServer(viewer_app([profile], mesh_store=store))) as client:
             await scenario(client)
+
     asyncio.run(run())
 
 
@@ -311,6 +375,7 @@ def test_helm_serves_its_devices_and_this_computer_on_two_listeners_then_cleans_
     import urllib.request
     from aiohttp import web
     from robot_platform.helm.cli import serve
+
     app = web.Application()
 
     async def page(_request):
@@ -318,6 +383,7 @@ def test_helm_serves_its_devices_and_this_computer_on_two_listeners_then_cleans_
 
     async def cleanup(_app):
         cleaned.append(True)
+
     app.router.add_get('/', page)
     cleaned, ports = [], []
     app.on_cleanup.append(cleanup)
@@ -326,39 +392,54 @@ def test_helm_serves_its_devices_and_this_computer_on_two_listeners_then_cleans_
             probe.bind(('127.0.0.1', 0))
             ports.append(probe.getsockname()[1])
     stop = threading.Event()
-    thread = threading.Thread(target=serve, args=(app, [('127.0.0.1', port, None) for port in ports]),
-                              kwargs={'handle_signals': False, 'stop': stop})
+    thread = threading.Thread(
+        target=serve,
+        args=(app, [('127.0.0.1', port, None) for port in ports]),
+        kwargs={'handle_signals': False, 'stop': stop},
+    )
     thread.start()
     try:
         for port in ports:  # The devices' listener (HTTPS on Minerva) and this computer's plain one.
-            deadline = time.monotonic() + 10.
+            deadline = time.monotonic() + 10.0
             while True:
                 try:
-                    assert urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=2.).read() == b'helm'
+                    assert urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=2.0).read() == b'helm'
                     break
                 except OSError:
                     if time.monotonic() > deadline:
                         raise
-                    time.sleep(.05)
+                    time.sleep(0.05)
     finally:
         stop.set()
-        thread.join(10.)
+        thread.join(10.0)
     assert not thread.is_alive() and cleaned == [True]  # Helm's shutdown runs, as under run_app.
 
 
 def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
     # The loop sends status-only views (no pose) between full ones; the 3D view showed the live view's resting pose
     # in those gaps, flickering against the session's.
-    helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
-                           asset_id='minerva-production-01', connection='robot', address='127.0.0.1')
-    session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson',
-                            leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
-    pose = {'positions': {'right_arm_j1': .3}, 'sequence': 1}
-    later = {'positions': {'right_arm_j1': .4}, 'sequence': 2}
+    helm = SimpleNamespace(
+        profile_path=PROFILE,
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}},
+        asset_id='minerva-production-01',
+        connection='robot',
+        address='127.0.0.1',
+    )
+    session = TeleopSession(
+        helm, TELEOP, runs=tmp_path, target='jetson', leaders=SimpleNamespace(saved=None, missing=lambda routes: [])
+    )
+    pose = {'positions': {'right_arm_j1': 0.3}, 'sequence': 1}
+    later = {'positions': {'right_arm_j1': 0.4}, 'sequence': 2}
     # Between full views the loop sends the 3D views' pose alone (the arms', the neck's): it takes over.
-    messages = iter([['view', {'phase': 'running', 'head': {'state': 'TELEOP', 'joints': {'neck_z': 0.}}}, pose],
-                     ['view', {'phase': 'running', 'status_at': 2., 'head': {'state': 'TELEOP', 'joints': {}}}, None],
-                     ['guide', later, {'neck_z': .2, 'neck_y': -.1}]])
+    messages = iter(
+        [
+            ['view', {'phase': 'running', 'head': {'state': 'TELEOP', 'joints': {'neck_z': 0.0}}}, pose],
+            ['view', {'phase': 'running', 'status_at': 2.0, 'head': {'state': 'TELEOP', 'joints': {}}}, None],
+            ['guide', later, {'neck_z': 0.2, 'neck_y': -0.1}],
+        ]
+    )
     seen = []
 
     class Channel:
@@ -368,34 +449,45 @@ def test_a_status_only_view_keeps_the_last_pose_in_the_3d_view(tmp_path):
                 return next(messages)
             except StopIteration:
                 raise EOFError from None
+
     heads = []
     original = Channel.recv
 
     def recv(self):
         heads.append(session._view.get('head', {}).get('joints'))
         return original(self)
+
     Channel.recv = recv
     session._read(Channel())
     assert seen == [None, pose, pose, later]  # Still the session's pose after the status-only view, then the next.
-    assert heads[-1] == {'neck_z': .2, 'neck_y': -.1}  # The neck too, for the 3D view's head.
+    assert heads[-1] == {'neck_z': 0.2, 'neck_y': -0.1}  # The neck too, for the 3D view's head.
     assert session.guide() is None  # The session's end clears it.
 
 
 def test_teleop_on_the_robot_binds_its_link_where_the_bridge_reached_minerva(tmp_path):
-    helm = SimpleNamespace(profile_path=PROFILE, bindings={}, mapping={}, saved_limits={'joints': {}},
-                           asset_id='minerva-production-01', connection='robot', address='127.0.0.1', on_robot=True)
+    helm = SimpleNamespace(
+        profile_path=PROFILE,
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}},
+        asset_id='minerva-production-01',
+        connection='robot',
+        address='127.0.0.1',
+        on_robot=True,
+    )
     # The bridge reached Minerva at its network address, over Wi-Fi (helm.bridge's relay and path).
-    bridge = SimpleNamespace(connected=True, serve_link=lambda *a, **k: None, robot_address='192.0.2.43',
-                             path='wifi')
+    bridge = SimpleNamespace(connected=True, serve_link=lambda *a, **k: None, robot_address='192.0.2.43', path='wifi')
     made = []
 
     class Robot:
         def __init__(self, bundle, leader_profile, **options):
             from robot_platform.helm.edge import Inbox
+
             made.append(options)
             self.views = Inbox()
-            self.commands = SimpleNamespace(send=lambda message: message[0] == 'stop' and self.views.end('stopped'),
-                                            close=lambda: None)
+            self.commands = SimpleNamespace(
+                send=lambda message: message[0] == 'stop' and self.views.end('stopped'), close=lambda: None
+            )
 
         def start(self):
             pass
@@ -405,8 +497,16 @@ def test_teleop_on_the_robot_binds_its_link_where_the_bridge_reached_minerva(tmp
 
         def join(self, timeout=None):
             pass
-    session = TeleopSession(helm, TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, bridge=bridge,
-                            leaders=SimpleNamespace(saved=None, missing=lambda routes: []))
+
+    session = TeleopSession(
+        helm,
+        TELEOP,
+        runs=tmp_path,
+        target='jetson',
+        edge_factory=Robot,
+        bridge=bridge,
+        leaders=SimpleNamespace(saved=None, missing=lambda routes: []),
+    )
     session.set_receiver('virtual')
     session.start()
     try:

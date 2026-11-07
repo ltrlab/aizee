@@ -4,6 +4,7 @@
 This is a device-specific maintenance recipe, not part of robot control.
 Run `check` unprivileged before the operator runs `install` with sudo.
 """
+
 import argparse
 import datetime
 import hashlib
@@ -40,7 +41,9 @@ def require(condition, message):
 
 def preflight(require_disconnected=True, require_candidate=True):
     require(Path('/etc/machine-id').read_text().strip() == MACHINE, 'Wrong machine identity')
-    require(Path('/proc/device-tree/serial-number').read_bytes().rstrip(b'\0\n').decode() == SERIAL, 'Wrong Jetson module')
+    require(
+        Path('/proc/device-tree/serial-number').read_bytes().rstrip(b'\0\n').decode() == SERIAL, 'Wrong Jetson module'
+    )
     require(command('uname', '-r') == KERNEL, 'Kernel changed: rebuild/review required')
     require(digest(ORIGINAL) == ORIGINAL_SHA, 'Original module changed: do not overwrite')
     if require_candidate:
@@ -48,19 +51,26 @@ def preflight(require_disconnected=True, require_candidate=True):
         require(command('modinfo', '-F', 'vermagic', str(CANDIDATE)).split()[0] == KERNEL, 'Candidate kernel mismatch')
     for service in SERVICES:
         require(command('systemctl', 'show', service, '--property=MainPID', '--value') == '0', service + ' is running')
-        require(command('systemctl', 'show', service, '--property=UnitFileState', '--value') in ('disabled', 'masked'), service + ' could start on reboot')
+        require(
+            command('systemctl', 'show', service, '--property=UnitFileState', '--value') in ('disabled', 'masked'),
+            service + ' could start on reboot',
+        )
     require(not command('ss', '-H', '-ltn', 'sport', '=', ':5590'), 'Guarded receiver is running')
     if require_disconnected:
         directory = Path('/sys/bus/usb/drivers/gs_usb')
-        attached = [p.name for p in directory.iterdir() if ':' in p.name and p.is_symlink()] if directory.exists() else []
+        attached = (
+            [p.name for p in directory.iterdir() if ':' in p.name and p.is_symlink()] if directory.exists() else []
+        )
         require(not attached, 'Unplug adapter USB before maintenance: ' + ', '.join(attached))
         # BOOT mode or an unbound USB interface must not bypass this check.
         for usb in Path('/sys/bus/usb/devices').iterdir():
             vendor, product = usb / 'idVendor', usb / 'idProduct'
             if vendor.is_file() and product.is_file():
                 identity = (vendor.read_text().strip(), product.read_text().strip())
-                require(identity not in (('1d50', '606f'), ('0483', 'df11')),
-                        'USB-CAN/DFU device still connected at ' + usb.name)
+                require(
+                    identity not in (('1d50', '606f'), ('0483', 'df11')),
+                    'USB-CAN/DFU device still connected at ' + usb.name,
+                )
     for bus in ('canL', 'canR'):
         flags = Path('/sys/class/net') / bus / 'flags'
         require(not flags.exists() or not int(flags.read_text(), 16) & 1, bus + ' is up')
@@ -96,10 +106,17 @@ def receipt(action, details):
     directory = STAGE / 'installation-records'
     directory.mkdir(exist_ok=True)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
-    record = {'at_utc': stamp, 'action': action, 'asset_id': 'minerva-production-01',
-              'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
-              'original_sha256': ORIGINAL_SHA, 'candidate_sha256': CANDIDATE_SHA,
-              'hot_module_reload_performed': False, 'reboot_performed': False, **details}
+    record = {
+        'at_utc': stamp,
+        'action': action,
+        'asset_id': 'minerva-production-01',
+        'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+        'original_sha256': ORIGINAL_SHA,
+        'candidate_sha256': CANDIDATE_SHA,
+        'hot_module_reload_performed': False,
+        'reboot_performed': False,
+        **details,
+    }
     (directory / (stamp + '-' + action + '.json')).write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps(record, indent=2))
 
@@ -116,7 +133,10 @@ def main():
     require(os.geteuid() == 0, 'Run this specific maintenance action with sudo; do not send a password in chat')
     if tracing:
         parameter = Path('/sys/module/gs_usb/parameters/diag_frames')
-        require(TARGET.exists() and digest(TARGET) == CANDIDATE_SHA and parameter.exists(), 'Patched driver must be installed and loaded first')
+        require(
+            TARGET.exists() and digest(TARGET) == CANDIDATE_SHA and parameter.exists(),
+            'Patched driver must be installed and loaded first',
+        )
         value = '16384' if action == 'trace-on' else '0'
         parameter.write_text(value)
         require(parameter.read_text().strip() == value, 'Trace parameter verification failed')
@@ -140,7 +160,10 @@ def main():
         selected = Path(command('modinfo', '-n', 'gs_usb')).resolve()
         expected = TARGET if action == 'install' else ORIGINAL
         require(selected == expected.resolve(), 'Module lookup does not select the expected file')
-        require(digest(selected) == (CANDIDATE_SHA if action == 'install' else ORIGINAL_SHA), 'Selected module hash mismatch')
+        require(
+            digest(selected) == (CANDIDATE_SHA if action == 'install' else ORIGINAL_SHA),
+            'Selected module hash mismatch',
+        )
     except Exception:
         # Restore the prior on-disk selection; never change the loaded module.
         if previous_override:

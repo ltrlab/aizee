@@ -51,8 +51,7 @@ class RecordingSession:
         self.qpos.append(np.asarray(qpos, dtype=np.float32))
         self.qcmd.append(np.asarray(qcmd if qcmd is not None else qpos, dtype=np.float32))
         if self._use_torque:
-            self.torque.append(
-                np.asarray(torque if torque is not None else np.zeros_like(qpos), dtype=np.float32))
+            self.torque.append(np.asarray(torque if torque is not None else np.zeros_like(qpos), dtype=np.float32))
         for c in self.cameras:
             self.cam[c].append(frames[c])
             self.cam_ts[c].append(cam_ts.get(c))
@@ -66,19 +65,19 @@ class RecordingSession:
     def set_label(self, label: str) -> None:
         """Close the open segment at the current frame and open a new one for
         `label`. Called when the operator marks a new phase mid-recording."""
-        label = str(label or "").strip()
+        label = str(label or '').strip()
         now = self.steps
         if self._seg is not None:
-            self._seg["end"] = now
-            if self._seg["end"] > self._seg["start"] and self._seg["label"]:
+            self._seg['end'] = now
+            if self._seg['end'] > self._seg['start'] and self._seg['label']:
                 self.segments.append(self._seg)
-        self._seg = {"start": now, "label": label} if label else None
+        self._seg = {'start': now, 'label': label} if label else None
 
     def finalize_segments(self) -> None:
         """Close the open segment at the final frame — call once before save."""
         if self._seg is not None:
-            self._seg["end"] = self.steps
-            if self._seg["end"] > self._seg["start"] and self._seg["label"]:
+            self._seg['end'] = self.steps
+            if self._seg['end'] > self._seg['start'] and self._seg['label']:
                 self.segments.append(self._seg)
             self._seg = None
 
@@ -118,16 +117,16 @@ def start_async_save(
                 segments=segments or None,
             )
             with result_lock:
-                result_holder["path"] = str(path)
-                result_holder["steps"] = int(n)
-                result_holder.pop("error", None)
+                result_holder['path'] = str(path)
+                result_holder['steps'] = int(n)
+                result_holder.pop('error', None)
         except Exception as e:  # noqa: BLE001 — surface any writer failure to the UI
             with result_lock:
-                result_holder["error"] = f"{type(e).__name__}: {e}"
+                result_holder['error'] = f'{type(e).__name__}: {e}'
 
-    t = threading.Thread(target=_run, daemon=True, name="Save")
+    t = threading.Thread(target=_run, daemon=True, name='Save')
     t.start()
     return t
 
 
-__all__ = ["RecordingSession", "start_async_save"]
+__all__ = ['RecordingSession', 'start_async_save']

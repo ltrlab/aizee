@@ -1,705 +1,1232 @@
 <!doctype html>
 <html lang="en" data-look="retro" data-theme="light">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Helm</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%231f5fbf'/%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="helm/fonts.css">
-  <!-- The look (RetroUI or Helm's original) and day / night, as saved in this browser (theme.js), before the first paint. -->
-  <script>(()=>{const root=document.documentElement;let look='retro';
-    try{look=localStorage.getItem('helm-look')==='classic'?'classic':'retro';if(localStorage.getItem('helm-theme')==='dark')root.dataset.theme='dark'}catch{/* RetroUI by day. */}
-    root.dataset.look=look;
-    for(const sheet of ['helm','cameras','replay'])document.write(`<link rel="stylesheet" data-look-sheet="${sheet}" href="helm/${look==='classic'?'classic-':''}${sheet}.css">`)})()</script>
-</head>
-<body data-feed="disconnected" data-tab="check">
-  <header>
-    <div class="brand"><span class="mark" aria-hidden="true">⎈</span><div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div></div>
-    <button type="button" class="touch-shortcut" data-touch-toggle aria-pressed="false" title="Larger controls for a touchscreen; also in Settings → 3D display">Touch mode: Off</button>
-    <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Night mode" title="Switch to night mode"><svg class="theme-icon moon" viewBox="0 0 11 11" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" d="M4 0h4v1H4zM2 1h4v1H2zM1 2h4v1H1zM1 3h3v1H1zM0 4h4v1H0zM0 5h4v1H0zM0 6h4v1H0zM1 7h3v1H1zM1 8h4v1H1zM2 9h4v1H2zM4 10h4v1H4z"/></svg><svg class="theme-icon sun" viewBox="0 0 11 11" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" d="M5 0h1v1H5zM1 1h1v1H1zM9 1h1v1H9zM4 3h3v1H4zM3 4h5v1H3zM0 5h2v1H0zM3 5h5v1H3zM9 5h2v1H9zM3 6h5v1H3zM4 7h3v1H4zM1 9h1v1H1zM9 9h1v1H9zM5 10h1v1H5z"/></svg></button>
-    <nav aria-label="Workspaces">
-      <button class="tab" data-tab="check" aria-current="page">Check</button>
-      <button class="tab" data-tab="limits">Limits</button>
-      <button class="tab" data-tab="leaders">Leaders</button>
-      <button class="tab" data-tab="teleop">Teleop</button>
-      <button class="tab" data-tab="replay">Replay</button>
-      <button class="tab" data-tab="tune">Tune</button>
-      <button class="tab settings-tab" data-tab="settings">Settings</button>
-    </nav>
-    <div class="link">
-      <div class="target via" id="via" role="group" aria-label="Connection to Minerva">
-        <span>Via</span>
-        <button data-connection="tether">Tether</button>
-        <button data-connection="wifi">Wi-Fi</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Helm</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 15 15' shape-rendering='crispEdges'%3E%3Crect x='-1' y='-1' width='15' height='15' fill='%231f5fbf'/%3E%3Cpath fill='%23ffffff' d='M6 0h1v13H6zM0 6h13v1H0zM1 1h1v1H1zM11 1h1v1h-1zM2 2h1v1H2zM10 2h1v1h-1zM4 2h2v1H4zM7 2h2v1H7zM3 3h1v1H3zM9 3h1v1H9zM2 4h1v2H2zM10 4h1v2h-1zM4 4h1v1H4zM8 4h1v1H8zM5 5h1v1H5zM7 5h1v1H7zM2 7h1v2H2zM10 7h1v2h-1zM5 7h1v1H5zM7 7h1v1H7zM4 8h1v1H4zM8 8h1v1H8zM3 9h1v1H3zM9 9h1v1H9zM2 10h1v1H2zM10 10h1v1h-1zM4 10h2v1H4zM7 10h2v1H7zM1 11h1v1H1zM11 11h1v1h-1z'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="helm/fonts.css" />
+    <!-- The look (RetroUI or Helm's original) and day / night, as saved in this browser (theme.js), before the first paint. -->
+    <script>
+      (() => {
+        const root = document.documentElement;
+        let look = 'retro';
+        try {
+          look = localStorage.getItem('helm-look') === 'classic' ? 'classic' : 'retro';
+          if (localStorage.getItem('helm-theme') === 'dark') root.dataset.theme = 'dark';
+        } catch {
+          /* RetroUI by day. */
+        }
+        root.dataset.look = look;
+        for (const sheet of ['helm', 'cameras', 'replay'])
+          document.write(
+            `<link rel="stylesheet" data-look-sheet="${sheet}" href="helm/${look === 'classic' ? 'classic-' : ''}${sheet}.css">`,
+          );
+      })();
+    </script>
+  </head>
+  <body data-feed="disconnected" data-tab="check">
+    <header>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">⎈</span>
+        <div><span class="name">Helm</span><small id="robot-name">Loading robot…</small></div>
       </div>
-      <span id="bridge-pill" class="pill" role="status" hidden></span>
-      <span id="access-pill" class="pill" role="status" hidden></span>
-      <button id="access-claim" type="button" hidden>Take control</button>
-      <span id="net-pill" class="pill" role="status" hidden></span>
-      <span id="ups-pill" class="pill" role="status" data-tone="muted" title="Reading Minerva's UPS"><span class="battery" aria-hidden="true"><span class="battery-fill"></span></span><svg class="bolt" viewBox="0 0 8 12" aria-hidden="true"><path d="M5 0 0 7h3l-1 5 6-8H4z"/></svg><span id="ups-text">…</span></span>
-      <span id="mode-pill" class="pill" role="status">Robot mode</span>
-      <span id="feed-pill" class="pill" role="status"><span class="dot"></span><span id="feed-text">Not connected</span></span>
-      <button id="connect" class="primary">Connect</button>
-    </div>
-  </header>
-  <p id="banner" role="status" hidden></p>
-  <p id="ups-banner" role="alert" hidden></p>
-  <main>
-    <section class="view" aria-label="Live robot model">
-      <div id="preview-view-choice" class="preview-view-choice" role="group" aria-label="Preview source" hidden>
-        <button type="button" data-preview-view="cameras" aria-pressed="true">Cameras</button>
-        <button type="button" data-preview-view="model" aria-pressed="false">Model</button>
-        <button id="camera-pause" type="button">Pause preview</button>
-        <button id="camera-retry" type="button" hidden>Retry preview</button>
+      <button
+        type="button"
+        class="touch-shortcut"
+        data-touch-toggle
+        aria-pressed="false"
+        title="Larger controls for a touchscreen; also in Settings → 3D display"
+      >
+        Touch mode: Off
+      </button>
+      <button
+        type="button"
+        class="theme-toggle"
+        data-theme-toggle
+        aria-pressed="false"
+        aria-label="Night mode"
+        title="Switch to night mode"
+      >
+        <svg class="theme-icon moon" viewBox="0 0 11 11" shape-rendering="crispEdges" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M4 0h4v1H4zM2 1h4v1H2zM1 2h4v1H1zM1 3h3v1H1zM0 4h4v1H0zM0 5h4v1H0zM0 6h4v1H0zM1 7h3v1H1zM1 8h4v1H1zM2 9h4v1H2zM4 10h4v1H4z"
+          /></svg
+        ><svg class="theme-icon sun" viewBox="0 0 11 11" shape-rendering="crispEdges" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M5 0h1v1H5zM1 1h1v1H1zM9 1h1v1H9zM4 3h3v1H4zM3 4h5v1H3zM0 5h2v1H0zM3 5h5v1H3zM9 5h2v1H9zM3 6h5v1H3zM4 7h3v1H4zM1 9h1v1H1zM9 9h1v1H9zM5 10h1v1H5z"
+          />
+        </svg>
+      </button>
+      <nav aria-label="Workspaces">
+        <button class="tab" data-tab="check" aria-current="page">Check</button>
+        <button class="tab" data-tab="limits">Limits</button>
+        <button class="tab" data-tab="leaders">Leaders</button>
+        <button class="tab" data-tab="teleop">Teleop</button>
+        <button class="tab" data-tab="replay">Replay</button>
+        <button class="tab" data-tab="tune">Tune</button>
+        <button class="tab settings-tab" data-tab="settings">Settings</button>
+      </nav>
+      <div class="link">
+        <div class="target via" id="via" role="group" aria-label="Connection to Minerva">
+          <span>Via</span>
+          <button data-connection="tether">Tether</button>
+          <button data-connection="wifi">Wi-Fi</button>
+        </div>
+        <span id="bridge-pill" class="pill" role="status" hidden></span>
+        <span id="access-pill" class="pill" role="status" hidden></span>
+        <button id="access-claim" type="button" hidden>Take control</button>
+        <span id="net-pill" class="pill" role="status" hidden></span>
+        <span id="ups-pill" class="pill" role="status" data-tone="muted" title="Reading Minerva's UPS"
+          ><span class="battery" aria-hidden="true"><span class="battery-fill"></span></span
+          ><svg class="bolt" viewBox="0 0 8 12" aria-hidden="true"><path d="M5 0 0 7h3l-1 5 6-8H4z" /></svg
+          ><span id="ups-text">…</span></span
+        >
+        <span id="mode-pill" class="pill" role="status">Robot mode</span>
+        <span id="feed-pill" class="pill" role="status"
+          ><span class="dot"></span><span id="feed-text">Not connected</span></span
+        >
+        <button id="connect" class="primary">Connect</button>
       </div>
-      <div id="rec-badge" class="rec-badge" role="status" aria-live="polite" hidden><span class="rec-dot"></span><b id="rec-text">REC</b><span id="rec-time"></span></div>
-      <section id="camera-live-view" class="camera-live-view" aria-label="Live physical cameras" hidden>
-        <div class="camera-live-heading"><span class="eyebrow">PHYSICAL CAMERAS</span><p id="camera-stream-status" role="status">Disconnected</p></div>
-        <div class="camera-focus">
-          <img id="camera-focus-image" alt="Selected physical camera" hidden>
-          <p id="camera-focus-placeholder">Waiting for frame</p>
-          <div class="camera-focus-caption"><b id="camera-focus-title">Right wrist</b><span id="camera-focus-status">Disconnected</span></div>
+    </header>
+    <p id="banner" role="status" hidden></p>
+    <p id="ups-banner" role="alert" hidden></p>
+    <main>
+      <section class="view" aria-label="Live robot model">
+        <div id="preview-view-choice" class="preview-view-choice" role="group" aria-label="Preview source" hidden>
+          <button type="button" data-preview-view="cameras" aria-pressed="true">Cameras</button>
+          <button type="button" data-preview-view="model" aria-pressed="false">Model</button>
+          <button id="camera-pause" type="button">Pause preview</button>
+          <button id="camera-retry" type="button" hidden>Retry preview</button>
         </div>
-        <div id="camera-thumbnails" class="camera-thumbnails" role="group" aria-label="Choose camera"></div>
-      </section>
-      <div class="model-toolbar"><div><span id="model-heading" class="eyebrow">MODEL &amp; TELEMETRY</span><span id="model-source" class="muted">Waiting for feedback</span></div><button id="open-display">Display options</button></div>
-      <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
-      <div id="task-window-note" class="task-window-note" role="status" hidden>
-        <h2>Task scene is in the Minerva simulation window</h2>
-        <p>Use that window to watch the cube, grippers and bucket.</p>
-        <p>Live joint telemetry and session controls remain available in Teleop.</p>
-      </div>
-      <section id="replay-stage" class="replay-stage" aria-label="Episode replay" hidden>
-        <div class="replay-head"><span class="eyebrow">REPLAY</span><b id="replay-title">No episode selected</b><span id="replay-status" role="status"></span></div>
-        <div id="replay-cameras" class="replay-cameras"><p class="replay-empty">Choose an episode on the right to play it back.</p></div>
-        <div class="replay-model" aria-hidden="true"></div>
-        <div class="replay-controls" role="group" aria-label="Playback">
-          <button id="replay-back" type="button" title="Previous frame (←; Shift+← one second)" aria-label="Previous frame">‹</button>
-          <button id="replay-play" type="button" class="primary" aria-pressed="false" title="Play or pause (Space)">Play</button>
-          <button id="replay-forward" type="button" title="Next frame (→; Shift+→ one second)" aria-label="Next frame">›</button>
-          <input id="replay-scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Frame">
-          <span id="replay-time" class="replay-time">—</span>
-          <select id="replay-speed" aria-label="Playback speed" title="Playback speed"></select>
+        <div id="rec-badge" class="rec-badge" role="status" aria-live="polite" hidden>
+          <span class="rec-dot"></span><b id="rec-text">REC</b><span id="rec-time"></span>
         </div>
-        <canvas id="replay-timeline" class="replay-timeline" aria-label="Joint positions over the episode: click or drag to move the playhead"></canvas>
-      </section>
-    </section>
-    <aside>
-      <section id="panel-check" class="panel" aria-label="Minerva Check">
-        <div class="panel-head">
-          <div class="eyebrow">MINERVA CHECK · MOTORS STAY DISABLED</div>
-          <h1>Is Minerva ready?</h1>
-          <p class="lead">Checks this PC's calibration and leaders, the tether, the Jetson's release and health,
-            then reads every motor while it stays disabled. Run it before each session, with the foot switch
-            within reach.</p>
-          <div id="c-verdict" class="verdict" role="status"><b>Not run yet</b><span>Press Run check.</span></div>
-        </div>
-        <div id="check-stages" class="scroll"></div>
-        <div id="c-confirm" class="confirm-box" role="alertdialog" aria-labelledby="c-confirm-title" hidden>
-          <b id="c-confirm-title"></b>
-          <ul id="c-confirm-list"></ul>
-          <div class="confirm-actions">
-            <button id="c-confirm-cancel">Cancel</button>
-            <button id="c-confirm-go" class="danger"></button>
+        <section id="camera-live-view" class="camera-live-view" aria-label="Live physical cameras" hidden>
+          <div class="camera-live-heading">
+            <span class="eyebrow">PHYSICAL CAMERAS</span>
+            <p id="camera-stream-status" role="status">Disconnected</p>
           </div>
-        </div>
-        <div class="save-bar">
-          <p id="check-status" role="status"></p>
-          <button id="c-run" class="primary">Run check</button>
-        </div>
-      </section>
-      <section id="panel-limits" class="panel" aria-label="Joint limits" hidden>
-        <div class="panel-head">
-          <div class="eyebrow">JOINT LIMITS · MOTORS STAY DISABLED</div>
-          <h1>Sweep each joint by hand</h1>
-          <p class="lead">Move one joint at a time to each end of its travel and <strong>hold it there for a moment</strong>.
-            An end counts once two consecutive readings agree, so a bump or a flick cannot widen a limit.
-            Confirm each joint, then save.</p>
-          <p id="saved-summary" class="muted"></p>
-        </div>
-        <div id="joints" class="scroll">
-          <section id="joint-zero" class="joint-zero" aria-label="Joint zero" hidden>
-            <div class="arm">JOINT ZERO</div>
-            <p class="muted jz-intro">When a joint goes back on differently (a wrist remounted), it no longer reads 0 at
-              the zero pose. Hold the arm in its zero pose, straight down as in the 3D view's reference pose, choose the
-              joints and zero them: their drives take the zero there and save it, with every motor disabled. Then
-              switch the motors' power off and on and press Verify, which records the arms' new reference. Sweep the
-              zeroed joints again below afterwards.</p>
-            <p id="jz-status" class="jz-status" role="status" aria-live="polite"></p>
-            <ul id="jz-pending" class="jz-pending"></ul>
-            <div id="jz-verify" class="jz-step" hidden>
-              <label class="jz-check"><input id="jz-cycled" type="checkbox"> I switched the motors' power off and on,
-                and the arm stayed where it was</label>
-              <button id="jz-verify-go" type="button" class="primary" disabled>Verify</button>
+          <div class="camera-focus">
+            <img id="camera-focus-image" alt="Selected physical camera" hidden />
+            <p id="camera-focus-placeholder">Waiting for frame</p>
+            <div class="camera-focus-caption">
+              <b id="camera-focus-title">Right wrist</b><span id="camera-focus-status">Disconnected</span>
             </div>
-            <div class="jz-step"><button id="jz-choose" type="button">Choose joints to zero…</button>
-              <span id="jz-blocked" class="muted"></span></div>
-            <div id="jz-picker" class="jz-picker" hidden>
-              <div id="jz-joints" class="jz-joints" role="group" aria-label="Arm joints to zero"></div>
-              <p class="jz-warning">Hold the arm in its zero pose and keep it still. The chosen joints' zeros are set
-                where they are now and saved on their drives.</p>
-              <button id="jz-zero" type="button" class="danger" disabled>Zero the chosen joints now</button>
-              <button id="jz-cancel" type="button">Cancel</button>
-            </div>
-            <p id="jz-feedback" class="muted" role="status" aria-live="polite"></p>
-          </section>
-          <section id="head-setup" class="head-setup" aria-label="Head setup">
-            <div class="arm">HEAD</div>
-            <p class="muted head-intro">The head's servos stay limp: turn the head by hand. Read the head, hold it
-              straight ahead and level and set its reference. Turn each joint and watch the 3D view's head: Flip a
-              joint that turns the other way, then Looks right. Then sweep each joint to both ends, confirm both and
-              save. Last, the shoulder corners: turn the head to a side and tilt it down until it is just clear of the
-              shoulder, and record that corner; record each side's end and halfway, then save. Live sessions take the
-              head only once its shoulder clearance is saved. Any step can be done again; a new reference asks for a
-              new sweep and new corners.</p>
-            <p id="hs-note" class="muted" hidden></p>
-            <div id="hs-steps">
-              <div class="head-step"><button id="hs-read" type="button">Read the head</button>
-                <span id="hs-reading" class="muted" role="status"></span></div>
-              <div class="head-step"><button id="hs-reference" type="button" disabled>Set the reference…</button>
-                <span id="hs-reference-text" class="muted"></span></div>
-              <div id="head-joints"></div>
-              <div class="head-step"><button id="hs-save" type="button" class="primary" disabled>Save head limits</button>
-                <span id="hs-limits-text" class="muted" role="status" aria-live="polite"></span></div>
-              <div class="head-step"><button id="hs-corner" type="button" disabled
-                  title="The head's pose now, turned to a side and tilted down until just clear of the shoulder">Record corner</button>
-                <button id="hs-corners-clear" type="button" disabled>Clear corners</button>
-                <button id="hs-clearance-save" type="button" class="primary" disabled>Save shoulder clearance</button>
-                <span id="hs-clearance-text" class="muted" role="status" aria-live="polite"></span></div>
-            </div>
-          </section>
-        </div>
-        <div class="save-bar">
-          <p id="action-status" role="status"></p>
-          <button id="save" class="primary" disabled>Save limits</button>
-        </div>
-      </section>
-      <section id="panel-leaders" class="panel" aria-label="Leader ranges" hidden>
-        <div class="panel-head">
-          <div class="eyebrow">LEADER RANGES · READ ONLY</div>
-          <h1>Sweep each leader joint</h1>
-          <p class="lead">Move each leader joint, and each gripper trigger, <strong>all the way to both ends</strong>
-            of its travel, confirm it, then save. Teleop scales each leader range onto its robot joint's range from
-            the leader zero: hold the leaders in the robot's reference pose (arms straight down, triggers released)
-            and set the zero. You can set it again here or in Teleop (Z) at any time.</p>
-          <div class="leader-link">
-            <span id="l-pill" class="pill" role="status"><span class="dot"></span><span id="l-text">Not connected</span></span>
-            <button id="l-connect" class="primary">Connect leaders</button>
-            <button id="l-capture" title="The leaders' pose now becomes the zero (saved at once)">Set leader zero</button>
           </div>
-          <p id="l-summary" class="muted"></p>
-          <p class="legend"><span class="k seen"></span>swept <span class="k held"></span>recorded range
-            <span class="k saved"></span>saved <span class="k ref"></span>zero <span class="k now"></span>now</p>
-        </div>
-        <div id="leader-joints" class="scroll"></div>
-        <div class="save-bar">
-          <p id="leaders-status" role="status"></p>
-          <button id="l-save" class="primary" disabled>Save</button>
-        </div>
-      </section>
-      <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
-        <section class="pedal-console" aria-label="Pedals and reported session state">
-          <div id="pedal-phase" class="phase-bar" role="status" aria-live="polite">
-            <div class="phase-title"><div class="phase-readout"><strong id="pedal-phase-label">Waiting for state</strong><span id="pedal-recording">Not recording</span></div><button id="teleop-session" class="primary">Start session</button></div>
-            <ol class="phase-stages" aria-label="Lifecycle stages">
-              <li data-phase-stage="off">Off</li><li data-phase-stage="idle">Idle</li><li data-phase-stage="hold">Hold</li>
-              <li data-phase-stage="align">Align</li><li data-phase-stage="teleop">Teleop</li><li data-phase-stage="shutdown">Return</li>
-            </ol>
-            <p id="pedal-phase-detail">Touch Start session first.</p>
-          </div>
-          <div class="pedal-actions" role="group" aria-label="Pedal next actions">
-            <button type="button" data-pedal="a" disabled><kbd>A</kbd><span>Record</span><small></small></button>
-            <button type="button" data-pedal="b" disabled><kbd>B</kbd><span>Pause / resume</span><small></small></button>
-            <button type="button" data-pedal="c" disabled><kbd>C</kbd><span>Next stage</span><small></small></button>
-          </div>
-          <p id="pedal-warning" class="warn" hidden></p>
+          <div id="camera-thumbnails" class="camera-thumbnails" role="group" aria-label="Choose camera"></div>
         </section>
-        <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
-          <div class="live-replay-head"><span class="eyebrow">REPLAY</span><b id="t-replay-title">—</b><span id="t-replay-time" class="replay-time"></span></div>
-          <div class="live-replay-track" role="progressbar" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100"><div id="t-replay-fill"></div></div>
-          <div id="t-replay-frames" class="live-replay-frames" role="group" aria-label="Recorded camera frames at the playback position"></div>
-          <p id="t-replay-note" class="muted"></p>
-        </section>
-        <section id="t-policy" class="live-replay live-policy" aria-labelledby="t-policy-title" hidden>
-          <div class="live-replay-head"><span class="eyebrow">POLICY</span><b id="t-policy-title">—</b><span id="t-policy-stats" class="replay-time"></span></div>
-          <div class="policy-start-actions" id="t-policy-takeover" hidden>
-            <b id="t-policy-driver" role="status"></b>
-            <button id="t-policy-switch" type="button" title="Take over from the policy, or hand back to it: the arms hold first, then Resume aligns them to whoever drives next">Take over (O)</button>
+        <div class="model-toolbar">
+          <div>
+            <span id="model-heading" class="eyebrow">MODEL &amp; TELEMETRY</span
+            ><span id="model-source" class="muted">Waiting for feedback</span>
           </div>
-          <p id="t-policy-note" class="muted"></p>
-          <p id="t-policy-error" class="bad" role="alert" hidden></p>
-        </section>
-        <section class="grip-feedback" aria-labelledby="grip-title">
-          <div class="grip-head">
-            <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
-            <label class="grip-switch"><input id="grip-on" type="checkbox" disabled> On</label>
-          </div>
-          <div class="force-bars" role="group" aria-label="How hard each robot gripper squeezes, against the maximum force">
-            <div class="force-bar" data-side="left"><span>Left</span><div class="force-track"><div class="force-fill"></div></div><b>0%</b></div>
-            <div class="force-bar" data-side="right"><span>Right</span><div class="force-track"><div class="force-fill"></div></div><b>0%</b></div>
-          </div>
-          <p id="grip-readout" class="muted">Start a session to switch it on.</p>
-        </section>
-        <section id="t-head" class="grip-feedback head-card" aria-labelledby="head-title" hidden>
-          <div class="grip-head">
-            <span id="head-title" class="eyebrow">HEAD</span>
-            <button id="head-zero" type="button" disabled
-              title="Where the headset looks now becomes the head's straight ahead (or press a thumbstick in the headset)">Zero headset</button>
-          </div>
-          <p id="head-readout" class="muted" role="status">—</p>
-          <p id="head-headset" class="muted">—</p>
-        </section>
-        <div class="panel-head">
-          <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
-          <h1 id="t-title">Drive the arms with the leaders</h1>
-          <p class="lead" id="t-lead">Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them.
-            T again holds; Shutdown (X) returns slowly to the reference; Disable (H) removes torque.</p>
-          <div class="target" id="t-target" role="group" aria-label="Where the loop runs">
-            <span>Loop runs on</span>
-            <button data-target="jetson" title="The control loop runs on Minerva's Jetson; leaders stream over the tether">Minerva's Jetson</button>
-            <button data-target="pc" title="The control loop runs on this PC">This PC</button>
-          </div>
-          <div class="target" id="t-receiver-choice" role="group" aria-label="Receiver">
-            <span>Receiver</span>
-            <button data-receiver="virtual" title="The virtual receiver: no motors move">Virtual</button>
-            <button data-receiver="virtual" data-collision="motion" title="Virtual receiver with the two-arm collision bound enforced; no motors move">Enforced</button>
-            <span class="target-live">Live</span>
-            <button data-receiver="live" data-arm="left" title="The left arm's motors; the right arm stays disabled. Loop on Minerva's Jetson only.">Left</button>
-            <button data-receiver="live" data-arm="right" title="The right arm's motors; the left arm stays disabled. Loop on Minerva's Jetson only.">Right</button>
-            <button data-receiver="live" data-arm="both" title="Both arms' motors in one receiver. Loop on Minerva's Jetson only.">Both</button>
-            <button data-receiver="live" data-arm="head" title="The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only.">Head</button>
-          </div>
-          <div class="target" id="t-mode" role="group" aria-label="Teleop mode">
-            <span>Mode</span>
-            <button data-mode="direct" title="Drive the arms with the leaders and record episodes (pedal A)">Direct</button>
-            <button data-mode="calibrate" title="Camera calibration with the leaders: each pause (pedal B or T) takes a still a second later; nothing is recorded">Calibrate</button>
-            <button data-mode="policy" title="A trained policy drives the arms in place of the leaders">Policy</button>
-          </div>
-          <div class="target" id="t-input" role="group" aria-label="Teleop input">
-            <span>Input</span>
-            <button data-input="gello" title="The GELLO leaders drive the arms">GELLO</button>
-            <button data-input="headset" title="The headset's controllers drive the arms: hold a grip to drag that arm's gripper, the trigger closes it, B or Y holds. Not recorded yet.">Headset</button>
-          </div>
-          <p class="choice-note" id="t-choice-note" hidden></p>
-          <div class="teleop-status" id="t-status">
-            <span>Phase<b id="t-state">—</b></span><span>Receiver<b id="t-receiver">—</b></span>
-            <span>Cycle<b id="t-cycle">—</b></span><span>Collision<b id="t-collision">—</b></span>
-            <span>Control<b id="t-control">—</b></span>
-          </div>
-          <div class="lifecycle" role="group" aria-label="Lifecycle">
-            <button data-key="I" title="Idle: motors on, zero torque (I)">Idle <kbd>I</kbd></button>
-            <button data-key="E" title="Enable: hold the current pose (E)">Enable <kbd>E</kbd></button>
-            <button data-key="T" class="primary" id="t-engage" title="Engage: align with the leaders, then follow (T)">Engage <kbd>T</kbd></button>
-            <button data-key="H" class="danger" title="Disable: remove torque now (H)">Disable <kbd>H</kbd></button>
-            <button data-key="X" title="Shutdown: return slowly to the reference, then disable (X)">Shutdown <kbd>X</kbd></button>
-            <button id="t-zero" title="The leaders' pose now maps onto the robot's reference pose. An engaged arm holds first; engage again (T) to follow. (Z)">Set zero <kbd>Z</kbd></button>
-          </div>
-          <p id="t-message" class="muted" role="status"></p>
+          <button id="open-display">Display options</button>
         </div>
-        <div id="teleop-content" class="scroll">
-          <section id="t-policy-start" class="policy-start" aria-labelledby="t-policy-start-title" hidden>
-            <div class="policy-start-head"><span class="eyebrow">POLICY MODE</span><b id="t-policy-start-title">Run a policy on the arms</b></div>
-            <p class="muted">Choose a policy, then Start policy session above. A trained policy drives the arms in a teleop session with your leaders connected: Enable shows its first action, Engage aligns to it at the alignment speed, then it drives. Take over with pedal B (or O): the arms hold, line up the leaders, and Resume aligns the arms to them; B again hands back the same way. Pedal A records an episode of both: the policy's stretches and your corrections, each frame labelled. Shutdown (X) lowers.</p>
-            <div class="policy-start-actions">
-              <select id="t-policy-choice" aria-label="Policy"></select>
-              <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>
+        <iframe id="model-view" src="viewer?embed=1" title="Live robot model"></iframe>
+        <div id="task-window-note" class="task-window-note" role="status" hidden>
+          <h2>Task scene is in the Minerva simulation window</h2>
+          <p>Use that window to watch the cube, grippers and bucket.</p>
+          <p>Live joint telemetry and session controls remain available in Teleop.</p>
+        </div>
+        <section id="replay-stage" class="replay-stage" aria-label="Episode replay" hidden>
+          <div class="replay-head">
+            <span class="eyebrow">REPLAY</span><b id="replay-title">No episode selected</b
+            ><span id="replay-status" role="status"></span>
+          </div>
+          <div id="replay-cameras" class="replay-cameras">
+            <p class="replay-empty">Choose an episode on the right to play it back.</p>
+          </div>
+          <div class="replay-model" aria-hidden="true"></div>
+          <div class="replay-controls" role="group" aria-label="Playback">
+            <button
+              id="replay-back"
+              type="button"
+              title="Previous frame (←; Shift+← one second)"
+              aria-label="Previous frame"
+            >
+              ‹
+            </button>
+            <button id="replay-play" type="button" class="primary" aria-pressed="false" title="Play or pause (Space)">
+              Play
+            </button>
+            <button
+              id="replay-forward"
+              type="button"
+              title="Next frame (→; Shift+→ one second)"
+              aria-label="Next frame"
+            >
+              ›
+            </button>
+            <input id="replay-scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Frame" />
+            <span id="replay-time" class="replay-time">—</span>
+            <select id="replay-speed" aria-label="Playback speed" title="Playback speed"></select>
+          </div>
+          <canvas
+            id="replay-timeline"
+            class="replay-timeline"
+            aria-label="Joint positions over the episode: click or drag to move the playhead"
+          ></canvas>
+        </section>
+      </section>
+      <aside>
+        <section id="panel-check" class="panel" aria-label="Minerva Check">
+          <div class="panel-head">
+            <div class="eyebrow">MINERVA CHECK · MOTORS STAY DISABLED</div>
+            <h1>Is Minerva ready?</h1>
+            <p class="lead">
+              Checks this PC's calibration and leaders, the tether, the Jetson's release and health, then reads every
+              motor while it stays disabled. Run it before each session, with the foot switch within reach.
+            </p>
+            <div id="c-verdict" class="verdict" role="status"><b>Not run yet</b><span>Press Run check.</span></div>
+          </div>
+          <div id="check-stages" class="scroll"></div>
+          <div id="c-confirm" class="confirm-box" role="alertdialog" aria-labelledby="c-confirm-title" hidden>
+            <b id="c-confirm-title"></b>
+            <ul id="c-confirm-list"></ul>
+            <div class="confirm-actions">
+              <button id="c-confirm-cancel">Cancel</button>
+              <button id="c-confirm-go" class="danger"></button>
             </div>
-            <p id="t-policy-status" class="muted" role="status"></p>
-          </section>
-          <section id="t-headset" class="policy-start headset-card" aria-labelledby="t-headset-title" hidden>
-            <div class="policy-start-head"><span class="eyebrow">HEADSET</span><b id="t-headset-title">Drive the arms with the controllers</b></div>
-            <p class="muted">Open Helm's headset page on the Quest (Settings → Headset has its links) and enter VR. Engage (T) raises a hanging arm to its ready pose, forearm forward; keep the space in front of the hands clear. Once engaged, hold a controller's grip to drag that arm's gripper as the hand moves; let go and the arm holds. The trigger closes the gripper; B or Y holds both arms. Nothing is recorded.</p>
-            <div class="headset-arms">
-              <div class="headset-arm" id="t-headset-left"><span>Left</span><b>—</b><small></small></div>
-              <div class="headset-arm" id="t-headset-right"><span>Right</span><b>—</b><small></small></div>
-            </div>
-            <p id="t-headset-status" class="muted" role="status"></p>
-          </section>
-          <section class="task-workflow" aria-labelledby="task-title">
-            <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
-            <h2 id="task-title">Cube → handoff → bucket</h2>
-            <p id="task-capability" class="muted">Set up the task before starting the session.</p>
-            <ol id="task-guide">
-              <li>Set up the task. Check both leaders and the saved robot ranges.</li>
-              <li>Start the session, then Idle, Enable and Engage. Both arms and grippers participate.</li>
-              <li>Record; pick up the cube, pass it to the other gripper, then release it into the bucket.</li>
-              <li>Stop recording and check its completion. Shutdown returns the arms; Stop session closes it.</li>
-            </ol>
-            <div class="task-actions" role="group" aria-label="Task and recording">
-              <button id="task-setup">Set up task</button>
-              <button id="task-reset">Reset simulated scene</button>
-              <button id="task-record" class="primary">Record episode</button>
-              <button id="task-stop">Stop recording</button>
-            </div>
-            <p id="task-state" role="status">Task not configured.</p>
-            <p id="task-cameras" class="muted" role="status"></p>
-            <p id="task-recording" class="muted" role="status"></p>
-            <p id="task-error" class="bad" role="alert" hidden></p>
-          </section>
-          <section id="calibration" class="camera-calibration" aria-labelledby="calibration-title" hidden>
-            <div class="eyebrow">CAMERA CALIBRATION</div>
-            <h2 id="calibration-title">Calibrate the cameras on the table's tags</h2>
-            <ol id="cal-steps" class="cal-steps" aria-label="Calibration steps">
-              <li><button type="button" data-step="wrists"><span class="cal-step-n">1</span><span class="cal-step-text"><b>Wrist cameras</b><small></small></span></button></li>
-              <li><button type="button" data-step="head"><span class="cal-step-n">2</span><span class="cal-step-text"><b>Head camera</b><small></small></span></button></li>
-              <li><button type="button" data-step="twin"><span class="cal-step-n">3</span><span class="cal-step-text"><b>Digital twin</b><small></small></span></button></li>
-            </ol>
-            <div id="cal-next" class="cal-next" data-tone="info">
-              <p id="cal-next-text" role="status"></p>
-              <button id="cal-next-go" type="button" class="primary" hidden></button>
-            </div>
-            <ul id="cal-checks" class="cal-checks" aria-label="What a still needs"></ul>
-            <p id="cal-warning" class="cal-warning" role="alert" hidden></p>
-            <div id="cal-stills">
-              <div id="cal-verdict" class="cal-verdict" hidden>
-                <p id="cal-verdict-title"></p>
-                <ul id="cal-verdict-reasons"></ul>
+          </div>
+          <div class="save-bar">
+            <p id="check-status" role="status"></p>
+            <button id="c-run" class="primary">Run check</button>
+          </div>
+        </section>
+        <section id="panel-limits" class="panel" aria-label="Joint limits" hidden>
+          <div class="panel-head">
+            <div class="eyebrow">JOINT LIMITS · MOTORS STAY DISABLED</div>
+            <h1>Sweep each joint by hand</h1>
+            <p class="lead">
+              Move one joint at a time to each end of its travel and <strong>hold it there for a moment</strong>. An end
+              counts once two consecutive readings agree, so a bump or a flick cannot widen a limit. Confirm each joint,
+              then save.
+            </p>
+            <p id="saved-summary" class="muted"></p>
+          </div>
+          <div id="joints" class="scroll">
+            <section id="joint-zero" class="joint-zero" aria-label="Joint zero" hidden>
+              <div class="arm">JOINT ZERO</div>
+              <p class="muted jz-intro">
+                When a joint goes back on differently (a wrist remounted), it no longer reads 0 at the zero pose. Hold
+                the arm in its zero pose, straight down as in the 3D view's reference pose, choose the joints and zero
+                them: their drives take the zero there and save it, with every motor disabled. Then switch the motors'
+                power off and on and press Verify, which records the arms' new reference. Sweep the zeroed joints again
+                below afterwards.
+              </p>
+              <p id="jz-status" class="jz-status" role="status" aria-live="polite"></p>
+              <ul id="jz-pending" class="jz-pending"></ul>
+              <div id="jz-verify" class="jz-step" hidden>
+                <label class="jz-check"
+                  ><input id="jz-cycled" type="checkbox" /> I switched the motors' power off and on, and the arm stayed
+                  where it was</label
+                >
+                <button id="jz-verify-go" type="button" class="primary" disabled>Verify</button>
               </div>
-              <p id="calibration-auto" class="muted" role="status"></p>
-              <div id="cal-progress" class="cal-progress"></div>
-              <div class="calibration-actions" role="group" aria-label="Calibration stills">
-                <div class="target" id="calibration-role" role="group" aria-label="Camera">
-                  <button data-role="left_wrist">Left wrist</button>
-                  <button data-role="right_wrist">Right wrist</button>
+              <div class="jz-step">
+                <button id="jz-choose" type="button">Choose joints to zero…</button>
+                <span id="jz-blocked" class="muted"></span>
+              </div>
+              <div id="jz-picker" class="jz-picker" hidden>
+                <div id="jz-joints" class="jz-joints" role="group" aria-label="Arm joints to zero"></div>
+                <p class="jz-warning">
+                  Hold the arm in its zero pose and keep it still. The chosen joints' zeros are set where they are now
+                  and saved on their drives.
+                </p>
+                <button id="jz-zero" type="button" class="danger" disabled>Zero the chosen joints now</button>
+                <button id="jz-cancel" type="button">Cancel</button>
+              </div>
+              <p id="jz-feedback" class="muted" role="status" aria-live="polite"></p>
+            </section>
+            <section id="head-setup" class="head-setup" aria-label="Head setup">
+              <div class="arm">HEAD</div>
+              <p class="muted head-intro">
+                The head's servos stay limp: turn the head by hand. Read the head, hold it straight ahead and level and
+                set its reference. Turn each joint and watch the 3D view's head: Flip a joint that turns the other way,
+                then Looks right. Then sweep each joint to both ends, confirm both and save. Last, the shoulder corners:
+                turn the head to a side and tilt it down until it is just clear of the shoulder, and record that corner;
+                record each side's end and halfway, then save. Live sessions take the head only once its shoulder
+                clearance is saved. Any step can be done again; a new reference asks for a new sweep and new corners.
+              </p>
+              <p id="hs-note" class="muted" hidden></p>
+              <div id="hs-steps">
+                <div class="head-step">
+                  <button id="hs-read" type="button">Read the head</button>
+                  <span id="hs-reading" class="muted" role="status"></span>
                 </div>
-                <button id="calibration-capture" title="Average a stack of frames and find the tags; the arm must stay still (P)">Capture still <kbd>P</kbd></button>
-                <button id="calibration-undo" title="Drop this camera's last still">Undo last</button>
-                <button id="calibration-solve" title="Fit both cameras to the run's stills">Solve</button>
-                <button id="calibration-save" title="Save this solve as the head camera's alignment; the one it replaces is kept with the run" hidden>Save alignment</button>
-                <button id="calibration-new" title="Start a new run; the old one stays on Minerva">New run</button>
+                <div class="head-step">
+                  <button id="hs-reference" type="button" disabled>Set the reference…</button>
+                  <span id="hs-reference-text" class="muted"></span>
+                </div>
+                <div id="head-joints"></div>
+                <div class="head-step">
+                  <button id="hs-save" type="button" class="primary" disabled>Save head limits</button>
+                  <span id="hs-limits-text" class="muted" role="status" aria-live="polite"></span>
+                </div>
+                <div class="head-step">
+                  <button
+                    id="hs-corner"
+                    type="button"
+                    disabled
+                    title="The head's pose now, turned to a side and tilted down until just clear of the shoulder"
+                  >
+                    Record corner
+                  </button>
+                  <button id="hs-corners-clear" type="button" disabled>Clear corners</button>
+                  <button id="hs-clearance-save" type="button" class="primary" disabled>Save shoulder clearance</button>
+                  <span id="hs-clearance-text" class="muted" role="status" aria-live="polite"></span>
+                </div>
               </div>
-              <p id="calibration-counts" class="muted" role="status"></p>
-              <div id="calibration-last" class="calibration-last" hidden>
-                <img id="calibration-thumb" alt="The last still, its tags outlined">
-                <p id="calibration-last-text"></p>
+            </section>
+          </div>
+          <div class="save-bar">
+            <p id="action-status" role="status"></p>
+            <button id="save" class="primary" disabled>Save limits</button>
+          </div>
+        </section>
+        <section id="panel-leaders" class="panel" aria-label="Leader ranges" hidden>
+          <div class="panel-head">
+            <div class="eyebrow">LEADER RANGES · READ ONLY</div>
+            <h1>Sweep each leader joint</h1>
+            <p class="lead">
+              Move each leader joint, and each gripper trigger, <strong>all the way to both ends</strong> of its travel,
+              confirm it, then save. Teleop scales each leader range onto its robot joint's range from the leader zero:
+              hold the leaders in the robot's reference pose (arms straight down, triggers released) and set the zero.
+              You can set it again here or in Teleop (Z) at any time.
+            </p>
+            <div class="leader-link">
+              <span id="l-pill" class="pill" role="status"
+                ><span class="dot"></span><span id="l-text">Not connected</span></span
+              >
+              <button id="l-connect" class="primary">Connect leaders</button>
+              <button id="l-capture" title="The leaders' pose now becomes the zero (saved at once)">
+                Set leader zero
+              </button>
+            </div>
+            <p id="l-summary" class="muted"></p>
+            <p class="legend">
+              <span class="k seen"></span>swept <span class="k held"></span>recorded range
+              <span class="k saved"></span>saved <span class="k ref"></span>zero <span class="k now"></span>now
+            </p>
+          </div>
+          <div id="leader-joints" class="scroll"></div>
+          <div class="save-bar">
+            <p id="leaders-status" role="status"></p>
+            <button id="l-save" class="primary" disabled>Save</button>
+          </div>
+        </section>
+        <section id="panel-teleop" class="panel" aria-label="Teleoperation" hidden>
+          <section class="pedal-console" aria-label="Pedals and reported session state">
+            <div id="pedal-phase" class="phase-bar" role="status" aria-live="polite">
+              <div class="phase-title">
+                <div class="phase-readout">
+                  <strong id="pedal-phase-label">Waiting for state</strong
+                  ><span id="pedal-recording">Not recording</span>
+                </div>
+                <button id="teleop-session" class="primary">Start session</button>
               </div>
-              <details id="cal-details" class="cal-details" hidden><summary>The solve's numbers</summary>
-                <ul id="calibration-result" class="calibration-result"></ul>
+              <ol class="phase-stages" aria-label="Lifecycle stages">
+                <li data-phase-stage="off">Off</li>
+                <li data-phase-stage="idle">Idle</li>
+                <li data-phase-stage="hold">Hold</li>
+                <li data-phase-stage="align">Align</li>
+                <li data-phase-stage="teleop">Teleop</li>
+                <li data-phase-stage="shutdown">Return</li>
+              </ol>
+              <p id="pedal-phase-detail">Touch Start session first.</p>
+            </div>
+            <div class="pedal-actions" role="group" aria-label="Pedal next actions">
+              <button type="button" data-pedal="a" disabled><kbd>A</kbd><span>Record</span><small></small></button>
+              <button type="button" data-pedal="b" disabled>
+                <kbd>B</kbd><span>Pause / resume</span><small></small>
+              </button>
+              <button type="button" data-pedal="c" disabled><kbd>C</kbd><span>Next stage</span><small></small></button>
+            </div>
+            <p id="pedal-warning" class="warn" hidden></p>
+          </section>
+          <section id="t-replay" class="live-replay" aria-labelledby="t-replay-title" hidden>
+            <div class="live-replay-head">
+              <span class="eyebrow">REPLAY</span><b id="t-replay-title">—</b
+              ><span id="t-replay-time" class="replay-time"></span>
+            </div>
+            <div
+              class="live-replay-track"
+              role="progressbar"
+              aria-label="Playback position"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div id="t-replay-fill"></div>
+            </div>
+            <div
+              id="t-replay-frames"
+              class="live-replay-frames"
+              role="group"
+              aria-label="Recorded camera frames at the playback position"
+            ></div>
+            <p id="t-replay-note" class="muted"></p>
+          </section>
+          <section id="t-policy" class="live-replay live-policy" aria-labelledby="t-policy-title" hidden>
+            <div class="live-replay-head">
+              <span class="eyebrow">POLICY</span><b id="t-policy-title">—</b
+              ><span id="t-policy-stats" class="replay-time"></span>
+            </div>
+            <div class="policy-start-actions" id="t-policy-takeover" hidden>
+              <b id="t-policy-driver" role="status"></b>
+              <button
+                id="t-policy-switch"
+                type="button"
+                title="Take over from the policy, or hand back to it: the arms hold first, then Resume aligns them to whoever drives next"
+              >
+                Take over (O)
+              </button>
+            </div>
+            <p id="t-policy-note" class="muted"></p>
+            <p id="t-policy-error" class="bad" role="alert" hidden></p>
+          </section>
+          <section class="grip-feedback" aria-labelledby="grip-title">
+            <div class="grip-head">
+              <span id="grip-title" class="eyebrow">GRIPPER FORCE FEEDBACK</span>
+              <label class="grip-switch"><input id="grip-on" type="checkbox" disabled /> On</label>
+            </div>
+            <div
+              class="force-bars"
+              role="group"
+              aria-label="How hard each robot gripper squeezes, against the maximum force"
+            >
+              <div class="force-bar" data-side="left">
+                <span>Left</span>
+                <div class="force-track"><div class="force-fill"></div></div>
+                <b>0%</b>
+              </div>
+              <div class="force-bar" data-side="right">
+                <span>Right</span>
+                <div class="force-track"><div class="force-fill"></div></div>
+                <b>0%</b>
+              </div>
+            </div>
+            <p id="grip-readout" class="muted">Start a session to switch it on.</p>
+          </section>
+          <section id="t-head" class="grip-feedback head-card" aria-labelledby="head-title" hidden>
+            <div class="grip-head">
+              <span id="head-title" class="eyebrow">HEAD</span>
+              <button
+                id="head-zero"
+                type="button"
+                disabled
+                title="Where the headset looks now becomes the head's straight ahead (or press a thumbstick in the headset)"
+              >
+                Zero headset
+              </button>
+            </div>
+            <p id="head-readout" class="muted" role="status">—</p>
+            <p id="head-headset" class="muted">—</p>
+          </section>
+          <div class="panel-head">
+            <div class="eyebrow warn" id="t-eyebrow">TELEOP · VIRTUAL RECEIVER · NO MOTORS MOVE</div>
+            <h1 id="t-title">Drive the arms with the leaders</h1>
+            <p class="lead" id="t-lead">
+              Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again
+              holds; Shutdown (X) returns slowly to the reference; Disable (H) removes torque.
+            </p>
+            <div class="target" id="t-target" role="group" aria-label="Where the loop runs">
+              <span>Loop runs on</span>
+              <button
+                data-target="jetson"
+                title="The control loop runs on Minerva's Jetson; leaders stream over the tether"
+              >
+                Minerva's Jetson
+              </button>
+              <button data-target="pc" title="The control loop runs on this PC">This PC</button>
+            </div>
+            <div class="target" id="t-receiver-choice" role="group" aria-label="Receiver">
+              <span>Receiver</span>
+              <button data-receiver="virtual" title="The virtual receiver: no motors move">Virtual</button>
+              <button
+                data-receiver="virtual"
+                data-collision="motion"
+                title="Virtual receiver with the two-arm collision bound enforced; no motors move"
+              >
+                Enforced
+              </button>
+              <span class="target-live">Live</span>
+              <button
+                data-receiver="live"
+                data-arm="left"
+                title="The left arm's motors; the right arm stays disabled. Loop on Minerva's Jetson only."
+              >
+                Left
+              </button>
+              <button
+                data-receiver="live"
+                data-arm="right"
+                title="The right arm's motors; the left arm stays disabled. Loop on Minerva's Jetson only."
+              >
+                Right
+              </button>
+              <button
+                data-receiver="live"
+                data-arm="both"
+                title="Both arms' motors in one receiver. Loop on Minerva's Jetson only."
+              >
+                Both
+              </button>
+              <button
+                data-receiver="live"
+                data-arm="head"
+                title="The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only."
+              >
+                Head
+              </button>
+            </div>
+            <div class="target" id="t-mode" role="group" aria-label="Teleop mode">
+              <span>Mode</span>
+              <button data-mode="direct" title="Drive the arms with the leaders and record episodes (pedal A)">
+                Direct
+              </button>
+              <button
+                data-mode="calibrate"
+                title="Camera calibration with the leaders: each pause (pedal B or T) takes a still a second later; nothing is recorded"
+              >
+                Calibrate
+              </button>
+              <button data-mode="policy" title="A trained policy drives the arms in place of the leaders">
+                Policy
+              </button>
+            </div>
+            <div class="target" id="t-input" role="group" aria-label="Teleop input">
+              <span>Input</span>
+              <button data-input="gello" title="The GELLO leaders drive the arms">GELLO</button>
+              <button
+                data-input="headset"
+                title="The headset's controllers drive the arms: hold a grip to drag that arm's gripper, the trigger closes it, B or Y holds. Not recorded yet."
+              >
+                Headset
+              </button>
+            </div>
+            <p class="choice-note" id="t-choice-note" hidden></p>
+            <div class="teleop-status" id="t-status">
+              <span>Phase<b id="t-state">—</b></span
+              ><span>Receiver<b id="t-receiver">—</b></span> <span>Cycle<b id="t-cycle">—</b></span
+              ><span>Collision<b id="t-collision">—</b></span>
+              <span>Control<b id="t-control">—</b></span>
+            </div>
+            <div class="lifecycle" role="group" aria-label="Lifecycle">
+              <button data-key="I" title="Idle: motors on, zero torque (I)">Idle <kbd>I</kbd></button>
+              <button data-key="E" title="Enable: hold the current pose (E)">Enable <kbd>E</kbd></button>
+              <button
+                data-key="T"
+                class="primary"
+                id="t-engage"
+                title="Engage: align with the leaders, then follow (T)"
+              >
+                Engage <kbd>T</kbd>
+              </button>
+              <button data-key="H" class="danger" title="Disable: remove torque now (H)">Disable <kbd>H</kbd></button>
+              <button data-key="X" title="Shutdown: return slowly to the reference, then disable (X)">
+                Shutdown <kbd>X</kbd>
+              </button>
+              <button
+                id="t-zero"
+                title="The leaders' pose now maps onto the robot's reference pose. An engaged arm holds first; engage again (T) to follow. (Z)"
+              >
+                Set zero <kbd>Z</kbd>
+              </button>
+            </div>
+            <p id="t-message" class="muted" role="status"></p>
+          </div>
+          <div id="teleop-content" class="scroll">
+            <section id="t-policy-start" class="policy-start" aria-labelledby="t-policy-start-title" hidden>
+              <div class="policy-start-head">
+                <span class="eyebrow">POLICY MODE</span><b id="t-policy-start-title">Run a policy on the arms</b>
+              </div>
+              <p class="muted">
+                Choose a policy, then Start policy session above. A trained policy drives the arms in a teleop session
+                with your leaders connected: Enable shows its first action, Engage aligns to it at the alignment speed,
+                then it drives. Take over with pedal B (or O): the arms hold, line up the leaders, and Resume aligns the
+                arms to them; B again hands back the same way. Pedal A records an episode of both: the policy's
+                stretches and your corrections, each frame labelled. Shutdown (X) lowers.
+              </p>
+              <div class="policy-start-actions">
+                <select id="t-policy-choice" aria-label="Policy"></select>
+                <button id="t-policy-refresh" type="button" title="Read the policies on Minerva again">Refresh</button>
+              </div>
+              <p id="t-policy-status" class="muted" role="status"></p>
+            </section>
+            <section id="t-headset" class="policy-start headset-card" aria-labelledby="t-headset-title" hidden>
+              <div class="policy-start-head">
+                <span class="eyebrow">HEADSET</span><b id="t-headset-title">Drive the arms with the controllers</b>
+              </div>
+              <p class="muted">
+                Open Helm's headset page on the Quest (Settings → Headset has its links) and enter VR. Engage (T) raises
+                a hanging arm to its ready pose, forearm forward; keep the space in front of the hands clear. Once
+                engaged, hold a controller's grip to drag that arm's gripper as the hand moves; let go and the arm
+                holds. The trigger closes the gripper; B or Y holds both arms. Nothing is recorded.
+              </p>
+              <div class="headset-arms">
+                <div class="headset-arm" id="t-headset-left"><span>Left</span><b>—</b><small></small></div>
+                <div class="headset-arm" id="t-headset-right"><span>Right</span><b>—</b><small></small></div>
+              </div>
+              <p id="t-headset-status" class="muted" role="status"></p>
+            </section>
+            <section class="task-workflow" aria-labelledby="task-title">
+              <div class="eyebrow" id="task-mode">BIMANUAL DATA COLLECTION</div>
+              <h2 id="task-title">Cube → handoff → bucket</h2>
+              <p id="task-capability" class="muted">Set up the task before starting the session.</p>
+              <ol id="task-guide">
+                <li>Set up the task. Check both leaders and the saved robot ranges.</li>
+                <li>Start the session, then Idle, Enable and Engage. Both arms and grippers participate.</li>
+                <li>Record; pick up the cube, pass it to the other gripper, then release it into the bucket.</li>
+                <li>Stop recording and check its completion. Shutdown returns the arms; Stop session closes it.</li>
+              </ol>
+              <div class="task-actions" role="group" aria-label="Task and recording">
+                <button id="task-setup">Set up task</button>
+                <button id="task-reset">Reset simulated scene</button>
+                <button id="task-record" class="primary">Record episode</button>
+                <button id="task-stop">Stop recording</button>
+              </div>
+              <p id="task-state" role="status">Task not configured.</p>
+              <p id="task-cameras" class="muted" role="status"></p>
+              <p id="task-recording" class="muted" role="status"></p>
+              <p id="task-error" class="bad" role="alert" hidden></p>
+            </section>
+            <section id="calibration" class="camera-calibration" aria-labelledby="calibration-title" hidden>
+              <div class="eyebrow">CAMERA CALIBRATION</div>
+              <h2 id="calibration-title">Calibrate the cameras on the table's tags</h2>
+              <ol id="cal-steps" class="cal-steps" aria-label="Calibration steps">
+                <li>
+                  <button type="button" data-step="wrists">
+                    <span class="cal-step-n">1</span
+                    ><span class="cal-step-text"><b>Wrist cameras</b><small></small></span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" data-step="head">
+                    <span class="cal-step-n">2</span
+                    ><span class="cal-step-text"><b>Head camera</b><small></small></span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" data-step="twin">
+                    <span class="cal-step-n">3</span
+                    ><span class="cal-step-text"><b>Digital twin</b><small></small></span>
+                  </button>
+                </li>
+              </ol>
+              <div id="cal-next" class="cal-next" data-tone="info">
+                <p id="cal-next-text" role="status"></p>
+                <button id="cal-next-go" type="button" class="primary" hidden></button>
+              </div>
+              <ul id="cal-checks" class="cal-checks" aria-label="What a still needs"></ul>
+              <p id="cal-warning" class="cal-warning" role="alert" hidden></p>
+              <div id="cal-stills">
+                <div id="cal-verdict" class="cal-verdict" hidden>
+                  <p id="cal-verdict-title"></p>
+                  <ul id="cal-verdict-reasons"></ul>
+                </div>
+                <p id="calibration-auto" class="muted" role="status"></p>
+                <div id="cal-progress" class="cal-progress"></div>
+                <div class="calibration-actions" role="group" aria-label="Calibration stills">
+                  <div class="target" id="calibration-role" role="group" aria-label="Camera">
+                    <button data-role="left_wrist">Left wrist</button>
+                    <button data-role="right_wrist">Right wrist</button>
+                  </div>
+                  <button
+                    id="calibration-capture"
+                    title="Average a stack of frames and find the tags; the arm must stay still (P)"
+                  >
+                    Capture still <kbd>P</kbd>
+                  </button>
+                  <button id="calibration-undo" title="Drop this camera's last still">Undo last</button>
+                  <button id="calibration-solve" title="Fit both cameras to the run's stills">Solve</button>
+                  <button
+                    id="calibration-save"
+                    title="Save this solve as the head camera's alignment; the one it replaces is kept with the run"
+                    hidden
+                  >
+                    Save alignment
+                  </button>
+                  <button id="calibration-new" title="Start a new run; the old one stays on Minerva">New run</button>
+                </div>
+                <p id="calibration-counts" class="muted" role="status"></p>
+                <div id="calibration-last" class="calibration-last" hidden>
+                  <img id="calibration-thumb" alt="The last still, its tags outlined" />
+                  <p id="calibration-last-text"></p>
+                </div>
+                <details id="cal-details" class="cal-details" hidden>
+                  <summary>The solve's numbers</summary>
+                  <ul id="calibration-result" class="calibration-result"></ul>
+                </details>
+                <p id="calibration-error" class="bad" role="alert" hidden></p>
+              </div>
+              <div id="twin" class="cal-twin" hidden>
+                <div class="calibration-actions" role="group" aria-label="Twin correction">
+                  <button
+                    id="twin-apply"
+                    title="Draw the measured joints through the proposal below; the correction it replaces is kept"
+                  >
+                    Apply to the model
+                  </button>
+                  <button
+                    id="twin-clear"
+                    title="Draw the measured angles again; the correction is kept with the calibrations"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p id="twin-status" class="muted" role="status"></p>
+                <ul id="twin-lines" class="calibration-result"></ul>
+                <p id="twin-error" class="bad" role="alert" hidden></p>
+              </div>
+              <details id="cal-how" class="cal-how">
+                <summary>How this step works</summary>
+                <ul id="cal-how-list"></ul>
               </details>
-              <p id="calibration-error" class="bad" role="alert" hidden></p>
-            </div>
-            <div id="twin" class="cal-twin" hidden>
-              <div class="calibration-actions" role="group" aria-label="Twin correction">
-                <button id="twin-apply" title="Draw the measured joints through the proposal below; the correction it replaces is kept">Apply to the model</button>
-                <button id="twin-clear" title="Draw the measured angles again; the correction is kept with the calibrations">Remove</button>
+            </section>
+            <section id="maps" class="camera-calibration" aria-labelledby="maps-title" hidden>
+              <div class="eyebrow">HEAD MAP</div>
+              <h2 id="maps-title">A splat map of the room for the headset</h2>
+              <p class="muted">
+                In a session with the live head, engage it (T), press Capture, then look slowly around the workspace in
+                the headset: a frame is kept each time the head has turned a few degrees and held steady. Train the
+                capture on the operator station (scripts/splat/train_on_station.py), then turn the headset's Map on with
+                its 3D.
+              </p>
+              <div class="calibration-actions" role="group" aria-label="Map capture">
+                <div class="target" id="maps-seconds" role="group" aria-label="Capture length">
+                  <button data-seconds="15">15 s</button>
+                  <button data-seconds="30">30 s</button>
+                  <button data-seconds="60">60 s</button>
+                </div>
+                <button
+                  id="maps-capture"
+                  class="primary"
+                  title="Record the head camera's pictures and depth with the head's pose as you look around"
+                >
+                  Capture
+                </button>
               </div>
-              <p id="twin-status" class="muted" role="status"></p>
-              <ul id="twin-lines" class="calibration-result"></ul>
-              <p id="twin-error" class="bad" role="alert" hidden></p>
-            </div>
-            <details id="cal-how" class="cal-how"><summary>How this step works</summary><ul id="cal-how-list"></ul></details>
-          </section>
-          <section id="maps" class="camera-calibration" aria-labelledby="maps-title" hidden>
-            <div class="eyebrow">HEAD MAP</div>
-            <h2 id="maps-title">A splat map of the room for the headset</h2>
-            <p class="muted">In a session with the live head, engage it (T), press Capture, then look slowly around the workspace in the headset: a frame is kept each time the head has turned a few degrees and held steady. Train the capture on the operator station (scripts/splat/train_on_station.py), then turn the headset's Map on with its 3D.</p>
-            <div class="calibration-actions" role="group" aria-label="Map capture">
-              <div class="target" id="maps-seconds" role="group" aria-label="Capture length">
-                <button data-seconds="15">15 s</button>
-                <button data-seconds="30">30 s</button>
-                <button data-seconds="60">60 s</button>
+              <p id="maps-status" class="muted" role="status"></p>
+              <ul id="maps-list" class="calibration-result"></ul>
+              <p id="maps-error" class="bad" role="alert" hidden></p>
+            </section>
+            <div class="tuning-shortcut">
+              <div>
+                <b>Motor tuning &amp; session settings</b>
+                <p id="t-tuning-summary" class="muted">Configure gains, following and return speeds in Settings.</p>
               </div>
-              <button id="maps-capture" class="primary" title="Record the head camera's pictures and depth with the head's pose as you look around">Capture</button>
+              <button id="open-motor-settings">Open Settings</button>
             </div>
-            <p id="maps-status" class="muted" role="status"></p>
-            <ul id="maps-list" class="calibration-result"></ul>
-            <p id="maps-error" class="bad" role="alert" hidden></p>
-          </section>
-          <div class="tuning-shortcut"><div><b>Motor tuning &amp; session settings</b><p id="t-tuning-summary" class="muted">Configure gains, following and return speeds in Settings.</p></div><button id="open-motor-settings">Open Settings</button></div>
-          <div id="teleop-joints"></div>
-        </div>
-        <div id="t-confirm" class="confirm-box" role="alertdialog" aria-labelledby="t-confirm-title" hidden>
-          <b id="t-confirm-title"></b>
-          <ul id="t-confirm-list"></ul>
-          <div class="confirm-actions">
-            <button id="t-confirm-cancel">Cancel</button>
-            <button id="t-confirm-go" class="danger"></button>
+            <div id="teleop-joints"></div>
           </div>
-        </div>
-        <div class="save-bar">
-          <p id="teleop-status" role="status"></p>
-        </div>
-      </section>
-      <section id="panel-tune" class="panel" aria-label="Servo sweep" hidden>
-        <div class="panel-head">
-          <div class="eyebrow live" id="u-eyebrow">SERVO SWEEP · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH</div>
-          <h1>Measure each joint's servo settings</h1>
-          <p class="lead">The arm hangs in its reference pose. Joint by joint the sweep moves it on its own: slow ramps
-            widening toward its range, stiffness and damping steps, then speeds and braking, then a pass at the chosen
-            settings. Review the results, then save the joints you accept.</p>
-          <div class="target" id="u-arm" role="group" aria-label="Arm">
-            <span>Arm</span>
-            <button data-arm="left">Left arm</button>
-            <button data-arm="right">Right arm</button>
-            <button data-arm="head" title="The head's two servos, on their own receiver">Head</button>
+          <div id="t-confirm" class="confirm-box" role="alertdialog" aria-labelledby="t-confirm-title" hidden>
+            <b id="t-confirm-title"></b>
+            <ul id="t-confirm-list"></ul>
+            <div class="confirm-actions">
+              <button id="t-confirm-cancel">Cancel</button>
+              <button id="t-confirm-go" class="danger"></button>
+            </div>
           </div>
-          <div class="target wrap" id="u-joints" role="group" aria-label="Joints to sweep"><span>Joints</span></div>
-          <div class="teleop-status">
-            <span>Phase<b id="u-phase">—</b></span><span>Joints done<b id="u-done">—</b></span>
-            <span>Cycle<b id="u-cycle">—</b></span><span>Motors<b id="u-motors">—</b></span>
+          <div class="save-bar">
+            <p id="teleop-status" role="status"></p>
           </div>
-          <div class="lifecycle" role="group" aria-label="Sweep">
-            <button id="u-finish" title="The joint under test returns to the reference, then the arm is disabled (X)">Finish <kbd>X</kbd></button>
-            <button id="u-disable" class="danger" title="Disable now: the arm goes limp where it is (H)">Disable <kbd>H</kbd></button>
+        </section>
+        <section id="panel-tune" class="panel" aria-label="Servo sweep" hidden>
+          <div class="panel-head">
+            <div class="eyebrow live" id="u-eyebrow">SERVO SWEEP · MOTORS MOVE ON THEIR OWN · FOOT SWITCH IN REACH</div>
+            <h1>Measure each joint's servo settings</h1>
+            <p class="lead">
+              The arm hangs in its reference pose. Joint by joint the sweep moves it on its own: slow ramps widening
+              toward its range, stiffness and damping steps, then speeds and braking, then a pass at the chosen
+              settings. Review the results, then save the joints you accept.
+            </p>
+            <div class="target" id="u-arm" role="group" aria-label="Arm">
+              <span>Arm</span>
+              <button data-arm="left">Left arm</button>
+              <button data-arm="right">Right arm</button>
+              <button data-arm="head" title="The head's two servos, on their own receiver">Head</button>
+            </div>
+            <div class="target wrap" id="u-joints" role="group" aria-label="Joints to sweep"><span>Joints</span></div>
+            <div class="teleop-status">
+              <span>Phase<b id="u-phase">—</b></span
+              ><span>Joints done<b id="u-done">—</b></span> <span>Cycle<b id="u-cycle">—</b></span
+              ><span>Motors<b id="u-motors">—</b></span>
+            </div>
+            <div class="lifecycle" role="group" aria-label="Sweep">
+              <button id="u-finish" title="The joint under test returns to the reference, then the arm is disabled (X)">
+                Finish <kbd>X</kbd>
+              </button>
+              <button id="u-disable" class="danger" title="Disable now: the arm goes limp where it is (H)">
+                Disable <kbd>H</kbd>
+              </button>
+            </div>
+            <p id="u-message" class="muted" role="status"></p>
+            <ul id="u-events" class="events" aria-label="Guard events"></ul>
           </div>
-          <p id="u-message" class="muted" role="status"></p>
-          <ul id="u-events" class="events" aria-label="Guard events"></ul>
-        </div>
-        <div id="tune-results" class="scroll"></div>
-        <div id="u-confirm" class="confirm-box" role="alertdialog" aria-labelledby="u-confirm-title" hidden>
-          <b id="u-confirm-title"></b>
-          <ul id="u-confirm-list"></ul>
-          <div class="confirm-actions">
-            <button id="u-confirm-cancel">Cancel</button>
-            <button id="u-confirm-go" class="danger"></button>
+          <div id="tune-results" class="scroll"></div>
+          <div id="u-confirm" class="confirm-box" role="alertdialog" aria-labelledby="u-confirm-title" hidden>
+            <b id="u-confirm-title"></b>
+            <ul id="u-confirm-list"></ul>
+            <div class="confirm-actions">
+              <button id="u-confirm-cancel">Cancel</button>
+              <button id="u-confirm-go" class="danger"></button>
+            </div>
           </div>
-        </div>
-        <div class="save-bar">
-          <p id="tune-status" role="status"></p>
-          <button id="u-save" title="Save the checked joints' settings as the servo calibration">Save selected</button>
-          <button id="u-return" title="Bring the chosen arm from where it rests back to its reference, slowly, then disable it. Connect first: the 3D view shows the arm as its drives read it.">Return to reference</button>
-          <button id="u-session" class="danger">Start sweep</button>
-        </div>
-      </section>
-      <section id="panel-replay" class="panel" aria-label="Replay" hidden>
-        <div class="panel-head">
-          <span class="eyebrow">REPLAY</span>
-          <h1>Recorded episodes</h1>
-          <p class="lead">Episodes recorded on Minerva, newest first. Choose one to play it back, then keep it for training or discard it. Replay waits while a recording is running.</p>
-          <div class="replay-list-head"><button id="replay-refresh" type="button">Refresh</button>
-            <select id="replay-filter" aria-label="Show episodes"><option value="all">All</option><option value="unreviewed">To review</option><option value="keep">Kept</option><option value="discard">Discarded</option></select>
-            <span id="replay-list-status" role="status"></span></div>
-        </div>
-        <div id="replay-list" class="scroll replay-list"></div>
-        <div id="replay-details" class="replay-details"></div>
-        <div id="replay-review" class="replay-review" role="group" aria-label="Training review" hidden>
-          <div class="replay-review-head"><span class="eyebrow">TRAINING</span><b id="replay-verdict" class="replay-verdict-label">Not reviewed</b></div>
-          <input id="replay-note" type="text" maxlength="300" placeholder="Note (optional): why keep or discard" aria-label="Review note">
-          <div class="replay-review-actions">
-            <button id="replay-keep" type="button" class="primary">Keep</button>
-            <button id="replay-discard" type="button">Discard</button>
-            <button id="replay-clear" type="button">Clear</button>
+          <div class="save-bar">
+            <p id="tune-status" role="status"></p>
+            <button id="u-save" title="Save the checked joints' settings as the servo calibration">
+              Save selected
+            </button>
+            <button
+              id="u-return"
+              title="Bring the chosen arm from where it rests back to its reference, slowly, then disable it. Connect first: the 3D view shows the arm as its drives read it."
+            >
+              Return to reference
+            </button>
+            <button id="u-session" class="danger">Start sweep</button>
           </div>
-          <p id="replay-review-status" class="replay-review-status" role="status"></p>
-        </div>
-        <div id="replay-live" class="replay-review replay-live" role="group" aria-label="Replay on Minerva" hidden>
-          <div class="replay-review-head"><span class="eyebrow">ON THE ARMS</span><b id="replay-live-receiver">—</b></div>
-          <p class="replay-live-note">The arms follow this episode's recorded commands in a teleop session: Engage (T) first moves them to its first frame at the alignment speed, Hold (T) pauses, Shutdown (X) lowers them. Nothing is recorded.</p>
-          <div class="replay-review-actions">
-            <select id="replay-live-speed" aria-label="Replay speed on the arms" title="Replay speed on the arms"><option value="0.25">0.25×</option><option value="0.5" selected>0.5×</option><option value="1">1×</option></select>
-            <button id="replay-live-start" type="button" class="primary">Replay on Minerva</button>
+        </section>
+        <section id="panel-replay" class="panel" aria-label="Replay" hidden>
+          <div class="panel-head">
+            <span class="eyebrow">REPLAY</span>
+            <h1>Recorded episodes</h1>
+            <p class="lead">
+              Episodes recorded on Minerva, newest first. Choose one to play it back, then keep it for training or
+              discard it. Replay waits while a recording is running.
+            </p>
+            <div class="replay-list-head">
+              <button id="replay-refresh" type="button">Refresh</button>
+              <select id="replay-filter" aria-label="Show episodes">
+                <option value="all">All</option>
+                <option value="unreviewed">To review</option>
+                <option value="keep">Kept</option>
+                <option value="discard">Discarded</option>
+              </select>
+              <span id="replay-list-status" role="status"></span>
+            </div>
           </div>
-          <p id="replay-live-status" class="replay-review-status" role="status"></p>
-        </div>
-      </section>
-      <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
-        <div class="settings-rail">
-          <input id="settings-search" type="search" placeholder="Search settings…" aria-label="Search settings, speeds, limits and units" autocomplete="off">
-          <nav id="settings-nav" class="settings-nav" aria-label="Settings categories"></nav>
-          <div class="settings-meta"><span id="settings-revision">Loading settings…</span><span id="settings-draft"></span></div>
-        </div>
-        <div class="settings-main">
-        <div id="settings-content" class="scroll">
-          <div id="settings-motors">
-          <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
-            <div class="manual-toolbar">
-              <h2 id="manual-title">Manual motor tuning</h2>
-              <p id="manual-state" class="muted"></p>
-              <div class="manual-actions" role="group" aria-label="Manual tuning settings">
-                <button id="manual-apply" class="primary">Apply to session</button>
-                <button id="manual-revert">Revert edits</button>
-                <button id="manual-save">Save applied</button>
-                <button id="manual-restore">Restore saved</button>
+          <div id="replay-list" class="scroll replay-list"></div>
+          <div id="replay-details" class="replay-details"></div>
+          <div id="replay-review" class="replay-review" role="group" aria-label="Training review" hidden>
+            <div class="replay-review-head">
+              <span class="eyebrow">TRAINING</span><b id="replay-verdict" class="replay-verdict-label">Not reviewed</b>
+            </div>
+            <input
+              id="replay-note"
+              type="text"
+              maxlength="300"
+              placeholder="Note (optional): why keep or discard"
+              aria-label="Review note"
+            />
+            <div class="replay-review-actions">
+              <button id="replay-keep" type="button" class="primary">Keep</button>
+              <button id="replay-discard" type="button">Discard</button>
+              <button id="replay-clear" type="button">Clear</button>
+            </div>
+            <p id="replay-review-status" class="replay-review-status" role="status"></p>
+          </div>
+          <div id="replay-live" class="replay-review replay-live" role="group" aria-label="Replay on Minerva" hidden>
+            <div class="replay-review-head">
+              <span class="eyebrow">ON THE ARMS</span><b id="replay-live-receiver">—</b>
+            </div>
+            <p class="replay-live-note">
+              The arms follow this episode's recorded commands in a teleop session: Engage (T) first moves them to its
+              first frame at the alignment speed, Hold (T) pauses, Shutdown (X) lowers them. Nothing is recorded.
+            </p>
+            <div class="replay-review-actions">
+              <select id="replay-live-speed" aria-label="Replay speed on the arms" title="Replay speed on the arms">
+                <option value="0.25">0.25×</option>
+                <option value="0.5" selected>0.5×</option>
+                <option value="1">1×</option>
+              </select>
+              <button id="replay-live-start" type="button" class="primary">Replay on Minerva</button>
+            </div>
+            <p id="replay-live-status" class="replay-review-status" role="status"></p>
+          </div>
+        </section>
+        <section id="panel-settings" class="panel settings-panel" aria-label="Settings" hidden>
+          <div class="settings-rail">
+            <input
+              id="settings-search"
+              type="search"
+              placeholder="Search settings…"
+              aria-label="Search settings, speeds, limits and units"
+              autocomplete="off"
+            />
+            <nav id="settings-nav" class="settings-nav" aria-label="Settings categories"></nav>
+            <div class="settings-meta">
+              <span id="settings-revision">Loading settings…</span><span id="settings-draft"></span>
+            </div>
+          </div>
+          <div class="settings-main">
+            <div id="settings-content" class="scroll">
+              <div id="settings-motors">
+                <section id="manual-tuning" class="manual-tuning" aria-labelledby="manual-title" hidden>
+                  <div class="manual-toolbar">
+                    <h2 id="manual-title">Manual motor tuning</h2>
+                    <p id="manual-state" class="muted"></p>
+                    <div class="manual-actions" role="group" aria-label="Manual tuning settings">
+                      <button id="manual-apply" class="primary">Apply to session</button>
+                      <button id="manual-revert">Revert edits</button>
+                      <button id="manual-save">Save applied</button>
+                      <button id="manual-restore">Restore saved</button>
+                    </div>
+                    <div class="manual-actions" role="group" aria-label="Copy one arm's gains and speeds to the other">
+                      <button
+                        id="manual-mirror-left"
+                        title="Kp, Kd and speed of each left joint to the same right joint, as draft edits"
+                      >
+                        Copy left → right
+                      </button>
+                      <button
+                        id="manual-mirror-right"
+                        title="Kp, Kd and speed of each right joint to the same left joint, as draft edits"
+                      >
+                        Copy right → left
+                      </button>
+                    </div>
+                    <label class="manual-vff"
+                      ><input type="checkbox" id="manual-vff" /> Velocity feed-forward
+                      <span class="muted">· takes effect at the next session start</span></label
+                    >
+                    <p id="manual-vff-note" class="muted"></p>
+                    <p id="manual-feedback" class="muted" role="status" aria-live="polite"></p>
+                    <p id="manual-gate" class="muted"></p>
+                  </div>
+                  <p class="manual-help">
+                    Edit, hold with T, apply, then engage with T to test. Editing alone does not change motors.
+                    Unchecked joints hold position; their motors stay powered. Blank travel uses the full usable range.
+                    A travel window stays centered on the first Enable pose; Shutdown returns to reference outside that
+                    window.
+                  </p>
+                  <p id="manual-scope" class="manual-scope"></p>
+                  <div id="manual-rows"></div>
+                </section>
+                <p id="settings-manual-unavailable" class="muted" hidden>
+                  Manual motor tuning is available with the direct tuning profile.
+                </p>
               </div>
-              <div class="manual-actions" role="group" aria-label="Copy one arm's gains and speeds to the other">
-                <button id="manual-mirror-left" title="Kp, Kd and speed of each left joint to the same right joint, as draft edits">Copy left → right</button>
-                <button id="manual-mirror-right" title="Kp, Kd and speed of each right joint to the same left joint, as draft edits">Copy right → left</button>
-              </div>
-              <label class="manual-vff"><input type="checkbox" id="manual-vff"> Velocity feed-forward
-                <span class="muted">· takes effect at the next session start</span></label>
-              <p id="manual-vff-note" class="muted"></p>
-              <p id="manual-feedback" class="muted" role="status" aria-live="polite"></p>
-              <p id="manual-gate" class="muted"></p>
+              <div id="settings-fields"></div>
+              <p id="settings-empty" class="empty-state" hidden>
+                No settings match. Try a motor name, “speed”, or “timeout”.
+              </p>
+              <section id="settings-grippers" class="settings-group" hidden>
+                <h2>Gripper zero</h2>
+                <p class="muted">
+                  Sets a gripper's motor zero where its jaws are and saves it on the drive. A gripper's zero is fully
+                  closed: inner jaw faces together. Use it after a gear skip, when the closed gripper no longer reads 0
+                  rad. The arms stay disabled and the live view pauses while it runs; a power cycle confirms the drive
+                  kept the zero.
+                </p>
+                <div class="gripper-zero" data-motor="left_gripper" data-label="left gripper">
+                  <div class="gripper-zero-head"><b>Left gripper</b><span class="gripper-reading"></span></div>
+                  <button class="gripper-zero-ask">Zero the left gripper…</button>
+                  <div class="gripper-zero-confirm" hidden>
+                    <p>
+                      Close the left gripper's jaws fully by hand, inner faces together, and hold them still. Its zero
+                      is set at this pose and saved on the drive.
+                    </p>
+                    <button class="danger gripper-zero-yes">Zero it now</button>
+                    <button class="gripper-zero-no">Cancel</button>
+                  </div>
+                </div>
+                <div class="gripper-zero" data-motor="right_gripper" data-label="right gripper">
+                  <div class="gripper-zero-head"><b>Right gripper</b><span class="gripper-reading"></span></div>
+                  <button class="gripper-zero-ask">Zero the right gripper…</button>
+                  <div class="gripper-zero-confirm" hidden>
+                    <p>
+                      Close the right gripper's jaws fully by hand, inner faces together, and hold them still. Its zero
+                      is set at this pose and saved on the drive.
+                    </p>
+                    <button class="danger gripper-zero-yes">Zero it now</button>
+                    <button class="gripper-zero-no">Cancel</button>
+                  </div>
+                </div>
+                <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
+                <h2>Gripper force feedback</h2>
+                <p class="muted">
+                  While the robot's gripper holds something, the trigger meets a wall where the object stopped the jaws:
+                  no push at the wall, and a push that grows as you squeeze past it. It never pulls closed. Switch it on
+                  in Teleop. Every setting is saved for every session and applies at once to a running one.
+                </p>
+                <label class="grip-setting"
+                  >Maximum trigger force
+                  <input id="grip-cap" type="range" min="0" max="200" step="10" value="200" /><output
+                    id="grip-cap-value"
+                    >200 mA</output
+                  ></label
+                >
+                <label class="grip-setting"
+                  >Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100" /><output
+                    id="grip-strength-value"
+                    >100%</output
+                  ></label
+                >
+                <label class="grip-setting"
+                  >Full force at <input id="grip-wall" type="range" min="0.2" max="5" step="0.1" value="0.5" /><output
+                    id="grip-wall-value"
+                    >0.5° past the wall</output
+                  ></label
+                >
+                <p class="muted">
+                  200 mA is the leader boards' limit, and strength scales the whole push. The push reaches the maximum
+                  this far past the wall: one degree of trigger squeezes the jaws about 2.5 Nm, so a held cube sits
+                  about 0.8° past it and a light hold 0.2-0.3°. Fewer degrees make a harder wall; if the trigger buzzes
+                  at the wall, add some.
+                </p>
+                <label class="grip-setting"
+                  >Grip threshold
+                  <input id="grip-threshold" type="range" min="0.2" max="2" step="0.05" value="0.5" /><output
+                    id="grip-threshold-value"
+                    >0.50 Nm</output
+                  ></label
+                >
+                <label class="grip-setting"
+                  >Hold time <input id="grip-hold" type="range" min="0" max="300" step="10" value="70" /><output
+                    id="grip-hold-value"
+                    >70 ms</output
+                  ></label
+                >
+                <p class="muted">
+                  The wall appears once the gripper has stayed still, squeezing past the threshold, for the hold time,
+                  and goes once you let go. The gripper's own friction reads 0.30-0.35 Nm at rest, and a free close
+                  starts stuck for up to about 100 ms: a lower threshold or a shorter hold finds contact sooner but can
+                  put a brief wall in a free close.
+                </p>
+                <p class="grip-live" id="grip-live">Start a session to see each gripper's squeeze here.</p>
+                <div class="grip-actions">
+                  <button id="grip-defaults" type="button">Defaults</button>
+                  <span id="grip-settings-status" class="muted" role="status" aria-live="polite"></span>
+                </div>
+              </section>
+              <section id="settings-pedals" class="settings-group" hidden>
+                <h2>Pedals</h2>
+                <p class="muted">
+                  The foot pedals, or the A, B and C keys: A records, B pauses or resumes, and C steps to the next
+                  stage. The Teleop tab shows what each will do now.
+                </p>
+                <div class="pedal-test-row">
+                  <button type="button" id="pedal-test" aria-pressed="false">Test pedals</button>
+                  <p id="pedal-test-status" role="status" hidden></p>
+                </div>
+                <div id="pedal-test-counts" class="pedal-test-counts" aria-label="Presses seen in the test" hidden>
+                  <span data-test-pedal="a">A <b>0</b></span
+                  ><span data-test-pedal="b">B <b>0</b></span
+                  ><span data-test-pedal="c">C <b>0</b></span>
+                </div>
+                <p id="pedal-test-note" class="muted">
+                  The test sends nothing to Minerva. It works only while no session runs, and ends when you leave this
+                  page.
+                </p>
+              </section>
+              <section id="settings-cameras" class="settings-group" hidden>
+                <h2>Cameras</h2>
+                <p class="muted">
+                  Check the table and grippers before recording. Exposure changes apply immediately to the camera while
+                  the session is stopped. Values last until the camera service restarts.
+                </p>
+                <p id="camera-live-note" class="muted">
+                  Live physical cameras appear in the camera pane. Preview freshness is separate from recording
+                  readiness.
+                </p>
+                <button id="camera-refresh">Read camera settings</button>
+                <p id="camera-status" role="status" aria-live="polite" class="muted"></p>
+                <div id="camera-cards"></div>
+              </section>
+              <section id="settings-network" class="settings-group" hidden>
+                <h2>Network</h2>
+                <p class="muted">
+                  How Minerva is connected. Its Ethernet port finds its own mode: plugged into a network it takes the
+                  network's address; plugged into a PC's USB Ethernet adapter it is 10.42.0.1 and gives the PC an
+                  address. The access point puts devices on Minerva's own Wi-Fi, where it is 10.42.0.1 as well.
+                </p>
+                <p id="network-mode" class="network-mode" role="status"></p>
+                <ul id="network-lines" class="network-lines"></ul>
+                <button id="network-ap" type="button" disabled>Turn the access point on</button>
+                <p id="network-status" class="muted" role="status" aria-live="polite"></p>
+              </section>
+              <section id="settings-headset" class="settings-group" hidden>
+                <h2>Headset</h2>
+                <p class="muted">
+                  The operator's headset steers Minerva's head while a teleop session follows (T). On the Quest, open
+                  this Helm's /xr page and start head tracking there: on the network Minerva is on (the Quest on the
+                  same Wi-Fi), or on Minerva's access point (the Quest joined to it), switched in Settings → Network.
+                </p>
+                <ul id="headset-links" class="network-lines"></ul>
+                <p id="headset-links-hint" class="muted" role="status"></p>
+                <p id="headset-state" class="headset-state" role="status"></p>
+                <div class="headset-controls">
+                  <button id="headset-zero" type="button" disabled>Zero headset</button>
+                  <label class="headset-preview"
+                    ><input id="headset-preview" type="checkbox" disabled /> Preview in the 3D view</label
+                  >
+                </div>
+                <p class="muted">
+                  With the preview on, the 3D view's head turns where the headset looks, on every device's view: no
+                  motors move. While a session drives the head, the view shows its measured angles instead.
+                </p>
+                <h3>What the headset shows</h3>
+                <div class="headset-mirror">
+                  <div class="headset-screen">
+                    <canvas
+                      id="headset-picture"
+                      width="1024"
+                      height="768"
+                      aria-label="The head camera, as the headset shows it"
+                    ></canvas>
+                    <canvas
+                      id="headset-strip"
+                      width="1536"
+                      height="104"
+                      aria-label="The headset's status line"
+                    ></canvas>
+                  </div>
+                  <canvas id="headset-panel" width="1024" height="768" aria-label="The headset's status panel"></canvas>
+                </div>
+                <p class="muted">
+                  The same screens as in the headset, from the same data; in the headset the grip buttons move them.
+                </p>
+              </section>
+              <section id="settings-display" class="settings-group" hidden>
+                <div class="touch-preference" id="look-preference">
+                  <h2>Look</h2>
+                  <p class="muted" id="look-description">
+                    RetroUI's pixel look, white by day and black at night, or Helm's original dark look. Applies
+                    immediately and is saved in this browser; it does not change robot control.
+                  </p>
+                  <div class="target" role="group" aria-label="Look" aria-describedby="look-description">
+                    <button type="button" data-look-choice="retro" aria-pressed="true">RetroUI</button>
+                    <button type="button" data-look-choice="classic" aria-pressed="false">Original</button>
+                  </div>
+                  <p id="look-status" class="muted" role="status" aria-live="polite"></p>
+                </div>
+                <div class="touch-preference">
+                  <h2>Touchscreen layout</h2>
+                  <p class="muted" id="touch-description">
+                    Larger controls and scrollable panels for a small touch console. Applies immediately and is saved in
+                    this browser.
+                  </p>
+                  <button type="button" data-touch-toggle aria-pressed="false" aria-describedby="touch-description">
+                    Touch mode: Off
+                  </button>
+                  <p id="touch-status" class="muted" role="status" aria-live="polite"></p>
+                </div>
+                <div class="touch-preference" id="theme-preference">
+                  <h2>Day and night</h2>
+                  <p class="muted" id="theme-description">
+                    White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies
+                    immediately and is saved in this browser; the 3D view and the camera pane follow, and replay video
+                    stays dark in both.
+                  </p>
+                  <button
+                    type="button"
+                    data-theme-toggle="label"
+                    aria-pressed="false"
+                    aria-describedby="theme-description"
+                  >
+                    Night mode: Off
+                  </button>
+                  <p id="theme-status" class="muted" role="status" aria-live="polite"></p>
+                </div>
+                <h2>3D telemetry</h2>
+                <p class="muted">
+                  Display preferences apply immediately in this browser. They do not change robot control.
+                </p>
+                <label class="display-toggle"
+                  ><input type="checkbox" data-display="enabled" checked /> Show joint telemetry on the model</label
+                >
+                <label class="display-select"
+                  >Show readings as
+                  <select data-display="scope">
+                    <option value="selected">Selected joint only</option>
+                    <option value="all">Tags for all joints</option>
+                    <option value="model">On the model (dials)</option>
+                  </select></label
+                >
+                <label class="display-toggle"
+                  ><input type="checkbox" data-display="card" checked /> Show a card for the selected joint</label
+                >
+                <div class="display-options">
+                  <label
+                    ><input type="checkbox" data-display="position" checked /> Position
+                    <small>Signed model coordinate · rad or m</small></label
+                  >
+                  <label
+                    ><input type="checkbox" data-display="effort" checked /> Torque / effort
+                    <small>Drive-reported feedback with units</small></label
+                  >
+                  <label
+                    ><input type="checkbox" data-display="temperature" checked /> Temperature
+                    <small>Drive temperature · °C</small></label
+                  >
+                  <label
+                    ><input type="checkbox" data-display="direction" checked /> Direction arrows
+                    <small>Measured velocity · verified mapping only</small></label
+                  >
+                </div>
+                <p class="display-legend">
+                  <span class="legend-dot measured"></span>Measured feedback <span class="legend-dot stale"></span>Stale
+                  / unavailable
+                </p>
+                <p class="muted">
+                  Select a joint by clicking it on the model or in the joint picker. Click empty space, press Esc, close
+                  its card or pick “No joint selected” to clear it. Missing readings show “—”; stale readings never
+                  appear live. Outside a session the torque-off reader supplies position and drive temperature only.
+                </p>
+                <p class="muted">
+                  On the model: each joint's dial shows its calibrated range (grey), reference (white tick), travel from
+                  the reference (blue) and position (needle), with one position label. The violet ring grows with torque
+                  as a share of the receiver's limit; the hub shades from slate to amber to red as temperature nears its
+                  limit. Dials need a verified direction mapping; stale readings turn grey. The selected joint keeps its
+                  card.
+                </p>
+                <button id="display-reset">Reset display preferences</button>
+              </section>
             </div>
-            <p class="manual-help">Edit, hold with T, apply, then engage with T to test. Editing alone does not change motors.
-              Unchecked joints hold position; their motors stay powered. Blank travel uses the full usable range.
-              A travel window stays centered on the first Enable pose; Shutdown returns to reference outside that window.</p>
-            <p id="manual-scope" class="manual-scope"></p>
-            <div id="manual-rows"></div>
-          </section>
-            <p id="settings-manual-unavailable" class="muted" hidden>Manual motor tuning is available with the direct tuning profile.</p>
+            <div id="settings-footer" class="save-bar settings-save">
+              <p id="settings-apply-note" class="muted"></p>
+              <div class="settings-actions">
+                <button id="settings-revert">Revert edits</button
+                ><button id="settings-reset">Restore profile defaults</button
+                ><button id="settings-apply" class="primary">Apply for next session</button>
+              </div>
+            </div>
+            <p id="settings-status" class="settings-status" role="status" aria-live="polite"></p>
           </div>
-          <div id="settings-fields"></div>
-          <p id="settings-empty" class="empty-state" hidden>No settings match. Try a motor name, “speed”, or “timeout”.</p>
-          <section id="settings-grippers" class="settings-group" hidden>
-            <h2>Gripper zero</h2>
-            <p class="muted">Sets a gripper's motor zero where its jaws are and saves it on the drive. A gripper's zero is
-              fully closed: inner jaw faces together. Use it after a gear skip, when the closed gripper no longer reads
-              0 rad. The arms stay disabled and the live view pauses while it runs; a power cycle confirms the drive
-              kept the zero.</p>
-            <div class="gripper-zero" data-motor="left_gripper" data-label="left gripper">
-              <div class="gripper-zero-head"><b>Left gripper</b><span class="gripper-reading"></span></div>
-              <button class="gripper-zero-ask">Zero the left gripper…</button>
-              <div class="gripper-zero-confirm" hidden>
-                <p>Close the left gripper's jaws fully by hand, inner faces together, and hold them still. Its zero is
-                  set at this pose and saved on the drive.</p>
-                <button class="danger gripper-zero-yes">Zero it now</button>
-                <button class="gripper-zero-no">Cancel</button>
-              </div>
-            </div>
-            <div class="gripper-zero" data-motor="right_gripper" data-label="right gripper">
-              <div class="gripper-zero-head"><b>Right gripper</b><span class="gripper-reading"></span></div>
-              <button class="gripper-zero-ask">Zero the right gripper…</button>
-              <div class="gripper-zero-confirm" hidden>
-                <p>Close the right gripper's jaws fully by hand, inner faces together, and hold them still. Its zero is
-                  set at this pose and saved on the drive.</p>
-                <button class="danger gripper-zero-yes">Zero it now</button>
-                <button class="gripper-zero-no">Cancel</button>
-              </div>
-            </div>
-            <p id="gripper-zero-feedback" class="muted" role="status" aria-live="polite"></p>
-            <h2>Gripper force feedback</h2>
-            <p class="muted">While the robot's gripper holds something, the trigger meets a wall where the object stopped
-              the jaws: no push at the wall, and a push that grows as you squeeze past it. It never pulls closed.
-              Switch it on in Teleop. Every setting is saved for every session and applies at once to a running one.</p>
-            <label class="grip-setting">Maximum trigger force <input id="grip-cap" type="range" min="0" max="200" step="10" value="200"><output id="grip-cap-value">200 mA</output></label>
-            <label class="grip-setting">Strength <input id="grip-strength" type="range" min="0" max="100" step="5" value="100"><output id="grip-strength-value">100%</output></label>
-            <label class="grip-setting">Full force at <input id="grip-wall" type="range" min="0.2" max="5" step="0.1" value="0.5"><output id="grip-wall-value">0.5° past the wall</output></label>
-            <p class="muted">200 mA is the leader boards' limit, and strength scales the whole push. The push reaches the
-              maximum this far past the wall: one degree of trigger squeezes the jaws about 2.5 Nm, so a held cube
-              sits about 0.8° past it and a light hold 0.2-0.3°. Fewer degrees make a harder wall; if the trigger
-              buzzes at the wall, add some.</p>
-            <label class="grip-setting">Grip threshold <input id="grip-threshold" type="range" min="0.2" max="2" step="0.05" value="0.5"><output id="grip-threshold-value">0.50 Nm</output></label>
-            <label class="grip-setting">Hold time <input id="grip-hold" type="range" min="0" max="300" step="10" value="70"><output id="grip-hold-value">70 ms</output></label>
-            <p class="muted">The wall appears once the gripper has stayed still, squeezing past the threshold, for the hold
-              time, and goes once you let go. The gripper's own friction reads 0.30-0.35 Nm at rest, and a free close
-              starts stuck for up to about 100 ms: a lower threshold or a shorter hold finds contact sooner but can
-              put a brief wall in a free close.</p>
-            <p class="grip-live" id="grip-live">Start a session to see each gripper's squeeze here.</p>
-            <div class="grip-actions"><button id="grip-defaults" type="button">Defaults</button>
-              <span id="grip-settings-status" class="muted" role="status" aria-live="polite"></span></div>
-          </section>
-          <section id="settings-pedals" class="settings-group" hidden>
-            <h2>Pedals</h2>
-            <p class="muted">The foot pedals, or the A, B and C keys: A records, B pauses or resumes, and C steps to the next stage. The Teleop tab shows what each will do now.</p>
-            <div class="pedal-test-row"><button type="button" id="pedal-test" aria-pressed="false">Test pedals</button><p id="pedal-test-status" role="status" hidden></p></div>
-            <div id="pedal-test-counts" class="pedal-test-counts" aria-label="Presses seen in the test" hidden>
-              <span data-test-pedal="a">A <b>0</b></span><span data-test-pedal="b">B <b>0</b></span><span data-test-pedal="c">C <b>0</b></span>
-            </div>
-            <p id="pedal-test-note" class="muted">The test sends nothing to Minerva. It works only while no session runs, and ends when you leave this page.</p>
-          </section>
-          <section id="settings-cameras" class="settings-group" hidden>
-            <h2>Cameras</h2>
-            <p class="muted">Check the table and grippers before recording. Exposure changes apply immediately to the camera while the session is stopped. Values last until the camera service restarts.</p>
-            <p id="camera-live-note" class="muted">Live physical cameras appear in the camera pane. Preview freshness is separate from recording readiness.</p>
-            <button id="camera-refresh">Read camera settings</button>
-            <p id="camera-status" role="status" aria-live="polite" class="muted"></p>
-            <div id="camera-cards"></div>
-          </section>
-          <section id="settings-network" class="settings-group" hidden>
-            <h2>Network</h2>
-            <p class="muted">How Minerva is connected. Its Ethernet port finds its own mode: plugged into a network it takes
-              the network's address; plugged into a PC's USB Ethernet adapter it is 10.42.0.1 and gives the PC an address.
-              The access point puts devices on Minerva's own Wi-Fi, where it is 10.42.0.1 as well.</p>
-            <p id="network-mode" class="network-mode" role="status"></p>
-            <ul id="network-lines" class="network-lines"></ul>
-            <button id="network-ap" type="button" disabled>Turn the access point on</button>
-            <p id="network-status" class="muted" role="status" aria-live="polite"></p>
-          </section>
-          <section id="settings-headset" class="settings-group" hidden>
-            <h2>Headset</h2>
-            <p class="muted">The operator's headset steers Minerva's head while a teleop session follows (T). On the
-              Quest, open this Helm's /xr page and start head tracking there: on the network Minerva is on (the
-              Quest on the same Wi-Fi), or on Minerva's access point (the Quest joined to it), switched in
-              Settings → Network.</p>
-            <ul id="headset-links" class="network-lines"></ul>
-            <p id="headset-links-hint" class="muted" role="status"></p>
-            <p id="headset-state" class="headset-state" role="status"></p>
-            <div class="headset-controls">
-              <button id="headset-zero" type="button" disabled>Zero headset</button>
-              <label class="headset-preview"><input id="headset-preview" type="checkbox" disabled> Preview in the 3D
-                view</label>
-            </div>
-            <p class="muted">With the preview on, the 3D view's head turns where the headset looks, on every device's
-              view: no motors move. While a session drives the head, the view shows its measured angles instead.</p>
-            <h3>What the headset shows</h3>
-            <div class="headset-mirror">
-              <div class="headset-screen">
-                <canvas id="headset-picture" width="1024" height="768" aria-label="The head camera, as the headset shows it"></canvas>
-                <canvas id="headset-strip" width="1536" height="104" aria-label="The headset's status line"></canvas>
-              </div>
-              <canvas id="headset-panel" width="1024" height="768" aria-label="The headset's status panel"></canvas>
-            </div>
-            <p class="muted">The same screens as in the headset, from the same data; in the headset the grip buttons
-              move them.</p>
-          </section>
-          <section id="settings-display" class="settings-group" hidden>
-            <div class="touch-preference" id="look-preference">
-              <h2>Look</h2>
-              <p class="muted" id="look-description">RetroUI's pixel look, white by day and black at night, or Helm's original dark look. Applies immediately and is saved in this browser; it does not change robot control.</p>
-              <div class="target" role="group" aria-label="Look" aria-describedby="look-description">
-                <button type="button" data-look-choice="retro" aria-pressed="true">RetroUI</button>
-                <button type="button" data-look-choice="classic" aria-pressed="false">Original</button>
-              </div>
-              <p id="look-status" class="muted" role="status" aria-live="polite"></p>
-            </div>
-            <div class="touch-preference">
-              <h2>Touchscreen layout</h2>
-              <p class="muted" id="touch-description">Larger controls and scrollable panels for a small touch console. Applies immediately and is saved in this browser.</p>
-              <button type="button" data-touch-toggle aria-pressed="false" aria-describedby="touch-description">Touch mode: Off</button>
-              <p id="touch-status" class="muted" role="status" aria-live="polite"></p>
-            </div>
-            <div class="touch-preference" id="theme-preference">
-              <h2>Day and night</h2>
-              <p class="muted" id="theme-description">White by day; black at night or in a dim room. Also the moon / sun button in the header. Applies immediately and is saved in this browser; the 3D view and the camera pane follow, and replay video stays dark in both.</p>
-              <button type="button" data-theme-toggle="label" aria-pressed="false" aria-describedby="theme-description">Night mode: Off</button>
-              <p id="theme-status" class="muted" role="status" aria-live="polite"></p>
-            </div>
-            <h2>3D telemetry</h2><p class="muted">Display preferences apply immediately in this browser. They do not change robot control.</p>
-            <label class="display-toggle"><input type="checkbox" data-display="enabled" checked> Show joint telemetry on the model</label>
-            <label class="display-select">Show readings as <select data-display="scope"><option value="selected">Selected joint only</option><option value="all">Tags for all joints</option><option value="model">On the model (dials)</option></select></label>
-            <label class="display-toggle"><input type="checkbox" data-display="card" checked> Show a card for the selected joint</label>
-            <div class="display-options">
-              <label><input type="checkbox" data-display="position" checked> Position <small>Signed model coordinate · rad or m</small></label>
-              <label><input type="checkbox" data-display="effort" checked> Torque / effort <small>Drive-reported feedback with units</small></label>
-              <label><input type="checkbox" data-display="temperature" checked> Temperature <small>Drive temperature · °C</small></label>
-              <label><input type="checkbox" data-display="direction" checked> Direction arrows <small>Measured velocity · verified mapping only</small></label>
-            </div>
-            <p class="display-legend"><span class="legend-dot measured"></span>Measured feedback <span class="legend-dot stale"></span>Stale / unavailable</p>
-            <p class="muted">Select a joint by clicking it on the model or in the joint picker. Click empty space, press Esc, close its
-              card or pick “No joint selected” to clear it. Missing readings show “—”; stale readings never appear live. Outside a session the torque-off reader supplies position and drive temperature only.</p>
-            <p class="muted">On the model: each joint's dial shows its calibrated range (grey), reference (white tick), travel from the
-              reference (blue) and position (needle), with one position label. The violet ring grows with torque as a share of the
-              receiver's limit; the hub shades from slate to amber to red as temperature nears its limit. Dials need a verified
-              direction mapping; stale readings turn grey. The selected joint keeps its card.</p>
-            <button id="display-reset">Reset display preferences</button>
-          </section>
-        </div>
-        <div id="settings-footer" class="save-bar settings-save">
-          <p id="settings-apply-note" class="muted"></p>
-          <div class="settings-actions"><button id="settings-revert">Revert edits</button><button id="settings-reset">Restore profile defaults</button><button id="settings-apply" class="primary">Apply for next session</button></div>
-        </div>
-        <p id="settings-status" class="settings-status" role="status" aria-live="polite"></p>
-        </div>
-      </section>
-    </aside>
-  </main>
-  <div id="global-controls" class="global-controls" aria-label="Active session controls" hidden>
-    <div><span class="eyebrow">SESSION CONTROLS</span><b id="global-session-state"></b></div>
-    <button id="global-hold" class="primary">Hold <kbd>T</kbd></button>
-    <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
-    <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
-  </div>
-  <div id="rec-frame" class="rec-frame" aria-hidden="true" hidden></div>
-  <dialog id="disable-confirm" class="disable-confirm" aria-labelledby="disable-title" aria-describedby="disable-text">
-    <h2 id="disable-title">Disable the arms now?</h2>
-    <p id="disable-text">Torque goes off at once and the arms drop where they are. To stop without dropping them: Hold (T) keeps them in place; Shutdown (X) lowers them first.</p>
-    <div class="disable-actions">
-      <button type="button" id="disable-cancel">Cancel <kbd>Esc</kbd></button>
-      <button type="button" id="disable-go" class="danger">Disable · arms drop <kbd>H</kbd></button>
+        </section>
+      </aside>
+    </main>
+    <div id="global-controls" class="global-controls" aria-label="Active session controls" hidden>
+      <div><span class="eyebrow">SESSION CONTROLS</span><b id="global-session-state"></b></div>
+      <button id="global-hold" class="primary">Hold <kbd>T</kbd></button>
+      <button id="global-shutdown">Return &amp; disable <kbd>X</kbd></button>
+      <button id="global-disable" class="danger">Disable now <kbd>H</kbd></button>
     </div>
-  </dialog>
-  <script type="module" src="helm/touch.js"></script>
-  <script type="module" src="helm/theme.js"></script>
-  <script type="module" src="helm/helm.js"></script>
-</body>
+    <div id="rec-frame" class="rec-frame" aria-hidden="true" hidden></div>
+    <dialog
+      id="disable-confirm"
+      class="disable-confirm"
+      aria-labelledby="disable-title"
+      aria-describedby="disable-text"
+    >
+      <h2 id="disable-title">Disable the arms now?</h2>
+      <p id="disable-text">
+        Torque goes off at once and the arms drop where they are. To stop without dropping them: Hold (T) keeps them in
+        place; Shutdown (X) lowers them first.
+      </p>
+      <div class="disable-actions">
+        <button type="button" id="disable-cancel">Cancel <kbd>Esc</kbd></button>
+        <button type="button" id="disable-go" class="danger">Disable · arms drop <kbd>H</kbd></button>
+      </div>
+    </dialog>
+    <script type="module" src="helm/touch.js"></script>
+    <script type="module" src="helm/theme.js"></script>
+    <script type="module" src="helm/helm.js"></script>
+  </body>
 </html>

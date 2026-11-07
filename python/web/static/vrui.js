@@ -17,32 +17,33 @@ import * as THREE from 'three';
 
 const POST_URL = '/api/quest_command';
 
-const _BTN_W = 0.20;
+const _BTN_W = 0.2;
 const _BTN_H = 0.08;
 const _BTN_GAP = 0.015;
 // Hit detection: spherical zone around each button's center.  Made
 // generous (10 cm) since mid-air pointing with hand tracking is jittery
 // and the operator can't feel the button edge.
-const _HIT_RADIUS = 0.10;
+const _HIT_RADIUS = 0.1;
 const _DWELL_MS = 500;
 
 const _state = {
-  group: null,         // THREE.Group containing the whole UI
-  buttons: [],         // list of Button records
-  fingerCursor: null,  // small sphere at the left index-finger-tip — visual feedback
-  laser: null,         // THREE.Line — controller / hand pointer ray
-  laserCursor: null,   // THREE.Mesh — dot on the button under the ray
-  lastHitMesh: null,   // last raycast hit mesh (for main.js diagnostics)
+  group: null, // THREE.Group containing the whole UI
+  buttons: [], // list of Button records
+  fingerCursor: null, // small sphere at the left index-finger-tip — visual feedback
+  laser: null, // THREE.Line — controller / hand pointer ray
+  laserCursor: null, // THREE.Mesh — dot on the button under the ray
+  lastHitMesh: null, // last raycast hit mesh (for main.js diagnostics)
 };
 
 // Raycaster reused across frames — avoids per-frame allocation jitter.
 const _raycaster = new THREE.Raycaster();
-_raycaster.far = 5.0;   // 5 m max — anything past that isn't a UI poke
+_raycaster.far = 5.0; // 5 m max — anything past that isn't a UI poke
 
 // main.js registers handlers here for buttons whose cmd starts with `_local_`.
 const _localHandlers = {};
-export function registerLocalCommand(name, handler) { _localHandlers[name] = handler; }
-
+export function registerLocalCommand(name, handler) {
+  _localHandlers[name] = handler;
+}
 
 class Button {
   constructor(label, cmd, args = {}) {
@@ -52,7 +53,8 @@ class Button {
     // Canvas + texture for the text label.  Redrawn whenever hover/dwell
     // state changes, keeping the GPU upload off the hot path.
     this.canvas = document.createElement('canvas');
-    this.canvas.width = 512; this.canvas.height = 160;
+    this.canvas.width = 512;
+    this.canvas.height = 160;
     this.ctx = this.canvas.getContext('2d');
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
@@ -64,7 +66,7 @@ class Button {
     this.lastRenderedKey = '';
     this.lastPinch = false;
     this.lastT = performance.now();
-    this.flashUntil = 0;  // performance.now() time when the post-click flash ends
+    this.flashUntil = 0; // performance.now() time when the post-click flash ends
     this._render(0, false, false);
   }
 
@@ -99,13 +101,13 @@ class Button {
       if (leftPinch && !this.lastPinch) fired = true;
       if (this.dwellMs >= _DWELL_MS) {
         fired = true;
-        this.dwellMs = -300;   // 300 ms cooldown after click — avoids retrigger
+        this.dwellMs = -300; // 300 ms cooldown after click — avoids retrigger
       }
     } else {
-      this.dwellMs = Math.max(0, this.dwellMs - dt * 4);  // 4x decay
+      this.dwellMs = Math.max(0, this.dwellMs - dt * 4); // 4x decay
     }
     this.lastPinch = leftPinch;
-    if (fired) this.flashUntil = now + 350;  // 350 ms yellow confirmation flash
+    if (fired) this.flashUntil = now + 350; // 350 ms yellow confirmation flash
     const flashing = now < this.flashUntil;
     // Re-render label only when something visually changed (keeps the
     // CanvasTexture upload off the per-frame hot path for static buttons).
@@ -120,7 +122,8 @@ class Button {
 
   _render(progress, hover, flashing) {
     const ctx = this.ctx;
-    const w = this.canvas.width, h = this.canvas.height;
+    const w = this.canvas.width,
+      h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
     // Background plate.  Flash > hover > idle in the color priority.
     let bg;
@@ -162,8 +165,11 @@ class Button {
       const handler = _localHandlers[this.cmd];
       if (handler) {
         // Pass the button so toggle handlers can relabel it to show state.
-        try { await handler(this.args, this); }
-        catch (e) { console.warn('[vrui] local handler failed:', e); }
+        try {
+          await handler(this.args, this);
+        } catch (e) {
+          console.warn('[vrui] local handler failed:', e);
+        }
       }
       return;
     }
@@ -181,7 +187,6 @@ class Button {
   }
 }
 
-
 function _roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -191,7 +196,6 @@ function _roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
-
 
 /**
  * Build the in-VR UI panel and add it to the scene.  Called once on VR entry.
@@ -203,7 +207,7 @@ export function buildVRUI(scene) {
   const group = new THREE.Group();
   // Panel position: floating to the operator's LEFT at chest height,
   // closer to them so it's clearly within arm's reach.  Tilted to face them.
-  group.position.set(-0.35, 1.20, -0.40);
+  group.position.set(-0.35, 1.2, -0.4);
   group.rotation.y = Math.PI / 5;
   scene.add(group);
 
@@ -221,9 +225,7 @@ export function buildVRUI(scene) {
   // Laser ray + hit cursor for controllers / hand pinch-aim.  Quest's
   // standard system menu uses the same convention so it should feel
   // familiar.  White semi-transparent line + green dot on the button.
-  const laserGeom = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1),
-  ]);
+  const laserGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
   _state.laser = new THREE.Line(
     laserGeom,
     new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }),
@@ -241,7 +243,8 @@ export function buildVRUI(scene) {
 
   // Card background behind the buttons.
   const cardCanvas = document.createElement('canvas');
-  cardCanvas.width = 256; cardCanvas.height = 32;
+  cardCanvas.width = 256;
+  cardCanvas.height = 32;
   const cardCtx = cardCanvas.getContext('2d');
   cardCtx.fillStyle = 'rgba(22, 27, 34, 0.55)';
   _roundRect(cardCtx, 0, 0, 256, 32, 14);
@@ -254,7 +257,7 @@ export function buildVRUI(scene) {
   const titleTex = new THREE.CanvasTexture(cardCanvas);
   titleTex.colorSpace = THREE.SRGBColorSpace;
   const title = new THREE.Mesh(
-    new THREE.PlaneGeometry(_BTN_W, _BTN_W * 32 / 256),
+    new THREE.PlaneGeometry(_BTN_W, (_BTN_W * 32) / 256),
     new THREE.MeshBasicMaterial({ map: titleTex, transparent: true }),
   );
   // Place the title above the first button.
@@ -266,18 +269,18 @@ export function buildVRUI(scene) {
   // before the server POST for buttons that need a side effect in the
   // browser too (e.g. passthrough toggle).
   const defs = [
-    { label: 'Re-align',          cmd: 'realign' },
+    { label: 'Re-align', cmd: 'realign' },
     { label: 'Calibrate forward', cmd: 'calibrate_forward' },
-    { label: 'Rotate frame +15°', cmd: 'rotate_frame',     args: { delta_deg:  15 } },
-    { label: 'Rotate frame -15°', cmd: 'rotate_frame',     args: { delta_deg: -15 } },
-    { label: 'Reset sim',         cmd: 'reset_sim' },
-    { label: 'Align to arm',      cmd: 'align_to_actual' },
-    { label: 'Workspace +10%',    cmd: 'grow_workspace',   args: { factor: 1.10 } },
-    { label: 'Workspace -10%',    cmd: 'shrink_workspace', args: { factor: 0.90 } },
-    { label: 'Center on EE',      cmd: 'center_workspace_on_ee' },
-    { label: 'Reset workspace',   cmd: 'reset_workspace' },
-    { label: 'Preview: ON',       cmd: '_local_toggle_preview' },
-    { label: 'Ghost: ON',         cmd: '_local_toggle_ghost' },
+    { label: 'Rotate frame +15°', cmd: 'rotate_frame', args: { delta_deg: 15 } },
+    { label: 'Rotate frame -15°', cmd: 'rotate_frame', args: { delta_deg: -15 } },
+    { label: 'Reset sim', cmd: 'reset_sim' },
+    { label: 'Align to arm', cmd: 'align_to_actual' },
+    { label: 'Workspace +10%', cmd: 'grow_workspace', args: { factor: 1.1 } },
+    { label: 'Workspace -10%', cmd: 'shrink_workspace', args: { factor: 0.9 } },
+    { label: 'Center on EE', cmd: 'center_workspace_on_ee' },
+    { label: 'Reset workspace', cmd: 'reset_workspace' },
+    { label: 'Preview: ON', cmd: '_local_toggle_preview' },
+    { label: 'Ghost: ON', cmd: '_local_toggle_ghost' },
     { label: 'Toggle passthrough', cmd: '_local_toggle_passthrough' },
   ];
   const totalH = defs.length * _BTN_H + (defs.length - 1) * _BTN_GAP;
@@ -291,7 +294,6 @@ export function buildVRUI(scene) {
   _state.group = group;
   return group;
 }
-
 
 /**
  * Call once per XR frame with the LEFT index-finger-tip world position
@@ -329,10 +331,10 @@ export function tickVRUI(leftFingerWorldPos, leftPinch, pointer = null) {
   let hitDist = 0;
   if (pointer && pointer.ray) {
     _raycaster.set(pointer.ray.origin, pointer.ray.direction);
-    const meshes = _state.buttons.map(b => b.mesh);
+    const meshes = _state.buttons.map((b) => b.mesh);
     const hits = _raycaster.intersectObjects(meshes, false);
     if (hits.length > 0) {
-      hitBtn = _state.buttons.find(b => b.mesh === hits[0].object) || null;
+      hitBtn = _state.buttons.find((b) => b.mesh === hits[0].object) || null;
       hitPoint = hits[0].point;
       hitDist = hits[0].distance;
     }
@@ -345,8 +347,12 @@ export function tickVRUI(leftFingerWorldPos, leftPinch, pointer = null) {
         ? hitPoint
         : pointer.ray.origin.clone().add(pointer.ray.direction.clone().multiplyScalar(1.5));
       const pos = _state.laser.geometry.attributes.position.array;
-      pos[0] = pointer.ray.origin.x; pos[1] = pointer.ray.origin.y; pos[2] = pointer.ray.origin.z;
-      pos[3] = end.x;                 pos[4] = end.y;                pos[5] = end.z;
+      pos[0] = pointer.ray.origin.x;
+      pos[1] = pointer.ray.origin.y;
+      pos[2] = pointer.ray.origin.z;
+      pos[3] = end.x;
+      pos[4] = end.y;
+      pos[5] = end.z;
       _state.laser.geometry.attributes.position.needsUpdate = true;
       _state.laser.visible = true;
       _state.laserCursor.visible = !!hitPoint;
@@ -359,7 +365,7 @@ export function tickVRUI(leftFingerWorldPos, leftPinch, pointer = null) {
   // Dispatch update + fire to every button.
   const click = !!(pointer && pointer.click);
   for (const btn of _state.buttons) {
-    const isPointed = (btn === hitBtn);
+    const isPointed = btn === hitBtn;
     if (btn.update(leftFingerWorldPos, !!leftPinch, isPointed, click)) {
       btn.fire();
     }

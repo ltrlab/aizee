@@ -28,19 +28,21 @@ import numpy as np
 @dataclass
 class LinkParams:
     """Physical parameters for one link in the serial chain."""
-    length: float          # link length (m) — distance to the next joint
-    mass: float            # link mass (kg) — includes motor, structure, etc.
-    com_x: float           # center of mass X offset in link frame (m)
-    com_y: float = 0.0     # center of mass Y offset in link frame (m)
-    com_z: float = 0.0     # center of mass Z offset in link frame (m)
+
+    length: float  # link length (m) — distance to the next joint
+    mass: float  # link mass (kg) — includes motor, structure, etc.
+    com_x: float  # center of mass X offset in link frame (m)
+    com_y: float = 0.0  # center of mass Y offset in link frame (m)
+    com_z: float = 0.0  # center of mass Z offset in link frame (m)
 
 
 @dataclass
 class JointDef:
     """Joint definition in the serial chain."""
+
     name: str
-    axis: str              # "X", "Y", or "Z"
-    link: LinkParams       # the link that follows (is moved by) this joint
+    axis: str  # "X", "Y", or "Z"
+    link: LinkParams  # the link that follows (is moved by) this joint
 
 
 # ---------------------------------------------------------------------------
@@ -50,12 +52,12 @@ class JointDef:
 # Masses weighed per-segment including motors, brackets, cables.
 
 _DEFAULT_CHAIN = [
-    JointDef("gantry_base",  "Z", LinkParams(length=0.5906, mass=2.00, com_x=0.3937)),  # CoM 2/3 from base
-    JointDef("gantry_mid",   "Y", LinkParams(length=0.5649, mass=1.50, com_x=0.2825)),  # CoM 1/2 way
-    JointDef("gantry_end",   "Y", LinkParams(length=0.100,  mass=2.00, com_x=0.050)),   # CoM center
-    JointDef("wrist_pitch",  "Y", LinkParams(length=0.1063, mass=2.0, com_x=0.053)),   # CoM center
-    JointDef("wrist_roll",   "X", LinkParams(length=0.132,  mass=1.0, com_x=0.066)),   # CoM center
-    JointDef("gripper",      "Z", LinkParams(length=0.0,    mass=0.5, com_x=0.0)),     # gripper mechanism
+    JointDef('gantry_base', 'Z', LinkParams(length=0.5906, mass=2.00, com_x=0.3937)),  # CoM 2/3 from base
+    JointDef('gantry_mid', 'Y', LinkParams(length=0.5649, mass=1.50, com_x=0.2825)),  # CoM 1/2 way
+    JointDef('gantry_end', 'Y', LinkParams(length=0.100, mass=2.00, com_x=0.050)),  # CoM center
+    JointDef('wrist_pitch', 'Y', LinkParams(length=0.1063, mass=2.0, com_x=0.053)),  # CoM center
+    JointDef('wrist_roll', 'X', LinkParams(length=0.132, mass=1.0, com_x=0.066)),  # CoM center
+    JointDef('gripper', 'Z', LinkParams(length=0.0, mass=0.5, com_x=0.0)),  # gripper mechanism
 ]
 
 
@@ -158,11 +160,13 @@ class ArmGravityModel:
             pos += rotations[k] @ link_vec_local
 
         # Add CoM offset of the target link (in that link's frame)
-        com_local = np.array([
-            self.chain[to_link].link.com_x,
-            self.chain[to_link].link.com_y,
-            self.chain[to_link].link.com_z,
-        ])
+        com_local = np.array(
+            [
+                self.chain[to_link].link.com_x,
+                self.chain[to_link].link.com_y,
+                self.chain[to_link].link.com_z,
+            ]
+        )
         pos += rotations[to_link] @ com_local
 
         return pos
@@ -172,7 +176,7 @@ class ArmGravityModel:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_urdf(cls, urdf_path: str | Path, gravity: float = 9.81) -> "ArmGravityModel":
+    def from_urdf(cls, urdf_path: str | Path, gravity: float = 9.81) -> 'ArmGravityModel':
         """Build an ArmGravityModel from a URDF file.
 
         Extracts link masses, centers of mass, and joint axes from the
@@ -184,17 +188,18 @@ class ArmGravityModel:
         try:
             from urdf_parser_py.urdf import URDF
         except ImportError:
-            raise ImportError(
-                "urdf_parser_py is required for URDF loading. "
-                "Install with: pip install urdf_parser_py"
-            )
+            raise ImportError('urdf_parser_py is required for URDF loading. Install with: pip install urdf_parser_py')
 
         robot = URDF.from_xml_file(str(urdf_path))
 
         # Expected joint names in order
         joint_names = [
-            "gantry_base", "gantry_mid", "gantry_end",
-            "wrist_pitch", "wrist_roll", "gripper",
+            'gantry_base',
+            'gantry_mid',
+            'gantry_end',
+            'wrist_pitch',
+            'wrist_roll',
+            'gripper',
         ]
 
         chain: list[JointDef] = []
@@ -244,17 +249,19 @@ class ArmGravityModel:
                         length = float(np.linalg.norm(xyz))
                         break
 
-            chain.append(JointDef(
-                name=jname,
-                axis=axis_str,
-                link=LinkParams(
-                    length=length,
-                    mass=mass,
-                    com_x=com_x,
-                    com_y=com_y,
-                    com_z=com_z,
-                ),
-            ))
+            chain.append(
+                JointDef(
+                    name=jname,
+                    axis=axis_str,
+                    link=LinkParams(
+                        length=length,
+                        mass=mass,
+                        com_x=com_x,
+                        com_y=com_y,
+                        com_z=com_z,
+                    ),
+                )
+            )
 
         return cls(chain=chain, gravity=gravity)
 
@@ -263,9 +270,7 @@ class ArmGravityModel:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_calibration(
-        cls, json_path: str | Path, gravity: float = 9.81
-    ) -> "ArmGravityModel":
+    def from_calibration(cls, json_path: str | Path, gravity: float = 9.81) -> 'ArmGravityModel':
         """Build an ArmGravityModel from a gravity calibration JSON file.
 
         The JSON is produced by ``gravity_calibrate.py`` and contains
@@ -274,19 +279,21 @@ class ArmGravityModel:
         import json as _json
 
         data = _json.loads(Path(json_path).read_text())
-        result = data.get("result", data)
+        result = data.get('result', data)
 
         chain: list[JointDef] = []
-        for jd_default, cal in zip(_DEFAULT_CHAIN, result["links"]):
-            chain.append(JointDef(
-                name=jd_default.name,
-                axis=jd_default.axis,
-                link=LinkParams(
-                    length=jd_default.link.length,
-                    mass=float(cal["mass"]),
-                    com_x=float(cal["com_x"]),
-                ),
-            ))
+        for jd_default, cal in zip(_DEFAULT_CHAIN, result['links']):
+            chain.append(
+                JointDef(
+                    name=jd_default.name,
+                    axis=jd_default.axis,
+                    link=LinkParams(
+                        length=jd_default.link.length,
+                        mass=float(cal['mass']),
+                        com_x=float(cal['com_x']),
+                    ),
+                )
+            )
 
         return cls(chain=chain, gravity=gravity)
 
@@ -297,70 +304,77 @@ class ArmGravityModel:
     def print_model(self) -> None:
         """Print a summary of the arm model."""
         total_mass = sum(jd.link.mass for jd in self.chain)
-        print(f"Arm gravity model: {self.n_joints} joints, total mass={total_mass:.3f} kg")
-        print(f"{'Joint':<16} {'Axis':>4} {'Length':>8} {'Mass':>7} {'CoM_x':>7}")
+        print(f'Arm gravity model: {self.n_joints} joints, total mass={total_mass:.3f} kg')
+        print(f'{"Joint":<16} {"Axis":>4} {"Length":>8} {"Mass":>7} {"CoM_x":>7}')
         for jd in self.chain:
-            print(f"{jd.name:<16} {jd.axis:>4} {jd.link.length:8.4f} {jd.link.mass:7.3f} {jd.link.com_x:7.4f}")
+            print(f'{jd.name:<16} {jd.axis:>4} {jd.link.length:8.4f} {jd.link.mass:7.3f} {jd.link.com_x:7.4f}')
 
 
 # ---------------------------------------------------------------------------
 # Rotation helpers
 # ---------------------------------------------------------------------------
 
+
 def _rotation_matrix(axis: str, angle: float) -> np.ndarray:
     """3×3 rotation matrix for rotation about X, Y, or Z."""
     c, s = math.cos(angle), math.sin(angle)
-    if axis == "X":
-        return np.array([
-            [1, 0,  0],
-            [0, c, -s],
-            [0, s,  c],
-        ])
-    elif axis == "Y":
-        return np.array([
-            [ c, 0, s],
-            [ 0, 1, 0],
-            [-s, 0, c],
-        ])
-    elif axis == "Z":
-        return np.array([
-            [c, -s, 0],
-            [s,  c, 0],
-            [0,  0, 1],
-        ])
+    if axis == 'X':
+        return np.array(
+            [
+                [1, 0, 0],
+                [0, c, -s],
+                [0, s, c],
+            ]
+        )
+    elif axis == 'Y':
+        return np.array(
+            [
+                [c, 0, s],
+                [0, 1, 0],
+                [-s, 0, c],
+            ]
+        )
+    elif axis == 'Z':
+        return np.array(
+            [
+                [c, -s, 0],
+                [s, c, 0],
+                [0, 0, 1],
+            ]
+        )
     else:
-        raise ValueError(f"Unknown axis: {axis}")
+        raise ValueError(f'Unknown axis: {axis}')
 
 
 def _axis_vector(axis: str) -> np.ndarray:
     """Unit vector for the given axis letter."""
-    if axis == "X":
+    if axis == 'X':
         return np.array([1.0, 0.0, 0.0])
-    elif axis == "Y":
+    elif axis == 'Y':
         return np.array([0.0, 1.0, 0.0])
-    elif axis == "Z":
+    elif axis == 'Z':
         return np.array([0.0, 0.0, 1.0])
     else:
-        raise ValueError(f"Unknown axis: {axis}")
+        raise ValueError(f'Unknown axis: {axis}')
 
 
 def _axis_from_vector(vec) -> str:
     """Determine dominant axis letter from a 3-element vector."""
     v = [abs(float(x)) for x in vec]
     idx = v.index(max(v))
-    return ["X", "Y", "Z"][idx]
+    return ['X', 'Y', 'Z'][idx]
 
 
 # ---------------------------------------------------------------------------
 # Quick test / CLI
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import sys
 
     model = ArmGravityModel()
 
-    if len(sys.argv) > 1 and sys.argv[1].endswith(".urdf"):
+    if len(sys.argv) > 1 and sys.argv[1].endswith('.urdf'):
         model = ArmGravityModel.from_urdf(sys.argv[1])
 
     model.print_model()
@@ -368,14 +382,14 @@ if __name__ == "__main__":
 
     # Test at a few configurations
     configs = {
-        "all zeros (horizontal — max torque)": np.zeros(6),
-        "mid at 90° (upward — min torque)": np.array([0.0, math.pi/2, 0.0, 0.0, 0.0, 0.0]),
-        "mid+end at 45°":        np.array([0.0, math.pi/4, math.pi/4, 0.0, 0.0, 0.0]),
+        'all zeros (horizontal — max torque)': np.zeros(6),
+        'mid at 90° (upward — min torque)': np.array([0.0, math.pi / 2, 0.0, 0.0, 0.0, 0.0]),
+        'mid+end at 45°': np.array([0.0, math.pi / 4, math.pi / 4, 0.0, 0.0, 0.0]),
     }
 
     for label, q in configs.items():
         tau = model.gravity_torques(q)
-        print(f"{label}:")
+        print(f'{label}:')
         for i, jd in enumerate(model.chain):
-            print(f"  {jd.name:<16}  q={q[i]:+6.3f} rad  tau={tau[i]:+8.3f} Nm")
+            print(f'  {jd.name:<16}  q={q[i]:+6.3f} rad  tau={tau[i]:+8.3f} Nm')
         print()

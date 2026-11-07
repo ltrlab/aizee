@@ -51,13 +51,13 @@ def pack_camera(
     parts: list = []
     bodies: list = []
     if color_bytes is not None:
-        parts.append("color")
+        parts.append('color')
         bodies.append(color_bytes)
     if depth_bytes is not None:
-        parts.append("depth")
+        parts.append('depth')
         bodies.append(depth_bytes)
     header = dict(header)
-    header["parts"] = parts
+    header['parts'] = parts
     return [msgpack.packb(header, use_bin_type=True), *bodies]
 
 
@@ -74,13 +74,13 @@ def unpack_camera(frames: Iterable[bytes]) -> dict:
         return {}
     header = msgpack.unpackb(flist[0], raw=False)
     out = dict(header)
-    parts = out.pop("parts", [])
+    parts = out.pop('parts', [])
     for name, body in zip(parts, flist[1:]):
         meta = out.get(name)
         if isinstance(meta, dict):
             meta = dict(meta)
         else:
             meta = {}
-        meta["data_bytes"] = body
+        meta['data_bytes'] = body
         out[name] = meta
     return out

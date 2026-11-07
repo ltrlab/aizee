@@ -17,27 +17,29 @@ S=${AIZEE_SIM:-$HOME/aizee-sim}
 GPU=${GPU:-0}
 BASE_FILE=${BASE_FILE:-minerva_epoch_0015.pt}
 # tmux turns a dot in a session name into an underscore: gen-v3.1 runs in tmux gen-v3_1.
-GEN_SESSION=${GEN//./_}; BASE_SESSION=${BASE//./_}; TB_SESSION=tb-sync-${NAME//./_}
+GEN_SESSION=${GEN//./_}
+BASE_SESSION=${BASE//./_}
+TB_SESSION=tb-sync-${NAME//./_}
 LOG=$S/logs/chain-$NAME.log
 say() { echo "$(date -Is) $*" | tee -a "$LOG"; }
 say "waiting: $GEN finished (tmux $GEN_SESSION) with >= $MIN episodes, and $BASE finished ($S/ckpt/$BASE/$BASE_FILE, tmux $BASE_SESSION ended); then $NAME on GPU $GPU: $*"
 
 if ! tmux has-session -t "=$GEN_SESSION" 2>/dev/null && [ ! -f "$S/gen/$GEN/summary.json" ]; then
-  say "no generation $GEN running or finished: nothing to wait for"
-  exit 1
+    say "no generation $GEN running or finished: nothing to wait for"
+    exit 1
 fi
 while tmux has-session -t "=$GEN_SESSION" 2>/dev/null; do sleep 60; done
 summary=$S/gen/$GEN/summary.json
 if [ -f "$summary" ]; then
-  made=$("$S/.venv/bin/python" -c "import json, sys; print(json.load(open(sys.argv[1]))['episodes'])" "$summary")
+    made=$("$S/.venv/bin/python" -c "import json, sys; print(json.load(open(sys.argv[1]))['episodes'])" "$summary")
 else
-  made=$(find "$S/gen/$GEN/episodes" -maxdepth 1 -name '*.hdf5' 2>/dev/null | wc -l)
-  say "no $summary (did the run stop early?); counted $made episode files"
+    made=$(find "$S/gen/$GEN/episodes" -maxdepth 1 -name '*.hdf5' 2>/dev/null | wc -l)
+    say "no $summary (did the run stop early?); counted $made episode files"
 fi
 say "generation $GEN finished with $made episodes"
 if [ "${made:-0}" -lt "$MIN" ]; then
-  say "fewer than $MIN episodes: not fine-tuning; see $S/logs/$GEN.log and $AIZEE_SIM/bin/gen_status.sh $GEN"
-  exit 1
+    say "fewer than $MIN episodes: not fine-tuning; see $S/logs/$GEN.log and $AIZEE_SIM/bin/gen_status.sh $GEN"
+    exit 1
 fi
 
 while [ ! -f "$S/ckpt/$BASE/$BASE_FILE" ] || tmux has-session -t "=$BASE_SESSION" 2>/dev/null; do sleep 60; done
@@ -47,7 +49,7 @@ INIT_DIR=$S/ckpt/$NAME-init
 INIT=$INIT_DIR/init_from_${BASE}_${BASE_FILE}
 mkdir -p "$INIT_DIR"
 if [ ! -f "$INIT" ]; then
-  nice -n 10 "$S/.venv-train/bin/python" - "$S/ckpt/$BASE/$BASE_FILE" "$INIT" <<'EOF' 2>&1 | tee -a "$LOG"
+    nice -n 10 "$S/.venv-train/bin/python" - "$S/ckpt/$BASE/$BASE_FILE" "$INIT" <<'EOF' 2>&1 | tee -a "$LOG"
 import hashlib, os, sys, time
 import torch
 source, target = sys.argv[1], sys.argv[2]
@@ -70,38 +72,41 @@ print(f"init checkpoint {target}: from epoch {init['init_from']['epoch']} of {so
       f"left out {init['init_from']['left_out']}; ema_num_updates {init['ema_num_updates']}")
 EOF
 fi
-[ -f "$INIT" ] || { say "no init checkpoint written"; exit 1; }
+[ -f "$INIT" ] || {
+    say "no init checkpoint written"
+    exit 1
+}
 
 # Loader workers: the --num-workers asked for, if memory holds them over the 8 GB floor: the trainer about 2 GB and each
 # loader worker about 0.5 GB (v3's held 0.49-0.51 GB), seen on 3 readings 20 s apart; up to 20 minutes for that, else
 # 2 workers (the eval runs only start with 21 GB free, and stop their workers under the floor).
 args=("$@")
 want=2
-for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --num-workers ] && want=${args[i+1]}; done
-need_gb() { echo $(( 8 + 2 + ($1 + 1) / 2 )); }
+for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --num-workers ] && want=${args[i + 1]}; done
+need_gb() { echo $((8 + 2 + ($1 + 1) / 2)); }
 avail_gb() { awk '/MemAvailable/ {printf "%d", $2/1048576}' /proc/meminfo; }
 workers=$want
 if [ "$want" -gt 2 ]; then
-  steady=0
-  for _ in $(seq 1 60); do
-    if [ "$(avail_gb)" -ge "$(need_gb "$want")" ]; then steady=$((steady + 1)); else steady=0; fi
-    [ "$steady" -ge 3 ] && break
-    sleep 20
-  done
-  if [ "$steady" -lt 3 ]; then
-    workers=2
-    say "memory short for $want loader workers ($(avail_gb) GB available, $(need_gb "$want") GB wanted): using 2"
-  fi
+    steady=0
+    for _ in $(seq 1 60); do
+        if [ "$(avail_gb)" -ge "$(need_gb "$want")" ]; then steady=$((steady + 1)); else steady=0; fi
+        [ "$steady" -ge 3 ] && break
+        sleep 20
+    done
+    if [ "$steady" -lt 3 ]; then
+        workers=2
+        say "memory short for $want loader workers ($(avail_gb) GB available, $(need_gb "$want") GB wanted): using 2"
+    fi
 fi
-for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --num-workers ] && args[i+1]=$workers; done
+for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --num-workers ] && args[i + 1]=$workers; done
 say "loader workers: $workers ($(avail_gb) GB available)"
 say "GPU before training: $(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader | tr '\n' ';')"
 say "memory before training: $(free -g | sed -n 2p)"
 NAME=$NAME DATA=$S/gen/$GEN/episodes GPU=$GPU SIM_TRAIN_STATS_FROM=$INIT "$S/bin/launch_train.sh" --resume "$INIT" \
-  "${args[@]}" 2>&1 | tee -a "$LOG"
+    "${args[@]}" 2>&1 | tee -a "$LOG"
 say "launch_train.sh exit ${PIPESTATUS[0]}"
 if ! tmux has-session -t "=$TB_SESSION" 2>/dev/null; then
-  tmux new-session -d -s "$TB_SESSION" \
-    "cd $S && nice -n 10 .venv-train/bin/python -u bin/tb_sync.py --run $NAME 2>&1 | tee -a logs/tb-sync-$NAME.log"
-  say "started tb_sync for $NAME (tmux $TB_SESSION): TensorBoard run $NAME beside train-v3 and v2"
+    tmux new-session -d -s "$TB_SESSION" \
+        "cd $S && nice -n 10 .venv-train/bin/python -u bin/tb_sync.py --run $NAME 2>&1 | tee -a logs/tb-sync-$NAME.log"
+    say "started tb_sync for $NAME (tmux $TB_SESSION): TensorBoard run $NAME beside train-v3 and v2"
 fi

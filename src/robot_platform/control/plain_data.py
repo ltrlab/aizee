@@ -1,4 +1,5 @@
 """Copies of the plain data the control loop passes around (receiver requests, replies, feedback, joint tables)."""
+
 from copy import deepcopy
 
 _ATOMS = (int, float, str, bool, type(None))

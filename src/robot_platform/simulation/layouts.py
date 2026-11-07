@@ -29,6 +29,7 @@ colours, each channel on its own, and the lights' colour temperature; simulation
 everything else, so a seed draws the same table, bucket, block and camera with or without them, and the drawn layout's
 workcell carries them to its scene.
 """
+
 from __future__ import annotations
 
 import copy
@@ -45,10 +46,21 @@ from .workcell import from_document, on_table
 KIND = 'sim_layout_randomization'
 RANDOMIZED = 'randomized'  # The source prefix of a value a layout drew.
 # Every range the file gives: (group, key). Each is {"range": [low, high], "source": "..."}.
-RANGES = (('cube', 'length'), ('cube', 'width'), ('cube', 'height'), ('cube', 'yaw_deg'),
-          ('bucket', 'inner_length'), ('bucket', 'inner_width'),
-          ('bucket', 'height'), ('bucket', 'yaw_deg'), ('table_offset', 'x'), ('table_offset', 'y'),
-          ('table_offset', 'yaw_deg'), ('head_camera', 'shift'), ('head_camera', 'turn_deg'))
+RANGES = (
+    ('cube', 'length'),
+    ('cube', 'width'),
+    ('cube', 'height'),
+    ('cube', 'yaw_deg'),
+    ('bucket', 'inner_length'),
+    ('bucket', 'inner_width'),
+    ('bucket', 'height'),
+    ('bucket', 'yaw_deg'),
+    ('table_offset', 'x'),
+    ('table_offset', 'y'),
+    ('table_offset', 'yaw_deg'),
+    ('head_camera', 'shift'),
+    ('head_camera', 'turn_deg'),
+)
 # Each region is {"value": [x low, x high, y low, y high], "source": "..."} or {"polygon": [[x, y], ...], "source": ...}.
 REGIONS = (('cube', 'region'), ('bucket', 'region'))
 NUMBERS = (('bucket', 'cube_clearance'), ('draws', 'position_draws'), ('draws', 'plan_draws'))
@@ -59,6 +71,7 @@ LOOK_RANGES = (('look', 'robot_grey'), ('look', 'room_tone'), ('look', 'floor_to
 @dataclass(frozen=True)
 class Randomization:
     """A randomization file's ranges (low, high) and regions (polygons, ((x, y), ...)) by `group.key`."""
+
     name: str
     ranges: dict
     regions: dict
@@ -75,14 +88,22 @@ class Randomization:
     look: bool = False
 
     def describe(self):
-        return {'name': self.name, 'asset_id': self.asset_id, 'path': self.path, 'sha256': self.sha256,
-                'ranges': {key: list(value) for key, value in self.ranges.items()},
-                'regions': {key: [list(point) for point in value] for key, value in self.regions.items()},
-                'cube_clearance_m': self.cube_clearance, 'position_draws': self.position_draws,
-                'plan_draws': self.plan_draws, 'look': self.look,
-                'bucket_view': None if self.bucket_view is None else
-                {'image': list(self.bucket_view['image']), 'margin_px': self.bucket_view['margin_px']},
-                'sources': dict(self.sources)}
+        return {
+            'name': self.name,
+            'asset_id': self.asset_id,
+            'path': self.path,
+            'sha256': self.sha256,
+            'ranges': {key: list(value) for key, value in self.ranges.items()},
+            'regions': {key: [list(point) for point in value] for key, value in self.regions.items()},
+            'cube_clearance_m': self.cube_clearance,
+            'position_draws': self.position_draws,
+            'plan_draws': self.plan_draws,
+            'look': self.look,
+            'bucket_view': None
+            if self.bucket_view is None
+            else {'image': list(self.bucket_view['image']), 'margin_px': self.bucket_view['margin_px']},
+            'sources': dict(self.sources),
+        }
 
 
 def _entry(document, group, key):
@@ -93,8 +114,11 @@ def _entry(document, group, key):
 
 
 def _numbers(values, count):
-    if not isinstance(values, list) or len(values) != count or not all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values):
+    if (
+        not isinstance(values, list)
+        or len(values) != count
+        or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+    ):
         raise ValueError(f'expected {count} finite numbers')
     return tuple(float(v) for v in values)
 
@@ -164,16 +188,31 @@ def load_randomization(path):
     if mass.get('rule') != 'volume':
         raise ValueError('randomization cube.mass: {"rule": "volume", "source": "..."} (the only rule)')
     sources['cube.mass'] = mass['source']
-    if min(ranges['cube.length'][0], ranges['cube.width'][0], ranges['cube.height'][0],
-           ranges['bucket.inner_length'][0], ranges['bucket.inner_width'][0],
-           ranges['bucket.height'][0]) <= 0 or ranges['head_camera.shift'][0] > 0 or \
-            ranges['head_camera.turn_deg'][0] > 0:
+    if (
+        min(
+            ranges['cube.length'][0],
+            ranges['cube.width'][0],
+            ranges['cube.height'][0],
+            ranges['bucket.inner_length'][0],
+            ranges['bucket.inner_width'][0],
+            ranges['bucket.height'][0],
+        )
+        <= 0
+        or ranges['head_camera.shift'][0] > 0
+        or ranges['head_camera.turn_deg'][0] > 0
+    ):
         raise ValueError('randomization: sizes must be positive, and the camera ranges must hold its calibrated pose')
-    if max(ranges[f'cube.{key}'][1] for key in ('length', 'width', 'height')) >= \
-            min(ranges['bucket.inner_length'][0], ranges['bucket.inner_width'][0]):
+    if max(ranges[f'cube.{key}'][1] for key in ('length', 'width', 'height')) >= min(
+        ranges['bucket.inner_length'][0], ranges['bucket.inner_width'][0]
+    ):
         raise ValueError('randomization: the largest cube must fit inside the smallest bucket')
-    if numbers['bucket.cube_clearance'] < 0 or numbers['draws.position_draws'] < 1 or numbers['draws.plan_draws'] < 1 \
-            or numbers['draws.position_draws'] % 1 or numbers['draws.plan_draws'] % 1:
+    if (
+        numbers['bucket.cube_clearance'] < 0
+        or numbers['draws.position_draws'] < 1
+        or numbers['draws.plan_draws'] < 1
+        or numbers['draws.position_draws'] % 1
+        or numbers['draws.plan_draws'] % 1
+    ):
         raise ValueError('randomization: the clearance is not negative and the draw caps are whole and positive')
     look = 'look' in document
     if look:
@@ -186,10 +225,18 @@ def load_randomization(path):
             if low > high:
                 raise ValueError(f'randomization {group}.{key}.range: low above high')
             ranges[f'{group}.{key}'], sources[f'{group}.{key}'] = (low, high), entry['source']
-        if not (0 < ranges['look.robot_grey'][0] and ranges['look.robot_grey'][1] < 1 and
-                all(0 < ranges[f'look.{key}'][0] and ranges[f'look.{key}'][1] <= 2 for key in ('room_tone', 'floor_tone'))
-                and 1500 <= ranges['look.light_kelvin'][0] and ranges['look.light_kelvin'][1] <= 12000):
-            raise ValueError('randomization look: robot_grey in (0, 1), the tones in (0, 2], light_kelvin in [1500, 12000]')
+        if not (
+            0 < ranges['look.robot_grey'][0]
+            and ranges['look.robot_grey'][1] < 1
+            and all(
+                0 < ranges[f'look.{key}'][0] and ranges[f'look.{key}'][1] <= 2 for key in ('room_tone', 'floor_tone')
+            )
+            and 1500 <= ranges['look.light_kelvin'][0]
+            and ranges['look.light_kelvin'][1] <= 12000
+        ):
+            raise ValueError(
+                'randomization look: robot_grey in (0, 1), the tones in (0, 2], light_kelvin in [1500, 12000]'
+            )
     bucket_view = None
     if (document.get('head_view') or {}).get('bucket_opening') is not None:
         entry = _entry(document, 'head_view', 'bucket_opening')
@@ -202,18 +249,27 @@ def load_randomization(path):
             raise ValueError('randomization head_view.bucket_opening: a whole image size and a margin inside it')
         bucket_view = {'image': (int(width), int(height)), 'margin_px': margin}
         sources['head_view.bucket_opening'] = entry['source']
-    return Randomization(name=str(document.get('name') or path.stem), asset_id=document.get('asset_id'),
-                         ranges=ranges, regions=regions, cube_clearance=numbers['bucket.cube_clearance'],
-                         position_draws=int(numbers['draws.position_draws']),
-                         plan_draws=int(numbers['draws.plan_draws']), sources=sources,
-                         sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(), path=str(path.resolve()),
-                         bucket_view=bucket_view, look=look)
+    return Randomization(
+        name=str(document.get('name') or path.stem),
+        asset_id=document.get('asset_id'),
+        ranges=ranges,
+        regions=regions,
+        cube_clearance=numbers['bucket.cube_clearance'],
+        position_draws=int(numbers['draws.position_draws']),
+        plan_draws=int(numbers['draws.plan_draws']),
+        sources=sources,
+        sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(),
+        path=str(path.resolve()),
+        bucket_view=bucket_view,
+        look=look,
+    )
 
 
 @dataclass(frozen=True)
 class Layout:
     """One drawn layout: its workcell, the cube's start in the base frame ({'x', 'y', 'yaw'}, as the trial grid gives
     one) and what was drawn (`values`, for the episode's metadata)."""
+
     workcell: object
     cube_start: dict
     values: dict
@@ -225,10 +281,10 @@ class Layout:
 def _rotation(axis, angle):
     c, s = math.cos(angle), math.sin(angle)
     if axis == 0:
-        return np.array([[1., 0., 0.], [0., c, -s], [0., s, c]])
+        return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
     if axis == 1:
-        return np.array([[c, 0., s], [0., 1., 0.], [-s, 0., c]])
-    return np.array([[c, -s, 0.], [s, c, 0.], [0., 0., 1.]])
+        return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
 
 class LayoutSampler:
@@ -238,8 +294,9 @@ class LayoutSampler:
         self.workcell_path = Path(workcell_path)
         self.document = json.loads(self.workcell_path.read_text(encoding='utf-8'))
         self.base = from_document(self.document, name=self.workcell_path.stem, origin=self.workcell_path)
-        self.randomization = randomization if isinstance(randomization, Randomization) else \
-            load_randomization(randomization)
+        self.randomization = (
+            randomization if isinstance(randomization, Randomization) else load_randomization(randomization)
+        )
         r = self.randomization
         if r.asset_id and self.base.asset_id and r.asset_id != self.base.asset_id:
             raise ValueError(f'randomization {r.name} is for {r.asset_id}, the workcell for {self.base.asset_id}')
@@ -294,7 +351,7 @@ class LayoutSampler:
             # The cube against the outer walls, in the bucket's own axes.
             dx, dy = cube[0] - middle[0], cube[1] - middle[1]
             along = (c * dx + s * dy, -s * dx + c * dy)
-            gap = math.hypot(max(0., abs(along[0]) - half[0]), max(0., abs(along[1]) - half[1]))
+            gap = math.hypot(max(0.0, abs(along[0]) - half[0]), max(0.0, abs(along[1]) - half[1]))
             if gap >= reach and all(on_table(base, middle[0] + x, middle[1] + y) for x, y in corners):
                 break
         else:
@@ -312,21 +369,26 @@ class LayoutSampler:
             return (px + tc * (x - px) - ts * (y - py) + shift[0], py + ts * (x - px) + tc * (y - py) + shift[1])
 
         document = copy.deepcopy(self.document)
-        document['name'] = f"{base.name} | {r.name} draw {seed if seed is not None else ''}".rstrip()
+        document['name'] = f'{base.name} | {r.name} draw {seed if seed is not None else ""}'.rstrip()
 
         def put(group, key, value, source):
             document.setdefault(group, {})[key] = {'value': value, 'source': f'{tag}: {source}'}
+
         put('table', 'center', list(moved(*base.table_center)), 'the table group moved by the drawn table offset')
-        put('table', 'yaw_deg', math.degrees(base.table_yaw + turn), 'the drawn table offset\'s yaw')
+        put('table', 'yaw_deg', math.degrees(base.table_yaw + turn), "the drawn table offset's yaw")
         rectangle = document.get('fiducials', {}).get('rectangle')
         if rectangle:
             ox, oy = moved(*base.fiducials['rectangle']['origin'])
-            rectangle['robot_offsets'] = {'value': [ox, -oy], 'source': f'{tag}: the tag rectangle moved with the '
-                                          f"table group (the file's {rectangle['robot_offsets']['value']}: "
-                                          f"{rectangle['robot_offsets']['source']})"}
-            rectangle['yaw_deg'] = {'value': rectangle['yaw_deg']['value'] + math.degrees(turn),
-                                    'source': f"{tag}: the file's {rectangle['yaw_deg']['value']} degrees turned with "
-                                              f'the table group'}
+            rectangle['robot_offsets'] = {
+                'value': [ox, -oy],
+                'source': f'{tag}: the tag rectangle moved with the '
+                f"table group (the file's {rectangle['robot_offsets']['value']}: "
+                f'{rectangle["robot_offsets"]["source"]})',
+            }
+            rectangle['yaw_deg'] = {
+                'value': rectangle['yaw_deg']['value'] + math.degrees(turn),
+                'source': f"{tag}: the file's {rectangle['yaw_deg']['value']} degrees turned with the table group",
+            }
         bucket = document['bucket']
         bucket['frame'] = 'base'
         put('bucket', 'center', list(moved(*middle)), 'drawn in the bucket region, moved with the table group')
@@ -337,57 +399,106 @@ class LayoutSampler:
         put('cube', 'size', list(block), 'drawn edges: length along its yaw, width across, height up')
         mass = self.density * float(np.prod(block))
         # Still a placeholder (its source says so first): no cube has been weighed.
-        document['cube']['mass'] = {'value': mass, 'source': f"placeholder ({tag}): the workcell's cube mass per volume "
-                                    f"({base.cube_mass * 1000:.1f} g for {' x '.join(f'{e * 1000:.1f}' for e in base.block)} mm, itself "
-                                    f"{base.sources.get('cube.mass', '')}) times the drawn volume; not weighed"}
-        put('cube', 'start', [start[0], start[1], cube_yaw + turn], 'drawn in the cube region, moved with the table group')
+        document['cube']['mass'] = {
+            'value': mass,
+            'source': f"placeholder ({tag}): the workcell's cube mass per volume "
+            f'({base.cube_mass * 1000:.1f} g for {" x ".join(f"{e * 1000:.1f}" for e in base.block)} mm, itself '
+            f'{base.sources.get("cube.mass", "")}) times the drawn volume; not weighed',
+        }
+        put(
+            'cube',
+            'start',
+            [start[0], start[1], cube_yaw + turn],
+            'drawn in the cube region, moved with the table group',
+        )
         region = [moved(x, y) for x, y in r.regions['cube.region']]
-        put('cube', 'region', [min(p[0] for p in region), max(p[0] for p in region), min(p[1] for p in region),
-                               max(p[1] for p in region)], 'the cube region moved with the table group (its bounds)')
+        put(
+            'cube',
+            'region',
+            [
+                min(p[0] for p in region),
+                max(p[0] for p in region),
+                min(p[1] for p in region),
+                max(p[1] for p in region),
+            ],
+            'the cube region moved with the table group (its bounds)',
+        )
         head = document['cameras']['head']
         pos, xyaxes = head['pos']['value'], head['xyaxes']['value']
         if head.get('frame', 'base') == 'base':
             # Given in the base frame: it moves with the table group here; in a frame on the table it moves with it.
             pos = [*moved(pos[0], pos[1]), pos[2]]
-            xyaxes = [v for axis in (xyaxes[:3], xyaxes[3:])
-                      for v in (tc * axis[0] - ts * axis[1], ts * axis[0] + tc * axis[1], axis[2])]
+            xyaxes = [
+                v
+                for axis in (xyaxes[:3], xyaxes[3:])
+                for v in (tc * axis[0] - ts * axis[1], ts * axis[0] + tc * axis[1], axis[2])
+            ]
         x_axis = np.array(xyaxes[:3], dtype=float)
         x_axis /= np.linalg.norm(x_axis)
         y_axis = np.array(xyaxes[3:], dtype=float)
         y_axis -= (y_axis @ x_axis) * x_axis
         y_axis /= np.linalg.norm(y_axis)
         frame = np.column_stack([x_axis, y_axis, np.cross(x_axis, y_axis)]) @ (
-            _rotation(0, math.radians(camera_turn[0])) @ _rotation(1, math.radians(camera_turn[1]))
-            @ _rotation(2, math.radians(camera_turn[2])))
-        head['pos'] = {'value': [p + d for p, d in zip(pos, camera_shift)],
-                       'source': f"{tag}: the calibrated pose ({head['pos']['source']}) shifted by the drawn offset"}
-        head['xyaxes'] = {'value': [*frame[:, 0].tolist(), *frame[:, 1].tolist()],
-                          'source': f"{tag}: the calibrated axes ({head['xyaxes']['source']}) turned by the drawn angles"}
+            _rotation(0, math.radians(camera_turn[0]))
+            @ _rotation(1, math.radians(camera_turn[1]))
+            @ _rotation(2, math.radians(camera_turn[2]))
+        )
+        head['pos'] = {
+            'value': [p + d for p, d in zip(pos, camera_shift)],
+            'source': f'{tag}: the calibrated pose ({head["pos"]["source"]}) shifted by the drawn offset',
+        }
+        head['xyaxes'] = {
+            'value': [*frame[:, 0].tolist(), *frame[:, 1].tolist()],
+            'source': f'{tag}: the calibrated axes ({head["xyaxes"]["source"]}) turned by the drawn angles',
+        }
         look = None
         if r.look:
             # The scene's look, last, so that the rest of the draw does not depend on whether the file varies it.
-            look = {'robot_grey': self._uniform(rng, 'look.robot_grey'),
-                    'room_tone': [self._uniform(rng, 'look.room_tone') for _ in range(3)],
-                    'floor_tone': [self._uniform(rng, 'look.floor_tone') for _ in range(3)],
-                    'light_kelvin': self._uniform(rng, 'look.light_kelvin')}
+            look = {
+                'robot_grey': self._uniform(rng, 'look.robot_grey'),
+                'room_tone': [self._uniform(rng, 'look.room_tone') for _ in range(3)],
+                'floor_tone': [self._uniform(rng, 'look.floor_tone') for _ in range(3)],
+                'light_kelvin': self._uniform(rng, 'look.light_kelvin'),
+            }
             for key, value in look.items():
                 put('look', key, value, 'drawn, the scene look (simulation.room)')
         workcell = from_document(document, origin=f'layout draw {seed}')
         values = {
-            'seed': seed, 'randomization': {'name': r.name, 'path': r.path, 'sha256': r.sha256},
+            'seed': seed,
+            'randomization': {'name': r.name, 'path': r.path, 'sha256': r.sha256},
             'bucket_position_draws': tries,
-            'cube': {'size_m': list(block), 'mass_kg': mass, 'yaw_deg': math.degrees(cube_yaw + turn),
-                     'start_m': list(start), 'drawn_in_group_frame_m': list(cube)},
-            'bucket': {'inner_length_m': length, 'inner_width_m': width, 'height_m': height,
-                       'yaw_deg': math.degrees(bucket_yaw + turn), 'center_m': list(workcell.bucket_center),
-                       'drawn_in_group_frame': {'center_m': list(middle), 'yaw_deg': math.degrees(bucket_yaw)}},
-            'table_offset': {'x_m': shift[0], 'y_m': shift[1], 'yaw_deg': math.degrees(turn), 'pivot_m': list(self.pivot),
-                             'table_center_m': list(workcell.table_center)},
-            'head_camera': {'shift_m': camera_shift, 'turn_deg': {'x': camera_turn[0], 'y': camera_turn[1],
-                                                                  'z': camera_turn[2]},
-                            'given_in': head.get('frame', 'base'), 'pos_m': list(workcell.head_camera['pos']),
-                            'xyaxes': list(workcell.head_camera['xyaxes'])}}
+            'cube': {
+                'size_m': list(block),
+                'mass_kg': mass,
+                'yaw_deg': math.degrees(cube_yaw + turn),
+                'start_m': list(start),
+                'drawn_in_group_frame_m': list(cube),
+            },
+            'bucket': {
+                'inner_length_m': length,
+                'inner_width_m': width,
+                'height_m': height,
+                'yaw_deg': math.degrees(bucket_yaw + turn),
+                'center_m': list(workcell.bucket_center),
+                'drawn_in_group_frame': {'center_m': list(middle), 'yaw_deg': math.degrees(bucket_yaw)},
+            },
+            'table_offset': {
+                'x_m': shift[0],
+                'y_m': shift[1],
+                'yaw_deg': math.degrees(turn),
+                'pivot_m': list(self.pivot),
+                'table_center_m': list(workcell.table_center),
+            },
+            'head_camera': {
+                'shift_m': camera_shift,
+                'turn_deg': {'x': camera_turn[0], 'y': camera_turn[1], 'z': camera_turn[2]},
+                'given_in': head.get('frame', 'base'),
+                'pos_m': list(workcell.head_camera['pos']),
+                'xyaxes': list(workcell.head_camera['xyaxes']),
+            },
+        }
         if look is not None:
             values['look'] = look
-        return Layout(workcell=workcell, cube_start={'x': start[0], 'y': start[1], 'yaw': cube_yaw + turn},
-                      values=values)
+        return Layout(
+            workcell=workcell, cube_start={'x': start[0], 'y': start[1], 'yaw': cube_yaw + turn}, values=values
+        )

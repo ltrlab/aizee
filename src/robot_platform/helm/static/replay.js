@@ -4,11 +4,11 @@
 // replay in real time at any speed. ReplayView renders it (episode list, cameras, scrubber, joint timeline) and
 // tells subscribers about every frame it shows, the hook for later layers (3D pose, overlays, annotations).
 
-export const ROLE_ORDER = ['head', 'right_wrist', 'left_wrist'];  // Top to bottom in the stacked column, as Teleop.
-export const ROLE_LABEL = {head: 'Head', right_wrist: 'Right wrist', left_wrist: 'Left wrist'};
+export const ROLE_ORDER = ['head', 'right_wrist', 'left_wrist']; // Top to bottom in the stacked column, as Teleop.
+export const ROLE_LABEL = { head: 'Head', right_wrist: 'Right wrist', left_wrist: 'Left wrist' };
 // An episode's cameras in that order, then any others as recorded.
-const orderRoles = roles => ROLE_ORDER.filter(role => roles.includes(role))
-  .concat(roles.filter(role => !ROLE_ORDER.includes(role)));
+const orderRoles = (roles) =>
+  ROLE_ORDER.filter((role) => roles.includes(role)).concat(roles.filter((role) => !ROLE_ORDER.includes(role)));
 export const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const PREFETCH_S = 1.2;
 const JOINT_COLORS = ['#7cc4ff', '#7fdca4', '#f2c380', '#ff8b98', '#c39bff', '#7fe0dc'];
@@ -17,15 +17,37 @@ const JOINT_COLORS_DAY = ['#1f6fbf', '#1b8a4c', '#a86400', '#c2334a', '#7a4fd0',
 // The timeline's chrome: the dark screen of Helm's RetroUI look (Minecraft is sharp at 16 px, fonts.css), or the
 // original look's (theme.js sets <html data-look>).
 const TIMELINE = {
-  retro: {background: '#12151a', lane: '#363d47', label: '#a9b2bd', font: 'Minecraft, system-ui, sans-serif', fontPx: 16,
-    playhead: '#f2f4f7', playheadPx: 2},
-  classic: {background: '#0e1013', lane: '#2c3036', label: '#9ba1a8', font: 'system-ui, sans-serif', fontPx: 11,
-    playhead: '#e9ebee', playheadPx: 1},
+  retro: {
+    background: '#12151a',
+    lane: '#363d47',
+    label: '#a9b2bd',
+    font: 'Minecraft, system-ui, sans-serif',
+    fontPx: 16,
+    playhead: '#f2f4f7',
+    playheadPx: 2,
+  },
+  classic: {
+    background: '#0e1013',
+    lane: '#2c3036',
+    label: '#9ba1a8',
+    font: 'system-ui, sans-serif',
+    fontPx: 11,
+    playhead: '#e9ebee',
+    playheadPx: 1,
+  },
   // RetroUI by day: the white screen the rest of the page has (night keeps `retro`).
-  day: {background: '#ffffff', lane: '#d5dbe3', label: '#566070', font: 'Minecraft, system-ui, sans-serif', fontPx: 16,
-    playhead: '#15181d', playheadPx: 2, colors: JOINT_COLORS_DAY},
+  day: {
+    background: '#ffffff',
+    lane: '#d5dbe3',
+    label: '#566070',
+    font: 'Minecraft, system-ui, sans-serif',
+    fontPx: 16,
+    playhead: '#15181d',
+    playheadPx: 2,
+    colors: JOINT_COLORS_DAY,
+  },
 };
-const timelineLook = canvas => {
+const timelineLook = (canvas) => {
   const root = canvas.ownerDocument?.documentElement?.dataset || {};
   return TIMELINE[root.look === 'classic' ? 'classic' : root.theme === 'dark' ? 'retro' : 'day'];
 };
@@ -33,17 +55,37 @@ const timelineLook = canvas => {
 // The 3D model's pose at a replayed frame: the recorded positions mapped onto the URDF joints as the stopped reader
 // maps live ones, sent to the viewer as its own telemetry stream (a recording does not go stale).
 export function replayTelemetry(view, live, sequence) {
-  const names = view?.summary?.joints || [], q = view?.series?.qpos?.[view?.index], mapping = view?.mapping;
+  const names = view?.summary?.joints || [],
+    q = view?.series?.qpos?.[view?.index],
+    mapping = view?.mapping;
   if (!live?.model || !live?.urdf_sha256 || !Array.isArray(q) || !mapping) return null;
   const rows = [];
   names.forEach((motor, column) => {
-    const entry = mapping[motor], value = q[column];
+    const entry = mapping[motor],
+      value = q[column];
     if (!entry || !Number.isFinite(value)) return;
-    rows.push({motor, joint: entry.joint, label: motor, position: entry.scale * value + entry.offset,
-      position_unit: entry.unit, source: 'replay', age_seconds: 0, stale: false, mapping_verified: true});
+    rows.push({
+      motor,
+      joint: entry.joint,
+      label: motor,
+      position: entry.scale * value + entry.offset,
+      position_unit: entry.unit,
+      source: 'replay',
+      age_seconds: 0,
+      stale: false,
+      mapping_verified: true,
+    });
   });
-  return {model: live.model, urdf_sha256: live.urdf_sha256, stream_id: `replay:${view.episode}`, sequence, rows,
-    age_seconds: 0, stale: false, stale_after_s: 86400};
+  return {
+    model: live.model,
+    urdf_sha256: live.urdf_sha256,
+    stream_id: `replay:${view.episode}`,
+    sequence,
+    rows,
+    age_seconds: 0,
+    stale: false,
+    stale_after_s: 86400,
+  };
 }
 
 export class ReplayModel {
@@ -59,11 +101,21 @@ export class ReplayModel {
     this.anchor = null;
   }
 
-  get length() { return this.times.length; }
-  get last() { return Math.max(0, this.length - 1); }
-  get duration() { return this.length > 1 ? this.times[this.last] - this.times[0] : 0; }
-  get time() { return this.length ? this.times[this.index] - this.times[0] : 0; }
-  get atEnd() { return this.index >= this.last; }
+  get length() {
+    return this.times.length;
+  }
+  get last() {
+    return Math.max(0, this.length - 1);
+  }
+  get duration() {
+    return this.length > 1 ? this.times[this.last] - this.times[0] : 0;
+  }
+  get time() {
+    return this.length ? this.times[this.index] - this.times[0] : 0;
+  }
+  get atEnd() {
+    return this.index >= this.last;
+  }
 
   // The last frame recorded at or before `t` seconds from the first.
   indexAt(t) {
@@ -71,10 +123,12 @@ export class ReplayModel {
     const target = this.times[0] + t;
     if (!(target > this.times[0])) return 0;
     if (target >= this.times[this.last]) return this.last;
-    let lo = 0, hi = this.last;
+    let lo = 0,
+      hi = this.last;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (this.times[mid] <= target) lo = mid; else hi = mid - 1;
+      if (this.times[mid] <= target) lo = mid;
+      else hi = mid - 1;
     }
     return lo;
   }
@@ -82,11 +136,13 @@ export class ReplayModel {
   seek(index, now) {
     const target = Math.round(Number(index));
     this.index = Math.min(this.last, Math.max(0, Number.isFinite(target) ? target : 0));
-    if (this.playing) this.anchor = {wall: now, t: this.time};
+    if (this.playing) this.anchor = { wall: now, t: this.time };
     return this.index;
   }
 
-  seekTime(t, now) { return this.seek(this.indexAt(t), now); }
+  seekTime(t, now) {
+    return this.seek(this.indexAt(t), now);
+  }
 
   step(frames) {
     this.pause();
@@ -97,7 +153,7 @@ export class ReplayModel {
     if (this.length < 2) return false;
     if (this.atEnd) this.index = 0;
     this.playing = true;
-    this.anchor = {wall: now, t: this.time};
+    this.anchor = { wall: now, t: this.time };
     return true;
   }
 
@@ -116,14 +172,14 @@ export class ReplayModel {
 
   setSpeed(speed, now) {
     if (!(speed > 0) || !Number.isFinite(speed)) throw new RangeError('Playback speed must be a positive number');
-    if (this.playing) this.anchor = {wall: now, t: this.time};
+    if (this.playing) this.anchor = { wall: now, t: this.time };
     this.speed = speed;
   }
 
   // Advance by the wall clock; true when something to show changed (a new frame, or playback ended).
   tick(now) {
     if (!this.playing || !this.anchor) return false;
-    const t = this.anchor.t + (now - this.anchor.wall) / 1000 * this.speed;
+    const t = this.anchor.t + ((now - this.anchor.wall) / 1000) * this.speed;
     const previous = this.index;
     if (t >= this.duration) {
       this.index = this.last;
@@ -160,8 +216,10 @@ export function groupEpisodes(episodes) {
   return [...sessions.entries()]
     .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
     .map(([session, list]) => {
-      const ordered = [...list].sort((a, b) => a.modified - b.modified).map((episode, i) => ({...episode, number: i + 1}));
-      return {session, date: sessionDate(session), episodes: ordered.reverse()};
+      const ordered = [...list]
+        .sort((a, b) => a.modified - b.modified)
+        .map((episode, i) => ({ ...episode, number: i + 1 }));
+      return { session, date: sessionDate(session), episodes: ordered.reverse() };
     });
 }
 
@@ -173,7 +231,7 @@ export function verdictOf(episode) {
 
 // How many episodes are kept, discarded and still to review.
 export function reviewCounts(episodes) {
-  const counts = {keep: 0, discard: 0, unreviewed: 0};
+  const counts = { keep: 0, discard: 0, unreviewed: 0 };
   for (const episode of episodes || []) counts[verdictOf(episode) ?? 'unreviewed'] += 1;
   return counts;
 }
@@ -186,39 +244,49 @@ export function shownBy(filter, episode) {
 // What a live replay would drive: the receiver Teleop has selected, and where its loop runs.
 export function receiverLabel(teleop, mode) {
   if (!teleop) return 'No teleop profile';
-  const choice = teleop.receiver_choice || {mode: 'virtual'};
-  if (choice.mode === 'live') return `LIVE · ${choice.arm === 'both' ? 'both arms' : `${choice.arm} arm`} · motors move`;
+  const choice = teleop.receiver_choice || { mode: 'virtual' };
+  if (choice.mode === 'live')
+    return `LIVE · ${choice.arm === 'both' ? 'both arms' : `${choice.arm} arm`} · motors move`;
   const where = teleop.target === 'pc' ? 'loop on this PC' : "loop on Minerva's Jetson";
   return `${mode === 'simulation' ? 'Simulated Minerva' : 'Virtual receiver'} · ${where} · no motors move`;
 }
 
 // A live replay's playback position (the loop's view of it): {fraction, text}.
 export function replayProgress(replay) {
-  if (!replay) return {fraction: 0, text: ''};
-  const {time_s: t, duration_s: duration, frame, frames, speed, finished} = replay;
-  if (!Number.isFinite(duration) || !Number.isFinite(t)) return {fraction: 0, text: `${speed}× · reading the episode…`};
+  if (!replay) return { fraction: 0, text: '' };
+  const { time_s: t, duration_s: duration, frame, frames, speed, finished } = replay;
+  if (!Number.isFinite(duration) || !Number.isFinite(t))
+    return { fraction: 0, text: `${speed}× · reading the episode…` };
   const fraction = duration > 0 ? Math.min(1, Math.max(0, t / duration)) : 1;
-  return {fraction, text: `${formatSeconds(t)} / ${formatSeconds(duration)} · frame ${frame + 1} of ${frames} · `
-    + `${speed}×${finished ? ' · finished' : ''}`};
+  return {
+    fraction,
+    text:
+      `${formatSeconds(t)} / ${formatSeconds(duration)} · frame ${frame + 1} of ${frames} · ` +
+      `${speed}×${finished ? ' · finished' : ''}`,
+  };
 }
 
 // What the operator does next in a live replay, by the lifecycle state.
 export function replayNote(state, replay) {
   if (!replay) return '';
-  if (replay.finished) return 'Finished: the arms hold its last pose. Engage (T) replays it from the start; '
-    + 'Shutdown (X) lowers the arms.';
+  if (replay.finished)
+    return (
+      'Finished: the arms hold its last pose. Engage (T) replays it from the start; ' + 'Shutdown (X) lowers the arms.'
+    );
   if (state === 'TELEOP') return 'Replaying: the arms follow the recorded commands. Hold (T) pauses.';
   if (state === 'ENGAGING') return "Aligning: the arms move to the episode's pose at the alignment speed first.";
   const started = Number.isFinite(replay.time_s) && replay.time_s > 0;
-  if (state === 'HOLD') return started ? 'Paused. Engage (T) aligns back to where it stopped and continues.'
-    : "Engage (T) moves the arms to the episode's first frame at the alignment speed, then replays it.";
+  if (state === 'HOLD')
+    return started
+      ? 'Paused. Engage (T) aligns back to where it stopped and continues.'
+      : "Engage (T) moves the arms to the episode's first frame at the alignment speed, then replays it.";
   if (state === 'IDLE') return 'Enable (E) holds the arms, then Engage (T) starts the replay.';
   return 'Idle (I), then Enable (E) and Engage (T): the arms align to the first frame, then replay the episode.';
 }
 
 // The next animation frame, or a timer when the browser is not drawing the page (covered or minimized windows send
 // no animation frames): playback keeps time either way, since the model plays by the wall clock.
-export function nextFrame(callback, {raf = globalThis.requestAnimationFrame, timer = globalThis.setTimeout} = {}) {
+export function nextFrame(callback, { raf = globalThis.requestAnimationFrame, timer = globalThis.setTimeout } = {}) {
   let done = false;
   const run = () => {
     if (done) return;
@@ -272,15 +340,15 @@ class CameraPanel {
 // The Teleop panel's card while an episode drives the arms: its playback position, and its recorded camera frames
 // there, to set beside the live cameras. Each camera loads only its latest wanted frame.
 export class LiveReplayCard {
-  constructor({elements, doc = document}) {
+  constructor({ elements, doc = document }) {
     this.e = elements;
     this.doc = doc;
     this.episode = null;
     this.panels = new Map();
   }
 
-  render(replay, {state = null, label = null} = {}) {
-    const {e} = this;
+  render(replay, { state = null, label = null } = {}) {
+    const { e } = this;
     e.card.hidden = !replay;
     if (!replay) {
       this.episode = null;
@@ -288,10 +356,10 @@ export class LiveReplayCard {
     }
     if (replay.episode !== this.episode) {
       this.episode = replay.episode;
-      this.panels = new Map(ROLE_ORDER.map(role => [role, new CameraPanel(role, this.doc)]));
-      e.frames.replaceChildren(...[...this.panels.values()].map(panel => panel.figure));
+      this.panels = new Map(ROLE_ORDER.map((role) => [role, new CameraPanel(role, this.doc)]));
+      e.frames.replaceChildren(...[...this.panels.values()].map((panel) => panel.figure));
     }
-    const {fraction, text} = replayProgress(replay);
+    const { fraction, text } = replayProgress(replay);
     e.title.textContent = label || replay.episode;
     e.time.textContent = text;
     e.fill.style.width = `${(fraction * 100).toFixed(1)}%`;
@@ -314,16 +382,21 @@ class JointTimeline {
     this.dragging = false;
     this.time = 0;
     for (const event of ['helm-look', 'helm-theme']) {
-      globalThis.addEventListener?.(event, () => { this.background = null; this.draw(this.time); });
+      globalThis.addEventListener?.(event, () => {
+        this.background = null;
+        this.draw(this.time);
+      });
     }
-    canvas.addEventListener('pointerdown', event => {
+    canvas.addEventListener('pointerdown', (event) => {
       if (!this.series) return;
       this.dragging = true;
       canvas.setPointerCapture?.(event.pointerId);
       this.seekTo(event, 'start');
     });
-    canvas.addEventListener('pointermove', event => { if (this.dragging) this.seekTo(event, 'move'); });
-    const end = event => {
+    canvas.addEventListener('pointermove', (event) => {
+      if (this.dragging) this.seekTo(event, 'move');
+    });
+    const end = (event) => {
       if (!this.dragging) return;
       this.dragging = false;
       this.seekTo(event, 'end');
@@ -347,13 +420,13 @@ class JointTimeline {
     this.series = series;
     this.lanes = [];
     const lane = (label, test) => {
-      const columns = joints.map((name, column) => ({name, column})).filter(({name}) => test(name));
-      if (columns.length) this.lanes.push({label, columns});
+      const columns = joints.map((name, column) => ({ name, column })).filter(({ name }) => test(name));
+      if (columns.length) this.lanes.push({ label, columns });
     };
-    lane('Left arm', name => name.startsWith('left_arm'));
-    lane('Right arm', name => name.startsWith('right_arm'));
-    lane('Grippers', name => name.endsWith('_gripper'));
-    lane('Neck', name => name.startsWith('head_'));
+    lane('Left arm', (name) => name.startsWith('left_arm'));
+    lane('Right arm', (name) => name.startsWith('right_arm'));
+    lane('Grippers', (name) => name.endsWith('_gripper'));
+    lane('Neck', (name) => name.startsWith('head_'));
     this.background = null;
   }
 
@@ -369,12 +442,13 @@ class JointTimeline {
   }
 
   paintBackground() {
-    const {width, height} = this.canvas;
+    const { width, height } = this.canvas;
     const canvas = this.canvas.ownerDocument.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const g = canvas.getContext('2d');
-    const ratio = globalThis.devicePixelRatio || 1, look = timelineLook(this.canvas);
+    const ratio = globalThis.devicePixelRatio || 1,
+      look = timelineLook(this.canvas);
     g.fillStyle = look.background;
     g.fillRect(0, 0, width, height);
     const t = this.series?.t || [];
@@ -382,31 +456,34 @@ class JointTimeline {
     if (t.length < 2 || !this.lanes.length) return canvas;
     const duration = t[t.length - 1] - t[0];
     const laneHeight = height / this.lanes.length;
-    this.lanes.forEach(({label, columns}, laneIndex) => {
+    this.lanes.forEach(({ label, columns }, laneIndex) => {
       const top = laneIndex * laneHeight;
-      let low = Infinity, high = -Infinity;
-      for (const row of qpos) for (const {column} of columns) {
-        low = Math.min(low, row[column]);
-        high = Math.max(high, row[column]);
-      }
+      let low = Infinity,
+        high = -Infinity;
+      for (const row of qpos)
+        for (const { column } of columns) {
+          low = Math.min(low, row[column]);
+          high = Math.max(high, row[column]);
+        }
       const middle = (low + high) / 2;
-      const span = Math.max(high - low, .1) * 1.15;  // A still joint draws flat, not magnified noise.
-      const y = value => top + laneHeight * (.5 - (value - middle) / span);
+      const span = Math.max(high - low, 0.1) * 1.15; // A still joint draws flat, not magnified noise.
+      const y = (value) => top + laneHeight * (0.5 - (value - middle) / span);
       g.strokeStyle = look.lane;
       g.lineWidth = 1;
       g.beginPath();
-      g.moveTo(0, top + .5);
-      g.lineTo(width, top + .5);
+      g.moveTo(0, top + 0.5);
+      g.lineTo(width, top + 0.5);
       g.stroke();
-      columns.forEach(({column}, i) => {
+      columns.forEach(({ column }, i) => {
         const colors = look.colors || JOINT_COLORS;
         g.strokeStyle = colors[i % colors.length];
         g.lineWidth = 1.25 * ratio;
         g.beginPath();
         const step = Math.max(1, Math.floor(qpos.length / width));
         for (let k = 0; k < qpos.length; k += step) {
-          const x = (t[k] - t[0]) / duration * width;
-          if (k === 0) g.moveTo(x, y(qpos[k][column])); else g.lineTo(x, y(qpos[k][column]));
+          const x = ((t[k] - t[0]) / duration) * width;
+          if (k === 0) g.moveTo(x, y(qpos[k][column]));
+          else g.lineTo(x, y(qpos[k][column]));
         }
         g.stroke();
       });
@@ -425,7 +502,7 @@ class JointTimeline {
     g.drawImage(this.background, 0, 0);
     const duration = this.duration;
     if (!(duration > 0)) return;
-    const x = Math.round(time / duration * this.canvas.width) + .5;
+    const x = Math.round((time / duration) * this.canvas.width) + 0.5;
     const look = timelineLook(this.canvas);
     g.strokeStyle = look.playhead;
     g.lineWidth = look.playheadPx * Math.max(1, globalThis.devicePixelRatio || 1);
@@ -439,7 +516,7 @@ class JointTimeline {
 export class ReplayView {
   // `elements` holds the page's nodes by role; `request(path)` fetches JSON or throws with the server's message.
   // `onLive(episode, speed, label)`: Replay on Minerva, the selected episode driving the arms (helm.js starts it).
-  constructor({elements, request, now = () => performance.now(), frame = nextFrame, doc = document, onLive = null}) {
+  constructor({ elements, request, now = () => performance.now(), frame = nextFrame, doc = document, onLive = null }) {
     this.e = elements;
     this.request = request;
     this.onLive = onLive;
@@ -448,7 +525,7 @@ export class ReplayView {
     this.frame = frame;
     this.doc = doc;
     this.model = new ReplayModel();
-    this.listing = {episodes: [], busy: null, error: null};
+    this.listing = { episodes: [], busy: null, error: null };
     this.episode = null;
     this.panels = new Map();
     this.prefetched = new Map();
@@ -479,20 +556,22 @@ export class ReplayView {
     // Training review: Keep or Discard each episode; the list shows and filters by it.
     this.filter = 'all';
     this.reviewing = false;
-    if (elements.filter) elements.filter.onchange = () => {
-      this.filter = elements.filter.value;
-      this.renderList();
-    };
+    if (elements.filter)
+      elements.filter.onchange = () => {
+        this.filter = elements.filter.value;
+        this.renderList();
+      };
     if (elements.keep) {
       elements.keep.onclick = () => this.review('keep');
       elements.discard.onclick = () => this.review('discard');
       elements.clear.onclick = () => this.review(null);
     }
-    if (elements.liveStart) elements.liveStart.onclick = () => {
-      if (this.episode && this.liveReason() === '')
-        this.onLive?.(this.episode.id, Number(elements.liveSpeed.value), this.labelFor(this.episode.id));
-    };
-    doc.addEventListener('keydown', event => this.onKey(event));
+    if (elements.liveStart)
+      elements.liveStart.onclick = () => {
+        if (this.episode && this.liveReason() === '')
+          this.onLive?.(this.episode.id, Number(elements.liveSpeed.value), this.labelFor(this.episode.id));
+      };
+    doc.addEventListener('keydown', (event) => this.onKey(event));
     globalThis.addEventListener?.('resize', () => this.render());
   }
 
@@ -506,20 +585,24 @@ export class ReplayView {
   // Why the selected episode cannot be replayed on the arms now ('' when it can).
   liveReason() {
     const t = this.teleop;
-    const entry = this.listing.episodes.find(item => item.id === this.episode?.id);
+    const entry = this.listing.episodes.find((item) => item.id === this.episode?.id);
     if (!t) return 'Replaying on the arms needs Helm started with a teleop profile.';
-    if (!this.episode?.summary?.complete || entry?.partial) return 'Only a complete episode can be replayed on the arms.';
-    if (['running', 'starting'].includes(t.phase)) return t.replay?.episode === this.episode.id
-      ? 'Replaying this episode now: see Teleop.' : 'Stop the teleop session in Teleop first.';
+    if (!this.episode?.summary?.complete || entry?.partial)
+      return 'Only a complete episode can be replayed on the arms.';
+    if (['running', 'starting'].includes(t.phase))
+      return t.replay?.episode === this.episode.id
+        ? 'Replaying this episode now: see Teleop.'
+        : 'Stop the teleop session in Teleop first.';
     return '';
   }
 
   renderLive() {
-    const {e} = this;
+    const { e } = this;
     if (!e.live) return;
     e.live.hidden = !this.episode;
     if (!this.episode) return;
-    const reason = this.liveReason(), live = this.teleop?.receiver_choice?.mode === 'live';
+    const reason = this.liveReason(),
+      live = this.teleop?.receiver_choice?.mode === 'live';
     e.liveReceiver.textContent = receiverLabel(this.teleop, this.mode);
     e.liveReceiver.dataset.live = String(live);
     e.liveStart.disabled = !!reason;
@@ -550,27 +633,32 @@ export class ReplayView {
     try {
       this.listing = await this.request('/api/helm/episodes');
     } catch (error) {
-      this.listing = {...this.listing, error: error.message};
+      this.listing = { ...this.listing, error: error.message };
     }
     this.renderList();
     if (explicit && !this.listing.error && !this.listing.busy) this.e.listStatus.textContent = 'Episode list updated.';
   }
 
   renderList() {
-    const {episodes, busy, error} = this.listing;
+    const { episodes, busy, error } = this.listing;
     const counts = reviewCounts(episodes);
-    this.e.listStatus.textContent = busy || error || (episodes.length
-      ? `${episodes.length} episodes · ${counts.keep} kept · ${counts.discard} discarded · ${counts.unreviewed} to review`
-      : 'No recorded episodes yet.');
+    this.e.listStatus.textContent =
+      busy ||
+      error ||
+      (episodes.length
+        ? `${episodes.length} episodes · ${counts.keep} kept · ${counts.discard} discarded · ${counts.unreviewed} to review`
+        : 'No recorded episodes yet.');
     this.e.listStatus.dataset.tone = error ? 'bad' : busy ? 'warn' : '';
     this.e.list.replaceChildren();
     // Numbered within the whole session first, so an episode keeps its number under any filter.
     for (const group of groupEpisodes(episodes)) {
-      const shown = group.episodes.filter(episode => shownBy(this.filter, episode));
+      const shown = group.episodes.filter((episode) => shownBy(this.filter, episode));
       if (!shown.length) continue;
       const heading = this.doc.createElement('div');
       heading.className = 'replay-session';
-      heading.textContent = group.date ? group.date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : group.session;
+      heading.textContent = group.date
+        ? group.date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : group.session;
       this.e.list.append(heading);
       for (const episode of shown) {
         const button = this.doc.createElement('button');
@@ -593,8 +681,11 @@ export class ReplayView {
         }
         const meta = this.doc.createElement('span');
         meta.className = 'replay-meta';
-        meta.textContent = [formatSeconds(episode.duration ?? NaN), `${episode.frames} frames`,
-          `${(episode.size / 1e6).toFixed(0)} MB`].join(' · ');
+        meta.textContent = [
+          formatSeconds(episode.duration ?? NaN),
+          `${episode.frames} frames`,
+          `${(episode.size / 1e6).toFixed(0)} MB`,
+        ].join(' · ');
         button.append(title, badge, meta);
         const verdict = verdictOf(episode);
         if (verdict) {
@@ -615,14 +706,15 @@ export class ReplayView {
 
   // The selected episode's training review: its verdict and note, and the Keep, Discard and Clear buttons.
   renderReview() {
-    const {e} = this;
+    const { e } = this;
     if (!e.review) return;
     e.review.hidden = !this.episode;
     if (!this.episode) return;
-    const entry = this.listing.episodes.find(item => item.id === this.episode.id);
+    const entry = this.listing.episodes.find((item) => item.id === this.episode.id);
     const verdict = verdictOf(entry);
     const complete = !!this.episode.summary?.complete && !entry?.partial;
-    e.verdict.textContent = verdict === 'keep' ? 'Kept for training' : verdict === 'discard' ? 'Discarded' : 'Not reviewed';
+    e.verdict.textContent =
+      verdict === 'keep' ? 'Kept for training' : verdict === 'discard' ? 'Discarded' : 'Not reviewed';
     e.verdict.dataset.verdict = verdict || '';
     if (this.doc.activeElement !== e.note && !this.reviewing) e.note.value = entry?.review?.note || '';
     e.keep.disabled = this.reviewing || !complete;
@@ -640,11 +732,15 @@ export class ReplayView {
     this.e.reviewStatus.dataset.tone = '';
     try {
       const path = `/api/helm/episodes/${id.split('/').map(encodeURIComponent).join('/')}/review`;
-      const {review} = await this.request(path, {verdict, note: this.e.note.value.trim()});
-      const entry = this.listing.episodes.find(item => item.id === id);
+      const { review } = await this.request(path, { verdict, note: this.e.note.value.trim() });
+      const entry = this.listing.episodes.find((item) => item.id === id);
       if (entry) entry.review = review;
-      this.e.reviewStatus.textContent = verdict === 'keep' ? 'Kept for training.'
-        : verdict === 'discard' ? 'Discarded: not used for training.' : 'Review cleared.';
+      this.e.reviewStatus.textContent =
+        verdict === 'keep'
+          ? 'Kept for training.'
+          : verdict === 'discard'
+            ? 'Discarded: not used for training.'
+            : 'Review cleared.';
     } catch (error) {
       this.e.reviewStatus.textContent = error.message;
       this.e.reviewStatus.dataset.tone = 'bad';
@@ -666,12 +762,12 @@ export class ReplayView {
       this.e.status.dataset.tone = 'bad';
       return;
     }
-    this.episode = {id, ...data};
+    this.episode = { id, ...data };
     if (this.e.reviewStatus) this.e.reviewStatus.textContent = '';
     this.model.load(data.series.t);
     this.prefetched.clear();
-    this.panels = new Map(orderRoles(data.summary.roles).map(role => [role, new CameraPanel(role, this.doc)]));
-    this.e.cameras.replaceChildren(...[...this.panels.values()].map(panel => panel.figure));
+    this.panels = new Map(orderRoles(data.summary.roles).map((role) => [role, new CameraPanel(role, this.doc)]));
+    this.e.cameras.replaceChildren(...[...this.panels.values()].map((panel) => panel.figure));
     this.e.scrub.max = String(this.model.last);
     this.timeline.setSeries(data.series, data.summary.joints || []);
     this.e.status.textContent = '';
@@ -689,7 +785,12 @@ export class ReplayView {
     const rows = [
       ['Duration', formatSeconds(summary.duration)],
       ['Frames', `${summary.frames} at ${summary.rate_hz ? summary.rate_hz.toFixed(1) : '—'} Hz`],
-      ['Cameras', orderRoles(summary.roles).map(role => ROLE_LABEL[role] || role).join(', ')],
+      [
+        'Cameras',
+        orderRoles(summary.roles)
+          .map((role) => ROLE_LABEL[role] || role)
+          .join(', '),
+      ],
       ['File', summary.complete ? 'complete' : 'partial: recording did not finish'],
       ['Recorded', summary.collected_at ? new Date(summary.collected_at).toLocaleString() : '—'],
       ['Task', summary.language_instruction || 'not described'],
@@ -731,14 +832,20 @@ export class ReplayView {
   onKey(event) {
     if (!this.active || !this.episode || event.ctrlKey || event.metaKey || event.altKey) return;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return;
-    if (event.key === ' ' && event.target?.tagName === 'BUTTON') return;  // The focused button's own click.
+    if (event.key === ' ' && event.target?.tagName === 'BUTTON') return; // The focused button's own click.
     const second = Math.max(1, Math.round(this.model.length / Math.max(this.model.duration, 1e-9)));
     const actions = {
       ' ': () => this.toggle(),
       ArrowLeft: () => this.step(event.shiftKey ? -second : -1),
       ArrowRight: () => this.step(event.shiftKey ? second : 1),
-      Home: () => { this.model.seek(0, this.now()); this.render(); },
-      End: () => { this.model.seek(this.model.last, this.now()); this.render(); },
+      Home: () => {
+        this.model.seek(0, this.now());
+        this.render();
+      },
+      End: () => {
+        this.model.seek(this.model.last, this.now());
+        this.render();
+      },
     };
     const action = actions[event.key];
     if (!action) return;
@@ -747,7 +854,7 @@ export class ReplayView {
   }
 
   render() {
-    const {model, e} = this;
+    const { model, e } = this;
     const loaded = !!this.episode;
     for (const control of [e.play, e.back, e.forward, e.scrub, e.speed]) control.disabled = !loaded;
     e.play.textContent = model.playing ? 'Pause' : model.atEnd && loaded ? 'Replay' : 'Play';
@@ -762,8 +869,14 @@ export class ReplayView {
     for (const panel of this.panels.values()) panel.show(frameUrl(this.episode.id, model.index, panel.role));
     if (this.active) this.timeline.draw(model.time);
     if (model.playing) this.prefetch();
-    const view = {episode: this.episode.id, summary: this.episode.summary, series: this.episode.series,
-      index: model.index, time: model.time, mapping: this.episode.model_mapping || null};
+    const view = {
+      episode: this.episode.id,
+      summary: this.episode.summary,
+      series: this.episode.series,
+      index: model.index,
+      time: model.time,
+      mapping: this.episode.model_mapping || null,
+    };
     for (const listener of this.listeners) listener(view);
     if (model.playing && !this.ticking) {
       this.ticking = true;
@@ -784,7 +897,7 @@ export class ReplayView {
   // Ask for the next stretch of frames before the playhead needs them (complete episodes are browser-cached).
   prefetch() {
     if (!this.episode?.summary?.complete) return;
-    const {model} = this;
+    const { model } = this;
     const until = model.indexAt(model.time + PREFETCH_S * model.speed);
     const keep = new Set();
     for (let index = model.index + 1; index <= until; index++) {
@@ -803,7 +916,7 @@ export class ReplayView {
 
   episodeLabel() {
     for (const group of groupEpisodes(this.listing.episodes)) {
-      const match = group.episodes.find(episode => episode.id === this.episode?.id);
+      const match = group.episodes.find((episode) => episode.id === this.episode?.id);
       if (match) return `Episode ${match.number}`;
     }
     return 'Episode';
@@ -812,12 +925,14 @@ export class ReplayView {
   // 'Episode 3 · <its session's date>' for a listed episode; its id when the list does not have it.
   labelFor(id) {
     for (const group of groupEpisodes(this.listing.episodes)) {
-      const match = group.episodes.find(episode => episode.id === id);
-      if (match) return `Episode ${match.number}${group.date
-        ? ` · ${group.date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'})}` : ''}`;
+      const match = group.episodes.find((episode) => episode.id === id);
+      if (match)
+        return `Episode ${match.number}${
+          group.date ? ` · ${group.date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''
+        }`;
     }
     const [session, name = ''] = String(id).split('/');
     const date = sessionDate(session);
-    return date ? `${date.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'})} · ${name.slice(-8)}` : id;
+    return date ? `${date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${name.slice(-8)}` : id;
   }
 }

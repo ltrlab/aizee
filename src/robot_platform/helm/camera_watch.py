@@ -4,6 +4,7 @@ cable was loose) stalled a live cycle long enough for the receiver's command to 
 arms and ended. The live loop now pauses the arms when a camera goes (helm.teleop) instead.
 
 The loop polls once a cycle, through a non-blocking socket: no thread shares the loop's interpreter."""
+
 import select
 import socket
 
@@ -28,8 +29,12 @@ def parse(message):
 
 def camera_removed(fields):
     """The camera a removal names ('the camera at USB 1-2.2 (05a3:9230)'), or None for any other event."""
-    if (fields.get('ACTION') != 'remove' or fields.get('SUBSYSTEM') != 'usb'
-            or fields.get('DEVTYPE') != 'usb_interface' or not fields.get('INTERFACE', '').startswith(VIDEO)):
+    if (
+        fields.get('ACTION') != 'remove'
+        or fields.get('SUBSYSTEM') != 'usb'
+        or fields.get('DEVTYPE') != 'usb_interface'
+        or not fields.get('INTERFACE', '').startswith(VIDEO)
+    ):
         return None
     port = fields.get('DEVPATH', '').rsplit('/', 1)[-1].split(':', 1)[0] or 'an unknown port'
     vendor, _, rest = fields.get('PRODUCT', '').partition('/')

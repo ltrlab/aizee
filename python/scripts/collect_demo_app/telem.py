@@ -1,4 +1,5 @@
 """Telemetry extraction helpers (from collect_demo.py)."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -13,6 +14,7 @@ from .alignment import _motor_to_urdf_pos
 # Telemetry helpers
 # ---------------------------------------------------------------------------
 
+
 def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
     """Extract 7-element arm joint positions in URDF frame.
 
@@ -23,6 +25,7 @@ def _qpos(telem: Optional[dict]) -> Optional[np.ndarray]:
     q_motor = _qpos_motor(telem)
     return None if q_motor is None else _motor_to_urdf_pos(q_motor)
 
+
 def _qpos_motor(telem: Optional[dict]) -> Optional[np.ndarray]:
     """Same as _qpos but returns the RAW motor-frame positions.
 
@@ -31,11 +34,11 @@ def _qpos_motor(telem: Optional[dict]) -> Optional[np.ndarray]:
     reading."""
     if not isinstance(telem, dict):
         return None
-    motors = telem.get("motors")
+    motors = telem.get('motors')
     if not isinstance(motors, dict):
         return None
     try:
-        values = [motors[j]["position"] for j in ARM_JOINTS]
+        values = [motors[j]['position'] for j in ARM_JOINTS]
         if any(isinstance(value, (str, bytes, bool)) for value in values):
             return None
         result = np.asarray(values, dtype=np.float32)
@@ -48,9 +51,9 @@ def _qpos_motor(telem: Optional[dict]) -> Optional[np.ndarray]:
 
 def _numeric_motor_field(telem: Optional[dict], field: str) -> Optional[np.ndarray]:
     """Legacy display vectors retain NaNs for invalid/missing measurements."""
-    if not isinstance(telem, dict) or not isinstance(telem.get("motors"), dict):
+    if not isinstance(telem, dict) or not isinstance(telem.get('motors'), dict):
         return None
-    motors = telem["motors"]
+    motors = telem['motors']
     if not any(j in motors for j in ARM_JOINTS):
         return None
     result = np.full(len(ARM_JOINTS), np.nan, dtype=np.float32)
@@ -69,8 +72,8 @@ def _numeric_motor_field(telem: Optional[dict], field: str) -> Optional[np.ndarr
 
 
 def _qtorque(telem: Optional[dict]) -> Optional[np.ndarray]:
-    return _numeric_motor_field(telem, "torque")
+    return _numeric_motor_field(telem, 'torque')
 
 
 def _qtemp(telem: Optional[dict]) -> Optional[np.ndarray]:
-    return _numeric_motor_field(telem, "temperature")
+    return _numeric_motor_field(telem, 'temperature')

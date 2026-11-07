@@ -33,9 +33,17 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from common.minerva_constants import (
-    NUM_MINERVA_JOINTS, HEAD_INDICES, LIFT_INDEX, JOINT_LIMITS, clamp_positions,
-    GRIP_FF_GAIN_MA_PER_NM, GRIP_FF_DEADBAND_NM, GRIP_FF_CAP_MA, GRIP_FF_SIGN,
-    GRIP_FF_SMOOTH, grip_ff_current,
+    NUM_MINERVA_JOINTS,
+    HEAD_INDICES,
+    LIFT_INDEX,
+    JOINT_LIMITS,
+    clamp_positions,
+    GRIP_FF_GAIN_MA_PER_NM,
+    GRIP_FF_DEADBAND_NM,
+    GRIP_FF_CAP_MA,
+    GRIP_FF_SIGN,
+    GRIP_FF_SMOOTH,
+    grip_ff_current,
 )
 
 _N = NUM_MINERVA_JOINTS
@@ -43,9 +51,9 @@ _N = NUM_MINERVA_JOINTS
 # Leader servo slot (OpenRBLeader.JOINTS order) of the gripper, and the follower
 # 17-vec gripper torque index per follower side. Force feedback only touches the
 # gripper slot; the other 6 slots stay in backdrive (FF_DISABLE_SENTINEL).
-_LEADER_GRIP_SLOT = 6                      # 7th servo (ID 7) on each OpenRB leader
+_LEADER_GRIP_SLOT = 6  # 7th servo (ID 7) on each OpenRB leader
 _N_LEADER_SERVOS = 7
-_FOLLOWER_GRIP_IDX = {"left": 6, "right": 13}
+_FOLLOWER_GRIP_IDX = {'left': 6, 'right': 13}
 # Mirror of openrb_leader.FF_DISABLE_SENTINEL (= INT16_MIN) so this module needs
 # no hard dependency on the (pyserial-gated) driver import.
 _FF_DISABLE_SENTINEL = -32768
@@ -54,13 +62,14 @@ _FF_DISABLE_SENTINEL = -32768
 # teleop. Instead: only write when the current changed meaningfully, OR to
 # refresh a NONZERO current before the firmware's 200 ms zero-watchdog fires.
 # In free air the current is 0 and we go completely silent — no contention.
-_FF_MIN_RESEND_S = 0.12   # refresh a held nonzero current at ~8 Hz (< 200 ms watchdog)
-_FF_SEND_DELTA_MA = 4     # write immediately if the target moved at least this many mA
+_FF_MIN_RESEND_S = 0.12  # refresh a held nonzero current at ~8 Hz (< 200 ms watchdog)
+_FF_SEND_DELTA_MA = 4  # write immediately if the target moved at least this many mA
 
 
 def _import_openrb():
     try:
         from openrb_leader import OpenRBLeader, find_openrb_port  # teleop/ on sys.path
+
         return OpenRBLeader, find_openrb_port
     except Exception:
         return None, None
@@ -74,7 +83,7 @@ class MinervaTeleop:
         left_calib: Optional[str] = None,
         right_calib: Optional[str] = None,
         *,
-        head_speed: float = 1.2,   # rad/s at full joystick deflection
+        head_speed: float = 1.2,  # rad/s at full joystick deflection
         lift_speed: float = 0.05,  # m/s   at full joystick deflection
         jog_step_arm: float = 0.02,
         jog_step_head: float = 0.02,
@@ -120,23 +129,23 @@ class MinervaTeleop:
         self._right_zero: Optional[np.ndarray] = None
         self._left_dir = np.ones(7, dtype=np.float32)
         self._right_dir = np.ones(7, dtype=np.float32)
-        self._head = np.zeros(2, dtype=np.float32)   # integrated head pan/tilt
-        self._lift = 0.0                             # integrated lift
-        self._jog = np.zeros(_N, dtype=np.float32)   # persistent keyboard/GUI trims
+        self._head = np.zeros(2, dtype=np.float32)  # integrated head pan/tilt
+        self._lift = 0.0  # integrated lift
+        self._jog = np.zeros(_N, dtype=np.float32)  # persistent keyboard/GUI trims
         self._last_t: Optional[float] = None
 
         # record-toggle edge tracking (joystick button press_counter)
-        self._last_press = {"left": 0, "right": 0}
+        self._last_press = {'left': 0, 'right': 0}
         self._pending_record_edges = 0
 
         # Gripper force-feedback state (per PHYSICAL leader). `_grip_ff_ma` is the
         # EMA-smoothed output current; `_ff_engaged` tracks whether we've put a
         # leader's gripper slot into current-control so release() only fires when
         # needed. Written only from the main-loop thread (apply/release).
-        self._grip_ff_ma = {"left": 0.0, "right": 0.0}
-        self._ff_engaged = {"left": False, "right": False}
-        self._ff_last_sent = {"left": None, "right": None}    # last mA actually written
-        self._ff_last_send_t = {"left": 0.0, "right": 0.0}    # monotonic time of that write
+        self._grip_ff_ma = {'left': 0.0, 'right': 0.0}
+        self._ff_engaged = {'left': False, 'right': False}
+        self._ff_last_sent = {'left': None, 'right': None}  # last mA actually written
+        self._ff_last_send_t = {'left': 0.0, 'right': 0.0}  # monotonic time of that write
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -146,12 +155,12 @@ class MinervaTeleop:
         Missing hardware is fine — the app runs jog-only."""
         if not self._hardware_enabled:
             if verbose:
-                print("[teleop] simulation — hardware leaders disabled; jog-only mode")
+                print('[teleop] simulation — hardware leaders disabled; jog-only mode')
             return (False, False)
         OpenRBLeader, find_openrb_port = _import_openrb()
         if OpenRBLeader is None:
             if verbose:
-                print("[teleop] OpenRB leader / pyserial unavailable — jog-only mode")
+                print('[teleop] OpenRB leader / pyserial unavailable — jog-only mode')
             self._start_reader()
             return (False, False)
 
@@ -172,23 +181,23 @@ class MinervaTeleop:
         def _mk(port, calib, label):
             if not port:
                 if verbose:
-                    print(f"[teleop] no {label} leader port — {label} arm is jog-only")
+                    print(f'[teleop] no {label} leader port — {label} arm is jog-only')
                 return None
             try:
                 dev = OpenRBLeader(port, calib=calib) if calib else OpenRBLeader(port)
                 if dev.connect():
                     if verbose:
-                        print(f"[teleop] {label} leader connected on {port}")
+                        print(f'[teleop] {label} leader connected on {port}')
                     return dev
                 if verbose:
-                    print(f"[teleop] {label} leader failed to connect on {port}")
+                    print(f'[teleop] {label} leader failed to connect on {port}')
             except Exception as e:
                 if verbose:
-                    print(f"[teleop] {label} leader error: {e}")
+                    print(f'[teleop] {label} leader error: {e}')
             return None
 
-        self._left = _mk(lp, self.left_calib, "left")
-        self._right = _mk(rp, self.right_calib, "right")
+        self._left = _mk(lp, self.left_calib, 'left')
+        self._right = _mk(rp, self.right_calib, 'right')
         self._seed_registration()
         self._start_reader()
         return (self._left is not None, self._right is not None)
@@ -212,8 +221,8 @@ class MinervaTeleop:
             # duration. A slow/stalling leader poll leaves the loop timing smooth but
             # makes the arm stutter (target uses stale leader data) — the one thing the
             # main-loop [perf] line can't see. [polls, none, dur_max_s]
-            _prof = bool(os.environ.get("AIZEE_PROFILE"))
-            _st = {"left": [0, 0, 0.0], "right": [0, 0, 0.0]}
+            _prof = bool(os.environ.get('AIZEE_PROFILE'))
+            _st = {'left': [0, 0, 0.0], 'right': [0, 0, 0.0]}
             _last = time.monotonic()
             while not self._reader_stop.is_set():
                 did = False
@@ -221,48 +230,56 @@ class MinervaTeleop:
                     _t = time.monotonic() if _prof else 0.0
                     r = self._left.poll()
                     if _prof:
-                        _st["left"][0] += 1; _st["left"][2] = max(_st["left"][2], time.monotonic() - _t)
-                        if r is None: _st["left"][1] += 1
+                        _st['left'][0] += 1
+                        _st['left'][2] = max(_st['left'][2], time.monotonic() - _t)
+                        if r is None:
+                            _st['left'][1] += 1
                     joy = self._left.last_joystick
                     with self._lock:
                         if r is not None:
                             self._left_rad = r
                         self._left_joy = joy
-                    self._note_press("left", joy)
+                    self._note_press('left', joy)
                     did = True
                 if self._right is not None:
                     _t = time.monotonic() if _prof else 0.0
                     r = self._right.poll()
                     if _prof:
-                        _st["right"][0] += 1; _st["right"][2] = max(_st["right"][2], time.monotonic() - _t)
-                        if r is None: _st["right"][1] += 1
+                        _st['right'][0] += 1
+                        _st['right'][2] = max(_st['right'][2], time.monotonic() - _t)
+                        if r is None:
+                            _st['right'][1] += 1
                     joy = self._right.last_joystick
                     with self._lock:
                         if r is not None:
                             self._right_rad = r
                         self._right_joy = joy
-                    self._note_press("right", joy)
+                    self._note_press('right', joy)
                     did = True
                 if _prof and (time.monotonic() - _last) >= 2.0:
-                    el = time.monotonic() - _last; _last = time.monotonic()
-                    def _fmt(k):
-                        n, none, dm = _st[k]; _st[k][:] = [0, 0, 0.0]
-                        return f"{k} {n/el:5.1f}poll/s none={none:<3d} max={dm*1e3:5.1f}ms"
-                    print(f"[leader] {_fmt('left')} | {_fmt('right')}", flush=True)
-                if not did:
-                    self._reader_stop.wait(0.02)   # jog-only: nothing to poll
+                    el = time.monotonic() - _last
+                    _last = time.monotonic()
 
-        self._reader = threading.Thread(target=_run, daemon=True, name="LeaderRx")
+                    def _fmt(k):
+                        n, none, dm = _st[k]
+                        _st[k][:] = [0, 0, 0.0]
+                        return f'{k} {n / el:5.1f}poll/s none={none:<3d} max={dm * 1e3:5.1f}ms'
+
+                    print(f'[leader] {_fmt("left")} | {_fmt("right")}', flush=True)
+                if not did:
+                    self._reader_stop.wait(0.02)  # jog-only: nothing to poll
+
+        self._reader = threading.Thread(target=_run, daemon=True, name='LeaderRx')
         self._reader.start()
 
     def _note_press(self, which: str, joy: dict):
-        if not joy or not joy.get("present"):
+        if not joy or not joy.get('present'):
             return
-        pc = int(joy.get("press_counter", 0))
+        pc = int(joy.get('press_counter', 0))
         with self._lock:
             prev = self._last_press[which]
             if pc > prev:
-                self._pending_record_edges += (pc - prev)
+                self._pending_record_edges += pc - prev
             self._last_press[which] = pc
 
     def close(self):
@@ -278,7 +295,7 @@ class MinervaTeleop:
 
     @property
     def status(self) -> dict:
-        return {"left": self._left is not None, "right": self._right is not None}
+        return {'left': self._left is not None, 'right': self._right is not None}
 
     # ------------------------------------------------------------------
     # Leader↔arm swap (which physical leader drives which follower arm)
@@ -311,7 +328,7 @@ class MinervaTeleop:
         normalized position in [0,1] within its calibrated sweep (the leader calib maps
         to [0,1]); `dir` (<0) flips which follower end frac=0 maps to. Pure reader — call
         under self._lock."""
-        use_left = (follower_side == "left") != self._swapped
+        use_left = (follower_side == 'left') != self._swapped
         if use_left:
             return self._left_rad, self._left_dir
         return self._right_rad, self._right_dir
@@ -353,20 +370,21 @@ class MinervaTeleop:
         in every other state. Returns {'left': mA, 'right': mA} actually applied
         (smoothed, 0 when released) for display. Cheap fire-and-forget writes; the
         OpenRB firmware watchdog releases torque if these stop arriving."""
-        result = {"left": 0, "right": 0}
+        result = {'left': 0, 'right': 0}
         if follower_torque is None:
             self.release_gripper_ff()
             return result
         tq = np.asarray(follower_torque, dtype=np.float32)
-        swapped = self._swapped   # plain bool read; no lock needed for a snapshot
+        swapped = self._swapped  # plain bool read; no lock needed for a snapshot
         now = time.monotonic()
-        for leader_key, dev in (("left", self._left), ("right", self._right)):
+        for leader_key, dev in (('left', self._left), ('right', self._right)):
             if dev is None:
                 continue
-            side = leader_key if not swapped else ("right" if leader_key == "left" else "left")
+            side = leader_key if not swapped else ('right' if leader_key == 'left' else 'left')
             gidx = _FOLLOWER_GRIP_IDX[side]
-            raw = grip_ff_current(tq[gidx] if gidx < tq.size else float("nan"),
-                                  gain=gain, deadband=deadband, cap=cap, sign=sign)
+            raw = grip_ff_current(
+                tq[gidx] if gidx < tq.size else float('nan'), gain=gain, deadband=deadband, cap=cap, sign=sign
+            )
             # EMA smooth the output so a noisy torque estimate doesn't buzz the
             # servo; snaps to 0 promptly because raw is already 0 in free air.
             prev = self._grip_ff_ma[leader_key]
@@ -398,9 +416,9 @@ class MinervaTeleop:
         """Return both leader grippers to free backdrive (disable-sentinel on every
         slot). Idempotent and cheap; only actually writes to a leader that had FF
         engaged. The firmware also auto-releases after ~1 s of command silence."""
-        for leader_key, dev in (("left", self._left), ("right", self._right)):
+        for leader_key, dev in (('left', self._left), ('right', self._right)):
             self._grip_ff_ma[leader_key] = 0.0
-            self._ff_last_sent[leader_key] = None     # re-enable starts fresh
+            self._ff_last_sent[leader_key] = None  # re-enable starts fresh
             if dev is not None and self._ff_engaged.get(leader_key):
                 try:
                     dev.set_ff_currents([_FF_DISABLE_SENTINEL] * _N_LEADER_SERVOS)
@@ -439,10 +457,10 @@ class MinervaTeleop:
         head+lift (joystick-integrated, no absolute leader), are NaN."""
         out = np.full(_N, np.nan, dtype=np.float32)
         with self._lock:
-            for lo, side in ((0, "left"), (7, "right")):
+            for lo, side in ((0, 'left'), (7, 'right')):
                 frac, dr = self._arm_source(side)
                 if frac is not None:
-                    out[lo:lo + 7] = self._range_map(frac, dr, JOINT_LIMITS[lo:lo + 7])
+                    out[lo : lo + 7] = self._range_map(frac, dr, JOINT_LIMITS[lo : lo + 7])
         return out
 
     def target(self, qpos_actual: np.ndarray) -> Optional[np.ndarray]:
@@ -455,7 +473,7 @@ class MinervaTeleop:
                 return None
             eng = self._engage_qpos
             ljoy, rjoy = self._left_joy, self._right_joy
-            if self._swapped:                 # left device now plays the right role
+            if self._swapped:  # left device now plays the right role
                 ljoy, rjoy = rjoy, ljoy
 
             tgt = eng.copy()
@@ -464,21 +482,21 @@ class MinervaTeleop:
             # arm across its whole travel (and the gripper fully open↔closed). _arm_source
             # honors the leader↔arm swap; dir flips the sense. Absolute, so no per-engage
             # anchor — the collector's engage ramp eases in from the current pose.
-            for lo, side in ((0, "left"), (7, "right")):
+            for lo, side in ((0, 'left'), (7, 'right')):
                 frac, dr = self._arm_source(side)
                 if frac is not None:
-                    tgt[lo:lo + 7] = self._range_map(frac, dr, JOINT_LIMITS[lo:lo + 7])
+                    tgt[lo : lo + 7] = self._range_map(frac, dr, JOINT_LIMITS[lo : lo + 7])
 
             # Head/lift integrate joystick deflection, with ANTI-WINDUP: the
             # integrator state itself is clamped to the joint limits, so holding
             # the stick past a limit doesn't accumulate an overshoot the operator
             # then has to unwind before head/lift will reverse.
             h0, h1 = HEAD_INDICES
-            if ljoy.get("present"):
-                self._head[0] += float(ljoy.get("x", 0.0)) * self.head_speed * dt
-                self._head[1] += float(ljoy.get("y", 0.0)) * self.head_speed * dt
-            if rjoy.get("present"):
-                self._lift += float(rjoy.get("y", 0.0)) * self.lift_speed * dt
+            if ljoy.get('present'):
+                self._head[0] += float(ljoy.get('x', 0.0)) * self.head_speed * dt
+                self._head[1] += float(ljoy.get('y', 0.0)) * self.head_speed * dt
+            if rjoy.get('present'):
+                self._lift += float(rjoy.get('y', 0.0)) * self.lift_speed * dt
             self._head[0] = float(np.clip(self._head[0], JOINT_LIMITS[h0, 0], JOINT_LIMITS[h0, 1]))
             self._head[1] = float(np.clip(self._head[1], JOINT_LIMITS[h1, 0], JOINT_LIMITS[h1, 1]))
             self._lift = float(np.clip(self._lift, JOINT_LIMITS[LIFT_INDEX, 0], JOINT_LIMITS[LIFT_INDEX, 1]))
@@ -506,9 +524,8 @@ class MinervaTeleop:
             step = self.jog_step_arm
         with self._lock:
             lo, hi = JOINT_LIMITS[joint_idx]
-            span = float(hi - lo)   # bound the trim so it can't wind up unbounded
-            self._jog[joint_idx] = float(np.clip(
-                self._jog[joint_idx] + float(direction) * step, -span, span))
+            span = float(hi - lo)  # bound the trim so it can't wind up unbounded
+            self._jog[joint_idx] = float(np.clip(self._jog[joint_idx] + float(direction) * step, -span, span))
 
     def take_record_edges(self) -> int:
         """Number of joystick-button record-toggle presses since last call."""
@@ -523,12 +540,12 @@ class MinervaTeleop:
     def leader_zero(self) -> str:
         """[Z] Not needed in range-to-range mode — the leader's normalized sweep already
         maps to the follower's full range, so there is no zero to capture."""
-        return "range-to-range: zero not needed"
+        return 'range-to-range: zero not needed'
 
     def mirror(self, qpos_actual: Optional[np.ndarray]) -> str:
         """[M] Not needed in range-to-range mode — the mapping is absolute (leader sweep →
         follower range), so there is no offset to mirror."""
-        return "range-to-range: mirror not needed"
+        return 'range-to-range: mirror not needed'
 
 
-__all__ = ["MinervaTeleop"]
+__all__ = ['MinervaTeleop']

@@ -11,8 +11,8 @@
 import * as THREE from 'three';
 
 const _camState = {
-  texture: null,    // THREE.VideoTexture wrapping the WebRTC <video> element
-  mesh: null,       // THREE.Mesh — floating cam panel
+  texture: null, // THREE.VideoTexture wrapping the WebRTC <video> element
+  mesh: null, // THREE.Mesh — floating cam panel
   placeholder: null, // THREE.Mesh — "waiting for camera" card shown when stale
 };
 
@@ -22,11 +22,11 @@ const _reticles = {
 };
 
 const _urdfState = {
-  robot: null,            // THREE.Object3D root of the SOLID URDF — actual qpos
-  jointMap: null,         // {name -> Object3D} for fast qpos -> rotation
+  robot: null, // THREE.Object3D root of the SOLID URDF — actual qpos
+  jointMap: null, // {name -> Object3D} for fast qpos -> rotation
   lastTelemTs: 0,
-  targetQ: null,           // most recent qpos received from telem
-  displayedQ: null,        // currently-rendered qpos; eased toward targetQ
+  targetQ: null, // most recent qpos received from telem
+  displayedQ: null, // currently-rendered qpos; eased toward targetQ
   // Ghost URDF — same model, translucent yellow, driven by telem.qcmd.
   // Lets the operator see commanded-vs-actual divergence at a glance:
   // when the real arm keeps up, the ghost overlaps the solid; when the
@@ -47,12 +47,12 @@ const _urdfState = {
 const _PREVIEW_LAYER = 1;
 
 const _previewState = {
-  rt: null,        // THREE.WebGLRenderTarget — the off-screen render target
-  cam: null,       // THREE.PerspectiveCamera — fixed view of the URDF
-  panel: null,     // THREE.Mesh — flat plane in main scene showing the texture
-  enabled: true,   // toggled from the VR UI; OFF stops the 2nd scene render
+  rt: null, // THREE.WebGLRenderTarget — the off-screen render target
+  cam: null, // THREE.PerspectiveCamera — fixed view of the URDF
+  panel: null, // THREE.Mesh — flat plane in main scene showing the texture
+  enabled: true, // toggled from the VR UI; OFF stops the 2nd scene render
   frameCounter: 0,
-  everyN: 6,       // render the RT every Nth XR frame -> ~15 Hz at 90 Hz
+  everyN: 6, // render the RT every Nth XR frame -> ~15 Hz at 90 Hz
 };
 
 // Per-joint visual offsets [rad] for the URDF mesh.  Signs already
@@ -90,7 +90,7 @@ export function setPreviewEnabled(on) {
 }
 export function setGhostEnabled(on) {
   _ghostEnabled = !!on;
-  if (_urdfState.ghost)     _urdfState.ghost.visible     = _ghostEnabled;
+  if (_urdfState.ghost) _urdfState.ghost.visible = _ghostEnabled;
   if (_urdfState.ghostLine) _urdfState.ghostLine.visible = _ghostEnabled;
 }
 
@@ -104,8 +104,7 @@ export function setGhostEnabled(on) {
 // with that base tilt has to be done as a quaternion pre-multiplication
 // rather than just setting rotation.y.
 let _robotYaw = 0;
-const _ROBOT_BASE_QUAT = new THREE.Quaternion()
-  .setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const _ROBOT_BASE_QUAT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 export function getRobotGroupPosition() {
   return _urdfState.robot ? _urdfState.robot.position.clone() : null;
@@ -122,8 +121,7 @@ export function nudgeRobotGroup(worldPosArray, grabOffsetArray, yaw = null) {
   );
   if (yaw !== null) {
     _robotYaw = yaw;
-    const qy = new THREE.Quaternion()
-      .setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     _urdfState.robot.quaternion.copy(qy).multiply(_ROBOT_BASE_QUAT);
     if (_urdfState.ghost) _urdfState.ghost.quaternion.copy(_urdfState.robot.quaternion);
   }
@@ -131,20 +129,20 @@ export function nudgeRobotGroup(worldPosArray, grabOffsetArray, yaw = null) {
 }
 
 const _hudState = {
-  panel: null,            // THREE.Mesh — floating HUD card
-  texture: null,          // CanvasTexture backing the panel
+  panel: null, // THREE.Mesh — floating HUD card
+  texture: null, // CanvasTexture backing the panel
   canvas: null,
   ctx: null,
   lastDrawn: '',
-  workspaceBox: null,     // THREE.LineSegments — operator clutch clamp (thick green)
-  reachableBox: null,     // THREE.LineSegments — IK hard reach AABB (thin gray)
-  targetMarker: null,     // THREE.Mesh — sphere at the IK target (clamped) pose
-  engageMarker: null,     // THREE.Mesh — sphere at engage_ee (clutch anchor)
-  clampLine: null,        // THREE.Line — engage_ee -> target_ee_raw
-  fkMarker: null,         // THREE.Mesh — blue sphere at Python FK(qpos): if
-                          //   it doesn't overlap the URDF-rendered EE link,
-                          //   the Python kinematics chain disagrees with
-                          //   the URDF (axis sign, origin, or EE-link choice).
+  workspaceBox: null, // THREE.LineSegments — operator clutch clamp (thick green)
+  reachableBox: null, // THREE.LineSegments — IK hard reach AABB (thin gray)
+  targetMarker: null, // THREE.Mesh — sphere at the IK target (clamped) pose
+  engageMarker: null, // THREE.Mesh — sphere at engage_ee (clutch anchor)
+  clampLine: null, // THREE.Line — engage_ee -> target_ee_raw
+  fkMarker: null, // THREE.Mesh — blue sphere at Python FK(qpos): if
+  //   it doesn't overlap the URDF-rendered EE link,
+  //   the Python kinematics chain disagrees with
+  //   the URDF (axis sign, origin, or EE-link choice).
 };
 
 // Stash references so setPassthroughMode can toggle them without
@@ -194,7 +192,7 @@ export function buildScene(renderer) {
 
   // Reticles
   _reticles.right = _makeReticle(0xff5555);
-  _reticles.left  = _makeReticle(0x5599ff);
+  _reticles.left = _makeReticle(0x5599ff);
   _reticles.right.visible = false;
   _reticles.left.visible = false;
   scene.add(_reticles.right, _reticles.left);
@@ -209,10 +207,7 @@ function _makeReticle(color) {
     new THREE.SphereGeometry(0.02, 12, 8),
     new THREE.MeshBasicMaterial({ color, wireframe: true }),
   );
-  const arrow = new THREE.Mesh(
-    new THREE.ConeGeometry(0.012, 0.05, 12),
-    new THREE.MeshBasicMaterial({ color }),
-  );
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.05, 12), new THREE.MeshBasicMaterial({ color }));
   arrow.rotation.x = Math.PI / 2;
   arrow.position.z = -0.04;
   g.add(sphere, arrow);
@@ -249,13 +244,14 @@ export function attachCameraVideo(scene, videoEl) {
   tex.magFilter = THREE.LinearFilter;
   _camState.texture = tex;
   // 1024x768 source -> 4:3 panel, 1.2 m wide, 1 m in front at eye height.
-  const w = 1.2, h = w * 768 / 1024;
+  const w = 1.2,
+    h = (w * 768) / 1024;
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
   );
   mesh.position.set(0, 1.55, -1.0);
-  mesh.visible = false;   // hidden until a fresh camera frame is confirmed
+  mesh.visible = false; // hidden until a fresh camera frame is confirmed
   scene.add(mesh);
   _camState.mesh = mesh;
 
@@ -263,13 +259,16 @@ export function attachCameraVideo(scene, videoEl) {
   // gripper cam is stale (otherwise the WebRTC black-frame fallback shows
   // as a big black square).  A small text card, not a full panel.
   const ph = document.createElement('canvas');
-  ph.width = 512; ph.height = 128;
+  ph.width = 512;
+  ph.height = 128;
   const pctx = ph.getContext('2d');
   pctx.fillStyle = 'rgba(22,27,34,0.85)';
-  _roundRectCtx(pctx, 0, 0, 512, 128, 16); pctx.fill();
+  _roundRectCtx(pctx, 0, 0, 512, 128, 16);
+  pctx.fill();
   pctx.fillStyle = '#7d8590';
   pctx.font = '600 30px system-ui, sans-serif';
-  pctx.textAlign = 'center'; pctx.textBaseline = 'middle';
+  pctx.textAlign = 'center';
+  pctx.textBaseline = 'middle';
   pctx.fillText('waiting for gripper camera…', 256, 64);
   const phTex = new THREE.CanvasTexture(ph);
   phTex.colorSpace = THREE.SRGBColorSpace;
@@ -307,16 +306,22 @@ export function setCameraFresh(fresh) {
 // physical joint.  `gripper` is missing from the current URDF (no
 // dof_gripper mate in OnShape); the lookup gracefully skips it.
 const AIZEE_JOINT_NAMES = [
-  'swivel', 'gantry_base', 'gantry_mid', 'gantry_end',
-  'wrist_pitch', 'wrist_swivel', 'gripper',
+  'swivel',
+  'gantry_base',
+  'gantry_mid',
+  'gantry_end',
+  'wrist_pitch',
+  'wrist_swivel',
+  'gripper',
 ];
 
 // Lazy-loaded so the import doesn't block the lobby load on slow LANs.
 let _URDFLoaderPromise = null;
 async function _getURDFLoader() {
   if (!_URDFLoaderPromise) {
-    _URDFLoaderPromise = import('https://cdn.jsdelivr.net/npm/urdf-loader@0.12.6/src/URDFLoader.js')
-      .then(m => m.default ?? m.URDFLoader ?? m);
+    _URDFLoaderPromise = import('https://cdn.jsdelivr.net/npm/urdf-loader@0.12.6/src/URDFLoader.js').then(
+      (m) => m.default ?? m.URDFLoader ?? m,
+    );
   }
   return _URDFLoaderPromise;
 }
@@ -324,7 +329,7 @@ async function _getURDFLoader() {
 async function _ensureRobot(scene) {
   if (_urdfState.robot || _urdfState.loading) return;
   _urdfState.loading = true;
-  _loadJointOffsets();   // fire-and-forget; telem.align_offsets supersedes
+  _loadJointOffsets(); // fire-and-forget; telem.align_offsets supersedes
   try {
     const URDFLoader = await _getURDFLoader();
     const loader = new URDFLoader();
@@ -337,23 +342,30 @@ async function _ensureRobot(scene) {
       import('three/addons/loaders/STLLoader.js').then(({ STLLoader }) => {
         const stl = new STLLoader(manager);
         const fixed = path.replace(/\\/g, '/');
-        stl.load(fixed, (geom) => {
-          const mat = new THREE.MeshStandardMaterial({
-            color: 0xb1c2d8, metalness: 0.15, roughness: 0.7,
-          });
-          onComplete(new THREE.Mesh(geom, mat));
-        }, undefined, (err) => {
-          // Mesh missing — render a visible placeholder (5 cm box) so the
-          // operator can still SEE the joint chain instead of guessing why
-          // their URDF mirror appears empty.  Switch back to actual STLs by
-          // dropping the .stl files into urdf/aizee/meshes/.
-          console.warn('[urdf] mesh missing:', fixed);
-          const ph = new THREE.Mesh(
-            new THREE.BoxGeometry(0.05, 0.05, 0.05),
-            new THREE.MeshBasicMaterial({ color: 0x556070, wireframe: true }),
-          );
-          onComplete(ph);
-        });
+        stl.load(
+          fixed,
+          (geom) => {
+            const mat = new THREE.MeshStandardMaterial({
+              color: 0xb1c2d8,
+              metalness: 0.15,
+              roughness: 0.7,
+            });
+            onComplete(new THREE.Mesh(geom, mat));
+          },
+          undefined,
+          (err) => {
+            // Mesh missing — render a visible placeholder (5 cm box) so the
+            // operator can still SEE the joint chain instead of guessing why
+            // their URDF mirror appears empty.  Switch back to actual STLs by
+            // dropping the .stl files into urdf/aizee/meshes/.
+            console.warn('[urdf] mesh missing:', fixed);
+            const ph = new THREE.Mesh(
+              new THREE.BoxGeometry(0.05, 0.05, 0.05),
+              new THREE.MeshBasicMaterial({ color: 0x556070, wireframe: true }),
+            );
+            onComplete(ph);
+          },
+        );
       });
     };
     const res = await fetch('/aizee.urdf');
@@ -364,9 +376,7 @@ async function _ensureRobot(scene) {
     // Normalize Windows-style backslashes in mesh paths — see preview.html
     // for the same fix.  urdf-loader's resolvePath splits package URIs on
     // forward slashes and silently drops anything with a backslash.
-    const urdfText = (await res.text()).replace(
-      /(filename="[^"]*)/g, (m) => m.replace(/\\/g, '/'),
-    );
+    const urdfText = (await res.text()).replace(/(filename="[^"]*)/g, (m) => m.replace(/\\/g, '/'));
     const robot = loader.parse(urdfText);
     robot.scale.set(1, 1, 1);
     // URDF spec is Z-up, WebXR scene is Y-up.  Rotate -90° about X so
@@ -375,7 +385,7 @@ async function _ensureRobot(scene) {
     // y=-0.167 in robot-local frame, so we offset robot.position.y by the
     // same amount to plant it on the floor (y=0).
     robot.rotation.x = -Math.PI / 2;
-    robot.position.set(0.8, 0.167, -0.6);  // off to the right of the operator
+    robot.position.set(0.8, 0.167, -0.6); // off to the right of the operator
     scene.add(robot);
     // Tag the URDF tree so it also renders in the kinematic-preview window.
     robot.traverse((o) => o.layers.enable(_PREVIEW_LAYER));
@@ -388,7 +398,7 @@ async function _ensureRobot(scene) {
     // both arms were drawn simultaneously).
     const ghostLoader = new URDFLoader();
     ghostLoader.packages = { meshes: '/meshes' };
-    ghostLoader.loadMeshCb = (_p, _m, done) => done(new THREE.Object3D());  // empty
+    ghostLoader.loadMeshCb = (_p, _m, done) => done(new THREE.Object3D()); // empty
     const ghost = ghostLoader.parse(urdfText);
     ghost.scale.copy(robot.scale);
     ghost.rotation.copy(robot.rotation);
@@ -396,10 +406,13 @@ async function _ensureRobot(scene) {
     // Joint spheres: one bright green sphere parented to each URDF link
     // so it follows the link's FK transform automatically.
     const ghostMat = new THREE.MeshBasicMaterial({
-      color: 0x22cc44, transparent: true, opacity: 0.9, depthTest: false,
+      color: 0x22cc44,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
     });
-    const ghostSphereGeo = new THREE.SphereGeometry(0.020, 10, 8);
-    for (const linkName in (ghost.links || {})) {
+    const ghostSphereGeo = new THREE.SphereGeometry(0.02, 10, 8);
+    for (const linkName in ghost.links || {}) {
       const link = ghost.links[linkName];
       const s = new THREE.Mesh(ghostSphereGeo, ghostMat);
       s.renderOrder = 6;
@@ -409,17 +422,17 @@ async function _ensureRobot(scene) {
     // Connecting line through the arm chain.  Built once with a dynamic
     // geometry; per-frame world positions are pushed in by animateURDF().
     const _chainNames = [
-      'tophalfbase', 'part_40', 'part_22', 'part_33', 'part_42',
-      '1_1_02_eb571_960_stp', '1_1_02_eb571_960_stp_2',
+      'tophalfbase',
+      'part_40',
+      'part_22',
+      'part_33',
+      'part_42',
+      '1_1_02_eb571_960_stp',
+      '1_1_02_eb571_960_stp_2',
     ];
-    const _chainLinks = _chainNames
-      .map((n) => ghost.links?.[n])
-      .filter(Boolean);
+    const _chainLinks = _chainNames.map((n) => ghost.links?.[n]).filter(Boolean);
     const lineGeom = new THREE.BufferGeometry();
-    lineGeom.setAttribute(
-      'position',
-      new THREE.BufferAttribute(new Float32Array(_chainLinks.length * 3), 3),
-    );
+    lineGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(_chainLinks.length * 3), 3));
     const ghostLine = new THREE.Line(
       lineGeom,
       new THREE.LineBasicMaterial({ color: 0x22cc44, linewidth: 2, depthTest: false }),
@@ -427,7 +440,7 @@ async function _ensureRobot(scene) {
     ghostLine.frustumCulled = false;
     ghostLine.renderOrder = 6;
     ghostLine.layers.enable(_PREVIEW_LAYER);
-    scene.add(ghostLine);   // line lives in scene (world coords) — see animateURDF
+    scene.add(ghostLine); // line lives in scene (world coords) — see animateURDF
     ghost.visible = _ghostEnabled;
     scene.add(ghost);
     ghost.traverse((o) => o.layers.enable(_PREVIEW_LAYER));
@@ -455,7 +468,10 @@ async function _ensureRobot(scene) {
 export function updateURDF(scene, telem) {
   if (!telem || !Array.isArray(telem.qpos)) return;
   // Trigger lazy-load on first telem frame; subsequent frames just update.
-  if (!_urdfState.robot) { _ensureRobot(scene); return; }
+  if (!_urdfState.robot) {
+    _ensureRobot(scene);
+    return;
+  }
   // Snap the TARGET, not the displayed value — animateURDF() does the
   // per-render-frame easing so a missed telem (browser GC, network blip)
   // doesn't show as a position jump.  telem.qpos / qcmd are URDF
@@ -468,8 +484,7 @@ export function updateURDF(scene, telem) {
   if (Array.isArray(telem.align_offsets)) setJointOffsetsFromTelem(telem.align_offsets);
   const mainQ = Array.isArray(telem.qcmd) ? telem.qcmd : telem.qpos;
   _urdfState.targetQ = mainQ.map((v, i) => v + (_jointOffsets[i] || 0));
-  _urdfState.lastTelemTs = (typeof performance !== 'undefined' && performance.now)
-    ? performance.now() : Date.now();
+  _urdfState.lastTelemTs = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
   // Camera freshness: hide the cam panel (and show the placeholder) when
   // the gripper cam hasn't produced a frame recently — avoids the big
   // black square from WebRTC's black-frame fallback.  cam_age in seconds;
@@ -508,7 +523,8 @@ function _initPreviewPanel(scene) {
   // Modest render target — the panel is small in view, and a full re-render
   // of the high-poly URDF is the single most expensive thing we do, so keep
   // the pixel count (and thus fill cost) down.
-  const W = 480, H = 360;
+  const W = 480,
+    H = 360;
   _previewState.rt = new THREE.WebGLRenderTarget(W, H, {
     depthBuffer: true,
     type: THREE.UnsignedByteType,
@@ -520,14 +536,15 @@ function _initPreviewPanel(scene) {
   cam.position.set(1.9, 0.7, 0.1);
   cam.lookAt(0.8, 0.4, -0.6);
   cam.layers.disableAll();
-  cam.layers.enable(_PREVIEW_LAYER);   // sees URDF + markers ONLY
+  cam.layers.enable(_PREVIEW_LAYER); // sees URDF + markers ONLY
   _previewState.cam = cam;
 
   // Display the texture on a flat panel in the main scene.  Positioned to
   // the operator's UPPER-RIGHT so it doesn't conflict with the camera panel
   // (which sits center-forward) or the HUD panel (upper-left).
   const aspect = W / H;
-  const pw = 0.32, ph = pw / aspect;     // ~32 cm wide
+  const pw = 0.32,
+    ph = pw / aspect; // ~32 cm wide
   const panel = new THREE.Mesh(
     new THREE.PlaneGeometry(pw, ph),
     new THREE.MeshBasicMaterial({ map: _previewState.rt.texture, side: THREE.DoubleSide }),
@@ -542,7 +559,7 @@ function _initPreviewPanel(scene) {
     new THREE.PlaneGeometry(pw + 0.012, ph + 0.012),
     new THREE.MeshBasicMaterial({ color: 0x161b22, transparent: true, opacity: 0.7 }),
   );
-  frame.position.set(0.55, 1.85, -0.952);  // 2 mm behind the panel
+  frame.position.set(0.55, 1.85, -0.952); // 2 mm behind the panel
   frame.rotation.y = panel.rotation.y;
   scene.add(frame);
 
@@ -556,14 +573,14 @@ function _initPreviewPanel(scene) {
 export function renderPreviewPanel(renderer, scene) {
   if (!_previewState.enabled) return;
   if (!_previewState.rt || !_previewState.cam) return;
-  if (!_urdfState.robot) return;  // nothing to render yet
-  if ((_previewState.frameCounter++ % _previewState.everyN) !== 0) return;
+  if (!_urdfState.robot) return; // nothing to render yet
+  if (_previewState.frameCounter++ % _previewState.everyN !== 0) return;
   // Keep the robot framed even if the operator has grabbed and moved it —
   // aim the preview camera at the robot's current world position.
   if (_urdfState.robot) {
     const c = new THREE.Vector3();
     _urdfState.robot.getWorldPosition(c);
-    c.y += 0.25;  // look at roughly mid-arm height, not the base
+    c.y += 0.25; // look at roughly mid-arm height, not the base
     _previewState.cam.position.set(c.x + 1.1, c.y + 0.3, c.z + 0.7);
     _previewState.cam.lookAt(c);
   }
@@ -584,22 +601,29 @@ export function renderPreviewPanel(renderer, scene) {
  * at a velocity bound that's high enough to track normal arm motion
  * (~4 rad/s) but low enough to smooth out telem-rate hitches.
  */
-const _JOINT_MAX_DISPLAY_RAD_PER_S = 8.0;   // generous so normal motion never lags
+const _JOINT_MAX_DISPLAY_RAD_PER_S = 8.0; // generous so normal motion never lags
 
 export function animateURDF() {
   if (!_urdfState.robot || !_urdfState.targetQ) return;
-  const now = (typeof performance !== 'undefined' && performance.now)
-    ? performance.now() : Date.now();
+  const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
   const dt = Math.min((now - (_urdfState.lastFrameAt || now)) / 1000, 0.1);
   _urdfState.lastFrameAt = now;
   const maxStep = _JOINT_MAX_DISPLAY_RAD_PER_S * dt;
-  _animateOne(_urdfState.targetQ, _urdfState.jointMap,
-              (q) => _urdfState.displayedQ = q,
-              _urdfState.displayedQ, maxStep);
+  _animateOne(
+    _urdfState.targetQ,
+    _urdfState.jointMap,
+    (q) => (_urdfState.displayedQ = q),
+    _urdfState.displayedQ,
+    maxStep,
+  );
   if (_urdfState.ghost && _urdfState.ghostTargetQ) {
-    _animateOne(_urdfState.ghostTargetQ, _urdfState.ghostJointMap,
-                (q) => _urdfState.ghostDisplayedQ = q,
-                _urdfState.ghostDisplayedQ, maxStep);
+    _animateOne(
+      _urdfState.ghostTargetQ,
+      _urdfState.ghostJointMap,
+      (q) => (_urdfState.ghostDisplayedQ = q),
+      _urdfState.ghostDisplayedQ,
+      maxStep,
+    );
     // Refresh the skeleton line from the (now-updated) ghost link world
     // positions.  Cheap: 7 getWorldPosition calls + a 21-float upload.
     _updateGhostSkeletonLine();
@@ -640,7 +664,9 @@ function _animateOne(targetQ, jointMap, setDisplayed, displayedQ, maxStep) {
 // ---- Workspace box + HUD ---------------------------------------------------
 
 function _buildBoxWireframe(min, max, color, opacity) {
-  const w = max[0] - min[0], d = max[1] - min[1], h = max[2] - min[2];
+  const w = max[0] - min[0],
+    d = max[1] - min[1],
+    h = max[2] - min[2];
   const cx = (max[0] + min[0]) / 2;
   const cy = (max[1] + min[1]) / 2;
   const cz = (max[2] + min[2]) / 2;
@@ -658,7 +684,8 @@ function _buildBoxWireframe(min, max, color, opacity) {
 function _ensureWorkspaceBox(scene, leader) {
   if (!_urdfState.robot) return;
   // Operator clutch clamp — thick green wireframe, prominent.
-  const wmin = leader.workspace_min, wmax = leader.workspace_max;
+  const wmin = leader.workspace_min,
+    wmax = leader.workspace_max;
   if (Array.isArray(wmin) && Array.isArray(wmax)) {
     const key = wmin.concat(wmax).join(',');
     if (!_hudState.workspaceBox || _hudState.workspaceBox.userData.key !== key) {
@@ -666,13 +693,14 @@ function _ensureWorkspaceBox(scene, leader) {
         _urdfState.robot.remove(_hudState.workspaceBox);
         _hudState.workspaceBox.geometry.dispose();
       }
-      _hudState.workspaceBox = _buildBoxWireframe(wmin, wmax, 0x2ea043, 0.60);
+      _hudState.workspaceBox = _buildBoxWireframe(wmin, wmax, 0x2ea043, 0.6);
       _urdfState.robot.add(_hudState.workspaceBox);
     }
   }
   // Reachable AABB — thin faded white, draws OUTSIDE the workspace.  Shows
   // where the arm physically cannot reach even if the operator pushed.
-  const rmin = leader.reachable_min, rmax = leader.reachable_max;
+  const rmin = leader.reachable_min,
+    rmax = leader.reachable_max;
   if (Array.isArray(rmin) && Array.isArray(rmax)) {
     const key = rmin.concat(rmax).join(',');
     if (!_hudState.reachableBox || _hudState.reachableBox.userData.key !== key) {
@@ -689,11 +717,13 @@ function _ensureWorkspaceBox(scene, leader) {
 function _ensureHudPanel(scene) {
   if (_hudState.panel) return;
   const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 220;
+  canvas.width = 512;
+  canvas.height = 220;
   const ctx = canvas.getContext('2d');
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const w = 0.6, h = w * canvas.height / canvas.width;
+  const w = 0.6,
+    h = (w * canvas.height) / canvas.width;
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
@@ -717,7 +747,8 @@ function _updateHud(telem) {
   if (_hudState.lastDrawn === key) return;
   _hudState.lastDrawn = key;
   const ctx = _hudState.ctx;
-  const w = _hudState.canvas.width, h = _hudState.canvas.height;
+  const w = _hudState.canvas.width,
+    h = _hudState.canvas.height;
   ctx.clearRect(0, 0, w, h);
   // Background card
   ctx.fillStyle = 'rgba(22, 27, 34, 0.85)';
@@ -735,41 +766,47 @@ function _updateHud(telem) {
     ctx.font = '600 18px system-ui, sans-serif';
     ctx.fillText(label, x + 18, 89);
   };
-  pill(22,  engaged ? 'CLUTCH: ENGAGED' : 'clutch: idle', engaged, '#2ea043');
-  pill(238, estop   ? 'E-STOP LATCHED'  : 'e-stop: clear', estop,   '#f85149');
+  pill(22, engaged ? 'CLUTCH: ENGAGED' : 'clutch: idle', engaged, '#2ea043');
+  pill(238, estop ? 'E-STOP LATCHED' : 'e-stop: clear', estop, '#f85149');
   // Tiny qpos summary
   ctx.fillStyle = '#7d8590';
   ctx.font = '500 16px ui-monospace, monospace';
   const q = telem.qpos ?? [];
-  const summary = q.slice(0, 7).map(v => v.toFixed(2)).join('  ');
+  const summary = q
+    .slice(0, 7)
+    .map((v) => v.toFixed(2))
+    .join('  ');
   ctx.fillText(`qpos  ${summary}`, 22, 145);
 
   // Latency line: IK time, controller pose age, control RX rate, qpos age.
   // Color-code each metric: green/yellow/red against rough VR-safe budgets.
-  const ikMs    = +leader.ik_ms || 0;
-  const poseMs  = +leader.pose_age_ms || 0;
-  const ctrlHz  = +leader.control_hz || 0;
+  const ikMs = +leader.ik_ms || 0;
+  const poseMs = +leader.pose_age_ms || 0;
+  const ctrlHz = +leader.control_hz || 0;
   // qpos age = how long since the BROWSER last received a telem update.
   // Server runs at 30 Hz so steady-state should be ~33 ms.  Spikes above
   // 60 ms indicate the BROWSER hitched (GC, decode work) — not the host.
-  const qposMs  = _urdfState.lastTelemTs
-    ? (performance.now() - _urdfState.lastTelemTs) : 0;
-  const colorFor = (v, good, warn) => v < good ? '#2ea043' : v < warn ? '#d29922' : '#f85149';
+  const qposMs = _urdfState.lastTelemTs ? performance.now() - _urdfState.lastTelemTs : 0;
+  const colorFor = (v, good, warn) => (v < good ? '#2ea043' : v < warn ? '#d29922' : '#f85149');
   ctx.font = '500 14px ui-monospace, monospace';
-  const lat = (label, val, unit, color) => ({label, val, unit, color});
+  const lat = (label, val, unit, color) => ({ label, val, unit, color });
   const items = [
-    lat('ik',    ikMs.toFixed(1),    'ms', colorFor(ikMs,    5,  15)),
-    lat('pose',  poseMs.toFixed(0),  'ms', colorFor(poseMs,  20, 60)),
-    lat('ctrl', ctrlHz.toFixed(0),   'Hz', ctrlHz < 30 ? '#f85149' : ctrlHz < 60 ? '#d29922' : '#2ea043'),
-    lat('qpos', qposMs.toFixed(0),   'ms', colorFor(qposMs,  50, 120)),
+    lat('ik', ikMs.toFixed(1), 'ms', colorFor(ikMs, 5, 15)),
+    lat('pose', poseMs.toFixed(0), 'ms', colorFor(poseMs, 20, 60)),
+    lat('ctrl', ctrlHz.toFixed(0), 'Hz', ctrlHz < 30 ? '#f85149' : ctrlHz < 60 ? '#d29922' : '#2ea043'),
+    lat('qpos', qposMs.toFixed(0), 'ms', colorFor(qposMs, 50, 120)),
   ];
-  let x = 22, y = 172;
+  let x = 22,
+    y = 172;
   for (const it of items) {
-    ctx.fillStyle = '#7d8590'; ctx.fillText(it.label, x, y);
+    ctx.fillStyle = '#7d8590';
+    ctx.fillText(it.label, x, y);
     x += 32;
-    ctx.fillStyle = it.color;  ctx.fillText(it.val,   x, y);
+    ctx.fillStyle = it.color;
+    ctx.fillText(it.val, x, y);
     x += 50;
-    ctx.fillStyle = '#7d8590'; ctx.fillText(it.unit,  x, y);
+    ctx.fillStyle = '#7d8590';
+    ctx.fillText(it.unit, x, y);
     x += 32;
   }
   _hudState.texture.needsUpdate = true;
@@ -804,9 +841,13 @@ function _roundRect(ctx, x, y, w, h, r) {
 function _ensureIkMarkers() {
   if (!_urdfState.robot) return;
   if (_hudState.targetMarker) return;
-  const sphereMat = (color) => new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.85, depthTest: false,
-  });
+  const sphereMat = (color) =>
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,
+    });
   const sphereGeom = new THREE.SphereGeometry(0.018, 12, 10);
   _hudState.engageMarker = new THREE.Mesh(sphereGeom, sphereMat(0x2ea043));
   _hudState.targetMarker = new THREE.Mesh(sphereGeom, sphereMat(0xd29922));
@@ -820,13 +861,8 @@ function _ensureIkMarkers() {
   _hudState.targetMarker.layers.enable(_PREVIEW_LAYER);
   _urdfState.robot.add(_hudState.engageMarker, _hudState.targetMarker);
   // Clamp-violation line
-  const lineGeom = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0),
-  ]);
-  _hudState.clampLine = new THREE.Line(
-    lineGeom,
-    new THREE.LineBasicMaterial({ color: 0xf85149, depthTest: false }),
-  );
+  const lineGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]);
+  _hudState.clampLine = new THREE.Line(lineGeom, new THREE.LineBasicMaterial({ color: 0xf85149, depthTest: false }));
   _hudState.clampLine.renderOrder = 999;
   _hudState.clampLine.visible = false;
   _hudState.clampLine.layers.enable(_PREVIEW_LAYER);
@@ -845,7 +881,10 @@ function _updateIkMarkers(leader) {
       _hudState.fkMarker = new THREE.Mesh(
         new THREE.SphereGeometry(0.012, 12, 10),
         new THREE.MeshBasicMaterial({
-          color: 0x5599ff, transparent: true, opacity: 0.7, depthTest: false,
+          color: 0x5599ff,
+          transparent: true,
+          opacity: 0.7,
+          depthTest: false,
         }),
       );
       _hudState.fkMarker.renderOrder = 998;
@@ -882,7 +921,7 @@ function _updateIkMarkers(leader) {
     const gap = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (gap > 0.005) {
       const pts = [
-        new THREE.Vector3(target[0],    target[1],    target[2]),
+        new THREE.Vector3(target[0], target[1], target[2]),
         new THREE.Vector3(targetRaw[0], targetRaw[1], targetRaw[2]),
       ];
       _hudState.clampLine.geometry.setFromPoints(pts);

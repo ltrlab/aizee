@@ -8,28 +8,31 @@ once it ends. When Minerva is offline the reader's connection fails; it tries
 again every OFFLINE_RETRY_S. Disconnect in Helm's header turns the live view
 off, Connect turns it on again.
 """
+
 import threading
 import time
 
-POLL_S = 1.
-OFFLINE_RETRY_S = 10.
+POLL_S = 1.0
+OFFLINE_RETRY_S = 10.0
 # After the reader stops for a session, it stays off this long for the session to take the motors. A session
 # holding them keeps it off; one that never started lets it start again.
-HANDOFF_S = 5.
+HANDOFF_S = 5.0
 
 
 from .session import WIRED
 
+
 class LiveView:
     """`owner()` names what holds the motors (or None). Call tick() to act now; start() polls it."""
 
-    def __init__(self, session, link, owner, *, clock=time.monotonic, poll_s=POLL_S, retry_s=OFFLINE_RETRY_S,
-                 handoff_s=HANDOFF_S):
+    def __init__(
+        self, session, link, owner, *, clock=time.monotonic, poll_s=POLL_S, retry_s=OFFLINE_RETRY_S, handoff_s=HANDOFF_S
+    ):
         self.session, self.link, self.owner = session, link, owner
         self.clock, self.poll_s, self.retry_s, self.handoff_s = clock, poll_s, retry_s, handoff_s
         self.enabled = True
         self._lock = threading.Lock()
-        self._quiet_until = 0.
+        self._quiet_until = 0.0
         self._failed = False
         self._stop = threading.Event()
         self._thread = None
@@ -75,7 +78,7 @@ class LiveView:
 
     def set_enabled(self, enabled):
         with self._lock:
-            self.enabled, self._quiet_until, self._failed = bool(enabled), 0., False
+            self.enabled, self._quiet_until, self._failed = bool(enabled), 0.0, False
 
     def snapshot(self):
         return {'enabled': self.enabled, 'owner': self.owner()}

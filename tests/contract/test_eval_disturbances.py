@@ -1,4 +1,5 @@
 """Evaluation disturbances through the actual receiver: inference latency, actuator spread and the scene's look."""
+
 import numpy as np
 import pytest
 
@@ -11,6 +12,7 @@ from robot_platform.simulation.control_harness import default_binary
 
 class NudgeLeftShoulder:
     """Holds the staged pose with left J1 nudged 0.02 rad; keeps the time and receiver command of each call."""
+
     name = 'nudge_left_shoulder'
     execute_steps = 1
 
@@ -22,7 +24,7 @@ class NudgeLeftShoulder:
     def __call__(self, observation):
         if self.target is None:
             self.target = np.asarray(observation['qcmd'], dtype=float).copy()
-            self.target[self.joint] += .02
+            self.target[self.joint] += 0.02
         self.seen.append((observation['t'], float(observation['qcmd'][self.joint])))
         return self.target[None, :]
 
@@ -30,9 +32,15 @@ class NudgeLeftShoulder:
 def test_latency_delays_each_chunk_and_the_other_disturbances_are_recorded_and_undone(tmp_path):
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
     with pytest.raises(ValueError, match='latency'):
-        RunConfig(latency_s=-.1)
-    config = RunConfig(timeout_s=1., latency_s=.2, actuator_spread=.3, appearance=APPEARANCE, disturbance_seed=5,
-                       camera_size=(64, 48))
+        RunConfig(latency_s=-0.1)
+    config = RunConfig(
+        timeout_s=1.0,
+        latency_s=0.2,
+        actuator_spread=0.3,
+        appearance=APPEARANCE,
+        disturbance_seed=5,
+        camera_size=(64, 48),
+    )
     runner = TrialRunner(config, stack=derive_stack(), directory=tmp_path)
     policy = NudgeLeftShoulder()
     try:
@@ -46,13 +54,13 @@ def test_latency_delays_each_chunk_and_the_other_disturbances_are_recorded_and_u
     # One inference in flight: a call about every 0.2 s. The receiver's command does not move before the first chunk
     # takes effect at 0.2 s (without latency it ramps within 20 ms), and has reached the nudge by the third call.
     times = [t for t, _ in policy.seen]
-    assert len(times) >= 4 and np.allclose(np.diff(times), .2, atol=.011)
+    assert len(times) >= 4 and np.allclose(np.diff(times), 0.2, atol=0.011)
     start = policy.seen[0][1]
     assert policy.seen[1][1] == pytest.approx(start, abs=1e-6)
-    assert policy.seen[2][1] == pytest.approx(start + .02, abs=1e-4)
+    assert policy.seen[2][1] == pytest.approx(start + 0.02, abs=1e-4)
     disturbances = record['disturbances']
     factors = np.array(list(disturbances['actuator_factors'].values()))
-    assert factors.shape == (14, 3) and np.all(factors >= .7) and np.all(factors <= 1.3)
-    assert disturbances['latency_s'] == .2 and disturbances['appearance']['cameras']
+    assert factors.shape == (14, 3) and np.all(factors >= 0.7) and np.all(factors <= 1.3)
+    assert disturbances['latency_s'] == 0.2 and disturbances['appearance']['cameras']
     # The plant and the scene are back to their own values after the trial.
     assert specs == nominal and np.array_equal(cameras, original)

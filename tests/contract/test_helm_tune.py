@@ -6,6 +6,7 @@ one-arm roster, the raised ceilings, the enable, every planned move with its
 collision check, the guards' plumbing, closing, evidence and saving all run for
 real without motors or CAN.
 """
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,18 +24,31 @@ from robot_platform.simulation.native_collision import library_path
 ROOT = Path(__file__).resolve().parents[2]
 DEVICES = ROOT / 'config/devices'
 SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
-LIVE = {'reference_tolerance_rad': .1, 'period_us': 2500, 'maximum_lateness_us': 10000}
-SHORT = {'defaults': {'amplitudes': [.1, .3], 'kp_ladder': [1., .5], 'damping': [1., .6], 'speeds': [.4, .8],
-                      'decelerations': [4.], 'hold_s': .2, 'rest_s': .1}}
+LIVE = {'reference_tolerance_rad': 0.1, 'period_us': 2500, 'maximum_lateness_us': 10000}
+SHORT = {
+    'defaults': {
+        'amplitudes': [0.1, 0.3],
+        'kp_ladder': [1.0, 0.5],
+        'damping': [1.0, 0.6],
+        'speeds': [0.4, 0.8],
+        'decelerations': [4.0],
+        'hold_s': 0.2,
+        'rest_s': 0.1,
+    }
+}
 
-pytestmark = [pytest.mark.integration, pytest.mark.skipif(
-    not default_binary().is_file() or not library_path().is_file(),
-    reason='Build control_harness and the robot_collision library first')]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not default_binary().is_file() or not library_path().is_file(),
+        reason='Build control_harness and the robot_collision library first',
+    ),
+]
 
 
 class Clock:
     def __init__(self):
-        self.now = 100.
+        self.now = 100.0
 
     def __call__(self):
         return self.now
@@ -45,8 +59,12 @@ class Receiver:
 
     def __init__(self, config, reference, clock, start=None):
         roster = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
-        initial = [min(joint['upper'], max(joint['lower'], roster[joint['name']] + .03)) if start is None
-                   else start[joint['name']] for joint in config['joints']]
+        initial = [
+            min(joint['upper'], max(joint['lower'], roster[joint['name']] + 0.03))
+            if start is None
+            else start[joint['name']]
+            for joint in config['joints']
+        ]
         self.harness = NativeControlHarness(config, initial)
         self.harness.step(0)
         self.clock, self.epoch, self.closed = clock, clock(), False
@@ -71,8 +89,12 @@ class Receiver:
 
 @pytest.fixture
 def setup(tmp_path):
-    helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                       limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
+    helm = HelmSession(
+        DEVICES / 'minerva-joint-calibration.json',
+        runs=tmp_path / 'runs',
+        limits=DEVICES / 'minerva-production-01-joint-limits.json',
+        seed=SEED,
+    )
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
     profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults=SHORT['defaults']))  # The file's ceilings.
     profile_path = tmp_path / 'teleop.json'
@@ -91,13 +113,14 @@ def test_a_live_sweep_runs_one_arm_to_the_end_disables_it_and_leaves_evidence(se
     def open_receiver(config, device, reference):
         receivers.append(Receiver(config, reference, clock))
         return receivers[-1]
+
     core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     receiver = receivers[0]
     names = [joint['name'] for joint in receiver.config['joints']]
     assert all(name.startswith('left_') for name in names)  # The right arm is not in this receiver.
     joints = {joint['name']: joint for joint in receiver.config['joints']}
-    assert joints['left_arm_j6']['max_kp'] >= 16.  # Ceilings raised for the sweep.
+    assert joints['left_arm_j6']['max_kp'] >= 16.0  # Ceilings raised for the sweep.
     for _ in range(20000):
         core.tick(None, clock())
         clock.now += core.period_s
@@ -126,8 +149,8 @@ def test_an_arm_returns_from_where_it_rests_to_its_reference_one_joint_at_a_time
     # confirmed pose it returns along one line, checked first, then it is disabled.
     helm, session, tmp_path = setup
     clock = Clock()
-    pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
-    pose.update(right_arm_j1=1.22, right_arm_j6=.58)
+    pose = {m['name']: 0.0 for m in helm.reference['motors'] if m['name'].startswith('right_')}
+    pose.update(right_arm_j1=1.22, right_arm_j6=0.58)
     session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
     session._start_pose = pose
     receivers = []
@@ -135,6 +158,7 @@ def test_an_arm_returns_from_where_it_rests_to_its_reference_one_joint_at_a_time
     def open_receiver(config, device, reference):
         receivers.append(Receiver(config, reference, clock, start=pose))
         return receivers[-1]
+
     core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     tasks = []
@@ -150,7 +174,7 @@ def test_an_arm_returns_from_where_it_rests_to_its_reference_one_joint_at_a_time
     assert core.message == 'Returned: the arm is at its reference and disabled.'
     assert 'back to the reference' in tasks and core.engine.checker is not None
     receiver = receivers[0]
-    assert all(abs(sample['position']) < .02 for sample in receiver.last['feedback'])
+    assert all(abs(sample['position']) < 0.02 for sample in receiver.last['feedback'])
     assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
     assert core.evidence.name.startswith('return-') and not core.engine.summary()
     core.close()
@@ -162,16 +186,21 @@ def test_helm_on_the_direct_profile_returns_an_arm_on_the_guarded_one(tmp_path):
     # profile, with the receiver's collision checks: the gripper closes to its reference and the arm disables.
     from robot_platform.helm.tune import tune_profile
     from robot_platform.ops.check import DEFAULT_TELEOP
+
     assert tune_profile(DEVICES / 'minerva-teleop-direct-tuning.json') == DEFAULT_TELEOP
     assert tune_profile(DEVICES / 'minerva-teleop.json') == DEVICES / 'minerva-teleop.json'
-    helm = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                       limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
+    helm = HelmSession(
+        DEVICES / 'minerva-joint-calibration.json',
+        runs=tmp_path / 'runs',
+        limits=DEVICES / 'minerva-production-01-joint-limits.json',
+        seed=SEED,
+    )
     try:
         session = TuneSession(helm, tune_profile(DEVICES / 'minerva-teleop-direct-tuning.json'))
         assert session.profile['receiver']['collision_mode'] != 'disabled'
         clock = Clock()
-        pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
-        pose.update(right_gripper=.13)
+        pose = {m['name']: 0.0 for m in helm.reference['motors'] if m['name'].startswith('right_')}
+        pose.update(right_gripper=0.13)
         session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
         session._start_pose = pose
         receivers = []
@@ -179,8 +208,10 @@ def test_helm_on_the_direct_profile_returns_an_arm_on_the_guarded_one(tmp_path):
         def open_receiver(config, device, reference):
             receivers.append(Receiver(config, reference, clock, start=pose))
             return receivers[-1]
-        core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock,
-                        evidence_root=tmp_path / 'evidence')
+
+        core = TuneCore(
+            session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence'
+        )
         core.build()
         for _ in range(20000):
             core.tick(None, clock())
@@ -190,9 +221,10 @@ def test_helm_on_the_direct_profile_returns_an_arm_on_the_guarded_one(tmp_path):
                 break
         assert core.message == 'Returned: the arm is at its reference and disabled.', core.message
         receiver = receivers[0]
-        gripper = next(s for s, j in zip(receiver.last['feedback'], receiver.config['joints'])
-                       if j['name'] == 'right_gripper')
-        assert abs(gripper['position']) < .02
+        gripper = next(
+            s for s, j in zip(receiver.last['feedback'], receiver.config['joints']) if j['name'] == 'right_gripper'
+        )
+        assert abs(gripper['position']) < 0.02
         assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
         core.close()
     finally:
@@ -208,6 +240,7 @@ def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):
     def open_receiver(config, device, reference):
         receivers.append(Receiver(config, reference, clock))
         return receivers[-1]
+
     core = TuneCore(session._bundle(), open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     receiver = receivers[0]
@@ -216,7 +249,7 @@ def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):
     for _ in range(20000):
         core.tick(None, clock())
         clock.now += core.period_s
-        if abs(receiver.last['feedback'][index]['position'] - home) > .15:
+        if abs(receiver.last['feedback'][index]['position'] - home) > 0.15:
             break
     assert core.stage == 'sweeping'
     assert core.land() and core.stage == 'lowering'
@@ -227,7 +260,7 @@ def test_closing_a_sweep_lowers_the_arm_before_the_receiver_closes(setup):
         if core.stage != 'lowering':
             break
     assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
-    assert abs(receiver.last['feedback'][index]['position'] - home) < .01
+    assert abs(receiver.last['feedback'][index]['position'] - home) < 0.01
     assert receiver.last['status']['state'] == 'disarmed' and not receiver.last['hardware_enabled']
     assert not core.land()  # Nothing left to lower.
     core.close()
@@ -237,30 +270,60 @@ def test_saved_results_become_the_servo_calibration_the_receiver_uses(setup):
     helm, session, tmp_path = setup
     session.path = tmp_path / 'servo.json'
     motor = next(m for m in helm.reference['motors'] if m['name'] == 'left_arm_j5')
-    recommendation = {'joint': 'left_arm_j5', 'hold_kp': 6.5, 'hold_kd': .8, 'gains_met': True,
-                      'max_velocity': 1.2, 'stop_acceleration': 8., 'max_tracking_error': .06, 'notes': ['n']}
-    session.results = {'left_arm_j5': {'recommendation': recommendation, 'verification': {'passed': True},
-                                       'torque': {'friction': .1}, 'verified': {'up': .5, 'down': .5}},
-                       'left_arm_j6': {'recommendation': dict(recommendation, gains_met=False),
-                                       'verification': {'passed': True}}}
+    recommendation = {
+        'joint': 'left_arm_j5',
+        'hold_kp': 6.5,
+        'hold_kd': 0.8,
+        'gains_met': True,
+        'max_velocity': 1.2,
+        'stop_acceleration': 8.0,
+        'max_tracking_error': 0.06,
+        'notes': ['n'],
+    }
+    session.results = {
+        'left_arm_j5': {
+            'recommendation': recommendation,
+            'verification': {'passed': True},
+            'torque': {'friction': 0.1},
+            'verified': {'up': 0.5, 'down': 0.5},
+        },
+        'left_arm_j6': {'recommendation': dict(recommendation, gains_met=False), 'verification': {'passed': True}},
+    }
     with pytest.raises(ValueError, match='left_arm_j6: no recommended settings'):
         session.save(['left_arm_j6'])
     document = session.save(['left_arm_j5'])
     entry = document['joints']['left_arm_j5']
     assert (entry['uid'], entry['firmware'], entry['hold_kp'], entry['max_tracking_error']) == (
-        motor['uid'], motor['firmware'], 6.5, .06)
+        motor['uid'],
+        motor['firmware'],
+        6.5,
+        0.06,
+    )
     assert load_servo(session.path) == document
     plan, _paths, device, reference, model, pose, bindings = load_plan(helm.profile_path)
-    transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'], reference,
-                                                   model)
+    transmissions = validate_preview_transmissions(
+        plan.get('preview_transmissions', []), plan['steps'], reference, model
+    )
     reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, 'left')
     backend = SimpleNamespace(policy_revision='p', runtime_model=SimpleNamespace(revision='m', world_revision='w'))
-    derived = derive_receiver(reference=reference, steps=steps, directions=helm.mapping, transmissions=transmissions,
-                              model=model, limits=helm.saved_limits, profile=session.profile, backend=backend,
-                              servo=document)
+    derived = derive_receiver(
+        reference=reference,
+        steps=steps,
+        directions=helm.mapping,
+        transmissions=transmissions,
+        model=model,
+        limits=helm.saved_limits,
+        profile=session.profile,
+        backend=backend,
+        servo=document,
+    )
     joint = next(j for j in derived['config']['joints'] if j['name'] == 'left_arm_j5')
     assert (joint['hold_kp'], joint['hold_kd'], joint['max_velocity'], joint['max_tracking_error']) == (
-        6.5, .8, 1.2 * 1.25, .06)  # The receiver enforces 25% over the saved (commanded) speed.
+        6.5,
+        0.8,
+        1.2 * 1.25,
+        0.06,
+    )  # The receiver enforces 25% over the saved (commanded) speed.
     assert servo_path(helm.profile_path, helm.asset_id).name == 'minerva-production-01-servo.json'
 
 
@@ -282,6 +345,7 @@ def test_a_sweep_leaves_an_unplugged_gripper_out_and_saves_nothing(setup):
         assert [m['name'] for m in reference['motors']] == [j['name'] for j in config['joints']]
         receivers.append(Receiver(config, reference, clock))
         return receivers[-1]
+
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     names = [joint['name'] for joint in receivers[0].config['joints']]
@@ -303,24 +367,33 @@ def test_a_sweep_leaves_an_unplugged_gripper_out_and_saves_nothing(setup):
     session.configure(arm='left', verify=True)
     assert 'absent' not in session._bundle()
     with pytest.raises(ValueError, match='Only a tuning sweep'):
-        TuneCore(dict(session._bundle(), absent=['left_gripper']), open_receiver=open_receiver,
-                 clock=clock, evidence_root=tmp_path / 'evidence').build()
+        TuneCore(
+            dict(session._bundle(), absent=['left_gripper']),
+            open_receiver=open_receiver,
+            clock=clock,
+            evidence_root=tmp_path / 'evidence',
+        ).build()
 
 
 def test_a_late_cycle_is_logged_with_where_its_time_went(setup):
     # Left J3's sweep let the receiver's 80 ms verdict lapse at 1.2 rad/s (2026-10-09) with nothing to show why.
     import gc
+
     helm, session, tmp_path = setup
     clock = Clock()
-    core = TuneCore(session._bundle(), open_receiver=lambda config, device, reference: Receiver(config, reference, clock),
-                    clock=clock, evidence_root=tmp_path / 'evidence')
+    core = TuneCore(
+        session._bundle(),
+        open_receiver=lambda config, device, reference: Receiver(config, reference, clock),
+        clock=clock,
+        evidence_root=tmp_path / 'evidence',
+    )
     core.build()
-    core.note_cycle(100., 100.010, 100.012)  # On time.
+    core.note_cycle(100.0, 100.010, 100.012)  # On time.
     gc.collect()  # A full collection inside the next cycle.
     core.note_cycle(100.1, 100.105, 100.106)  # Started 100 ms after the last one.
     assert len(core.slow) == 1
     entry = core.slow[0]
-    assert (entry['gap_ms'], entry['tick_ms'], entry['view_ms'], entry['gc_generation']) == (100., 5., 1., 2)
+    assert (entry['gap_ms'], entry['tick_ms'], entry['view_ms'], entry['gc_generation']) == (100.0, 5.0, 1.0, 2)
     assert entry['gc_ms'] >= 0 and core.view(results=False)['slow_cycles'] == 1  # Frozen: a full pass is quick.
     core.close()
     logged = [json.loads(line) for line in (core.evidence / 'slow-cycles.jsonl').read_text().splitlines()]
@@ -340,29 +413,53 @@ def test_a_live_sweep_needs_a_confirmation_the_jetson_and_the_tether(setup):
 def test_a_saved_gravity_slice_feeds_its_arms_pitch_chain_forward(setup):
     helm, session, tmp_path = setup
     session.path = tmp_path / 'servo.json'
-    recommendation = {'joint': 'left_arm_j2', 'hold_kp': 220., 'hold_kd': 15., 'gains_met': True,
-                      'max_velocity': 1.5, 'stop_acceleration': 16., 'max_tracking_error': .08, 'notes': []}
-    session.results = {'left_arm_j2': {
-        'recommendation': recommendation, 'verification': {'passed': True}, 'verified': {'up': .5, 'down': .5},
-        'torque': {'friction': .6, 'span': [-.4, .4], 'gravity_fit': {'A': 17., 'C': .05}}}}
+    recommendation = {
+        'joint': 'left_arm_j2',
+        'hold_kp': 220.0,
+        'hold_kd': 15.0,
+        'gains_met': True,
+        'max_velocity': 1.5,
+        'stop_acceleration': 16.0,
+        'max_tracking_error': 0.08,
+        'notes': [],
+    }
+    session.results = {
+        'left_arm_j2': {
+            'recommendation': recommendation,
+            'verification': {'passed': True},
+            'verified': {'up': 0.5, 'down': 0.5},
+            'torque': {'friction': 0.6, 'span': [-0.4, 0.4], 'gravity_fit': {'A': 17.0, 'C': 0.05}},
+        }
+    }
     document = session.save(['left_arm_j2'])
-    assert document['gravity']['left_arm_j2']['A'] == 17. and document['gravity']['left_arm_j2']['span'] == [-.4, .4]
+    assert document['gravity']['left_arm_j2']['A'] == 17.0 and document['gravity']['left_arm_j2']['span'] == [-0.4, 0.4]
     plan, _paths, device, reference, model, pose, bindings = load_plan(helm.profile_path)
-    transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'], reference,
-                                                   model)
+    transmissions = validate_preview_transmissions(
+        plan.get('preview_transmissions', []), plan['steps'], reference, model
+    )
     reference, steps, transmissions = arm_subset(reference, plan['steps'], transmissions, 'left')
     backend = SimpleNamespace(policy_revision='p', runtime_model=SimpleNamespace(revision='m', world_revision='w'))
-    derived = derive_receiver(reference=reference, steps=steps, directions=helm.mapping, transmissions=transmissions,
-                              model=model, limits=helm.saved_limits, profile=session.profile, backend=backend,
-                              servo=document)
+    derived = derive_receiver(
+        reference=reference,
+        steps=steps,
+        directions=helm.mapping,
+        transmissions=transmissions,
+        model=model,
+        limits=helm.saved_limits,
+        profile=session.profile,
+        backend=backend,
+        servo=document,
+    )
     lifecycle = {row['name']: row for row in derived['lifecycle']}
     # The new shoulder slice joins the saved elbow and wrist slices: the shoulder carries its upper arm and, at
     # their own angles, the links beyond it (the elbow's motor turns the other way about their common axis).
     a3, a4 = document['gravity']['left_arm_j3']['A'], document['gravity']['left_arm_j4']['A']
-    assert [term[0] for term in lifecycle['left_arm_j2']['gravity']] == pytest.approx([17. - a3, a3 - a4, a4])
+    assert [term[0] for term in lifecycle['left_arm_j2']['gravity']] == pytest.approx([17.0 - a3, a3 - a4, a4])
     assert [term[1] for term in lifecycle['left_arm_j2']['gravity']] == [
-        {'left_arm_j2': 1}, {'left_arm_j2': 1, 'left_arm_j3': -1},
-        {'left_arm_j2': 1, 'left_arm_j3': -1, 'left_arm_j4': 1}]
+        {'left_arm_j2': 1},
+        {'left_arm_j2': 1, 'left_arm_j3': -1},
+        {'left_arm_j2': 1, 'left_arm_j3': -1, 'left_arm_j4': 1},
+    ]
     assert not lifecycle['left_arm_j1']['gravity'] and not lifecycle['left_arm_j5']['gravity']
     report = {row['motor']: row for row in derived['report']}
     assert report['left_arm_j2']['gravity_ff'] and not report['left_arm_j1']['gravity_ff']

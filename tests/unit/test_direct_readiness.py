@@ -1,4 +1,5 @@
 """Selected direct-mode preflight and checkout isolation, without physical devices."""
+
 import builtins
 import json
 import os
@@ -41,7 +42,10 @@ def test_direct_preflight_validates_each_arm_and_both_without_collision(runs, lo
     assert 'collision-disabled direct mode' in checks['live_config']['detail']
     assert [len(config['motors']) for config in robot.validated] == [7, 7, 14]
     assert [[bus['interface'] for bus in config['buses']] for config in robot.validated] == [
-        ['canL'], ['canR'], ['canL', 'canR']]
+        ['canL'],
+        ['canR'],
+        ['canL', 'canR'],
+    ]
     assert robot.cleaned
     # Parsing configurations does not claim attended physical qualification.
     assert report['verdict'] == 'incomplete'
@@ -58,8 +62,24 @@ def test_check_cli_forwards_selected_profiles_and_never_enables_motors(tmp_path,
     monkeypatch.setattr(check, 'run_check', run_check)
     profile, teleop, limits = (tmp_path / name for name in ('calibration.json', 'direct.json', 'limits.json'))
     candidate = '/home/ltr/minerva/validation/direct-candidate'
-    assert cli.check_main(['--profile', str(profile), '--teleop', str(teleop), '--limits', str(limits),
-                           '--runs', str(tmp_path), '--remote-root', candidate, '--no-motors']) == 1
+    assert (
+        cli.check_main(
+            [
+                '--profile',
+                str(profile),
+                '--teleop',
+                str(teleop),
+                '--limits',
+                str(limits),
+                '--runs',
+                str(tmp_path),
+                '--remote-root',
+                candidate,
+                '--no-motors',
+            ]
+        )
+        == 1
+    )
     assert captured['profile'] == profile and captured['teleop'] == teleop
     assert captured['limits'] == limits and captured['runs'] == tmp_path
     assert captured['motors'] is False
@@ -102,12 +122,26 @@ def test_isolated_candidate_check_uses_candidate_code_for_every_remote_probe(run
     assert binaries == [candidate + '/bin/guarded_controller'] * 3
 
 
-@pytest.mark.parametrize('remote_root', ['', 'relative/candidate', '/', '//', '/tmp/../candidate',
-                                       'C:\\candidate', '/tmp/candidate\nnext', '/tmp/candidate\x00'])
+@pytest.mark.parametrize(
+    'remote_root',
+    [
+        '',
+        'relative/candidate',
+        '/',
+        '//',
+        '/tmp/../candidate',
+        'C:\\candidate',
+        '/tmp/candidate\nnext',
+        '/tmp/candidate\x00',
+    ],
+)
 def test_invalid_candidate_paths_fail_before_ssh_or_evidence(tmp_path, remote_root):
     with pytest.raises(ValueError, match='Remote release root'):
-        check.run_check(remote_root=remote_root, runs=tmp_path,
-                        open_ssh=lambda *args, **kwargs: pytest.fail('invalid root must not connect'))
+        check.run_check(
+            remote_root=remote_root,
+            runs=tmp_path,
+            open_ssh=lambda *args, **kwargs: pytest.fail('invalid root must not connect'),
+        )
     assert not (tmp_path / 'minerva-check').exists()
 
 
@@ -153,8 +187,13 @@ def test_helm_import_guard_rejects_another_checkout_before_start(tmp_path, forei
     environment = dict(os.environ, PYTHONPATH=str(imported / 'src'))
     # -S excludes the test environment's editable installation; only this fixture
     # package is importable. The launcher guard runs unchanged under the same Python.
-    result = subprocess.run([sys.executable, '-S', '-c', guard[1], str(expected)], env=environment,
-                            capture_output=True, text=True, timeout=10)
+    result = subprocess.run(
+        [sys.executable, '-S', '-c', guard[1], str(expected)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     assert (result.returncode != 0) is foreign
     if foreign:
         assert 'Refusing Helm from another checkout' in result.stderr

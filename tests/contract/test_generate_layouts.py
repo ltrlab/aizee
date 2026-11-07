@@ -1,5 +1,6 @@
 """Generating on drawn training layouts through the actual receiver: a draw the planner refuses is drawn again and
 counted, each attempt runs on its own layout, and a recorded episode carries the layout it was drawn with."""
+
 import json
 from pathlib import Path
 
@@ -36,11 +37,14 @@ class _Refuses(HoldStillPolicy):
 def test_a_refused_draw_is_drawn_again_and_the_episode_records_its_layout(tmp_path):
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
     sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
-    runner = TrialRunner(RunConfig(grippers='driven', timeout_s=1., camera_size=(64, 48), workcell=str(WORKCELL)),
-                         stack=derive_stack(), directory=tmp_path / 'receiver')
+    runner = TrialRunner(
+        RunConfig(grippers='driven', timeout_s=1.0, camera_size=(64, 48), workcell=str(WORKCELL)),
+        stack=derive_stack(),
+        directory=tmp_path / 'receiver',
+    )
     policy = _Refuses(2)
     looks = dict(APPEARANCE, cameras=('left_wrist', 'right_wrist'))
-    recorder = EpisodeRecorder(tmp_path / 'episodes', hz=15., appearance=looks, seed=11)
+    recorder = EpisodeRecorder(tmp_path / 'episodes', hz=15.0, appearance=looks, seed=11)
     try:
         layout, rejections = draw_layout(runner, policy, sampler, [11, 1])
         # Two draws refused, with their reasons and layouts; the third planned. Each draw is its own layout.
@@ -60,9 +64,18 @@ def test_a_refused_draw_is_drawn_again_and_the_episode_records_its_layout(tmp_pa
         assert (cube[0], cube[1]) == (layout.cube_start['x'], layout.cube_start['y'])
         # A recording on it carries the drawn layout, and the look's variation leaves the head camera where the
         # layout put it.
-        context = TrialContext(index=1, cube_start=dict(layout.cube_start), joint_names=tuple(plant.names),
-                               joint_map=plant.joint_map, lower=plant.lower, upper=plant.upper, home=plant.home,
-                               period_s=plant.period_s, plant='armplant', workcell=scene.workcell)
+        context = TrialContext(
+            index=1,
+            cube_start=dict(layout.cube_start),
+            joint_names=tuple(plant.names),
+            joint_map=plant.joint_map,
+            lower=plant.lower,
+            upper=plant.upper,
+            home=plant.home,
+            period_s=plant.period_s,
+            plant='armplant',
+            workcell=scene.workcell,
+        )
         recorder.annotate(layout=dict(layout.describe(), rejected_draws=rejections))
         recorder.start(scene, plant, context, policy)
         assert np.array_equal(scene.model.cam_pos[head], scene._appearance['cam_pos'][head])
@@ -80,8 +93,10 @@ def test_a_refused_draw_is_drawn_again_and_the_episode_records_its_layout(tmp_pa
     assert set(drawn) >= {'cube', 'bucket', 'table_offset', 'head_camera', 'randomization', 'look'}
     # The drawn look (the robot's grey, the room's and the floor's tones, the lights' warmth) is the scene's.
     assert metadata['scene']['look'] == drawn['look'] == layout.values['look']
-    assert drawn['cube']['size_m'] == list(layout.workcell.block) and drawn['bucket']['height_m'] == \
-        layout.workcell.bucket_height
+    assert (
+        drawn['cube']['size_m'] == list(layout.workcell.block)
+        and drawn['bucket']['height_m'] == layout.workcell.bucket_height
+    )
     assert metadata['scene']['workcell'] == layout.workcell.describe()
     assert set(metadata['appearance']['cameras']) == {'left_wrist', 'right_wrist'}
     # The next trial's metadata does not inherit this layout.
@@ -92,10 +107,17 @@ def test_generate_draws_a_layout_for_every_attempt_and_lists_them(tmp_path):
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
     sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
     # Seed 24's first draws pass the head-camera checks (layout_checks), so only the policy refuses one.
-    config = RunConfig(plant='armplant', timeout_s=.5, grid=GridSpec(seed=24, nominal=False), camera_size=(64, 48),
-                       workcell=str(WORKCELL), grippers='driven')
-    made, attempts = generate(_Refuses(1), config, tmp_path, episodes=1, stack=derive_stack(), layouts=sampler,
-                              attempts=2)
+    config = RunConfig(
+        plant='armplant',
+        timeout_s=0.5,
+        grid=GridSpec(seed=24, nominal=False),
+        camera_size=(64, 48),
+        workcell=str(WORKCELL),
+        grippers='driven',
+    )
+    made, attempts = generate(
+        _Refuses(1), config, tmp_path, episodes=1, stack=derive_stack(), layouts=sampler, attempts=2
+    )
     assert made == [] and attempts == 2
     entries = [json.loads(line) for line in (tmp_path / 'manifest.jsonl').read_text(encoding='utf-8').splitlines()]
     assert [e['attempt'] for e in entries] == [1, 2] and [e['layout_seed'] for e in entries] == [[24, 1], [24, 2]]
@@ -112,8 +134,14 @@ def test_generate_draws_again_when_the_bucket_leaves_the_head_image(tmp_path):
     bucket's opening outside the head image, so the attempt counts it and runs its next draw."""
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
     sampler = LayoutSampler(WORKCELL, RANDOMIZATION)
-    config = RunConfig(plant='armplant', timeout_s=.5, grid=GridSpec(seed=42, nominal=False), camera_size=(64, 48),
-                       workcell=str(WORKCELL), grippers='driven')
+    config = RunConfig(
+        plant='armplant',
+        timeout_s=0.5,
+        grid=GridSpec(seed=42, nominal=False),
+        camera_size=(64, 48),
+        workcell=str(WORKCELL),
+        grippers='driven',
+    )
     generate(_Refuses(0), config, tmp_path, episodes=1, stack=derive_stack(), layouts=sampler, attempts=1)
     (entry,) = [json.loads(line) for line in (tmp_path / 'manifest.jsonl').read_text(encoding='utf-8').splitlines()]
     assert entry['rejected_draws'] == 1 and entry['rejections'][0]['draw'] == 0
@@ -127,13 +155,14 @@ def test_a_head_camera_against_the_robot_is_refused():
     toward the robot it is refused."""
     from robot_platform.evaluation.generate import HeadCameraClearance
     from robot_platform.simulation.workcell import Workcell, load_workcell
+
     workcell = load_workcell(WORKCELL)
     check = HeadCameraClearance(derive_stack())
     try:
         assert check(workcell) is None
         description = workcell.describe()
         x, y, z = description['head_camera']['pos']
-        description['head_camera']['pos'] = [x, y + .06, z]  # Base +y: toward the robot.
+        description['head_camera']['pos'] = [x, y + 0.06, z]  # Base +y: toward the robot.
         reason = check(Workcell.from_description(description))
         assert reason is not None and reason.startswith('head camera')
     finally:
@@ -148,16 +177,18 @@ def test_a_bucket_whose_opening_leaves_the_head_image_is_refused():
     from robot_platform.evaluation.generate import BucketInView, HeadCameraClearance, layout_checks
     from robot_platform.simulation.layouts import load_randomization
     from robot_platform.simulation.workcell import Workcell, load_workcell
+
     workcell, randomization = load_workcell(WORKCELL), load_randomization(RANDOMIZATION)
     view = BucketInView(**randomization.bucket_view)
     slack = view.slack(workcell)
     assert view(workcell) is None and slack >= view.margin
-    assert BucketInView((320, 240), slack - .5)(workcell) is None
-    assert BucketInView((320, 240), slack + .5)(workcell).startswith("head camera: the bucket's opening")
+    assert BucketInView((320, 240), slack - 0.5)(workcell) is None
+    assert BucketInView((320, 240), slack + 0.5)(workcell).startswith("head camera: the bucket's opening")
     description = workcell.describe()
     x_axis = np.array(description['head_camera']['xyaxes'][:3])
-    description['head_camera']['pos'] = list(np.array(description['head_camera']['pos']) - .10 * x_axis / np.linalg.norm(
-        x_axis))
+    description['head_camera']['pos'] = list(
+        np.array(description['head_camera']['pos']) - 0.10 * x_axis / np.linalg.norm(x_axis)
+    )
     moved = Workcell.from_description(description)
     assert view.slack(moved) < 0
     reason = view(moved)

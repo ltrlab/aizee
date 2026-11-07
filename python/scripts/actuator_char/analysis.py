@@ -6,6 +6,7 @@ same code runs on live logs and on synthetic signals in the unit test. Angles
 are in radians unless a helper says otherwise; results that read better in
 degrees are converted at the boundary.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,8 +30,13 @@ def step_metrics(t, y, y0: float, y_target: float, settle_band: float = 0.02) ->
     rise = (t90 - t10) if np.isfinite(t10) and np.isfinite(t90) else np.nan
     overshoot = max(0.0, float(np.nanmax(norm)) - 1.0) * 100.0
     outside = np.where(np.abs(norm - 1.0) > settle_band)[0]
-    settle = (float("inf") if outside.size and outside[-1] == t.size - 1 else
-              float(t[outside[-1] + 1] - t[0]) if outside.size else 0.0)
+    settle = (
+        float('inf')
+        if outside.size and outside[-1] == t.size - 1
+        else float(t[outside[-1] + 1] - t[0])
+        if outside.size
+        else 0.0
+    )
     sse = float(y_target - y[-1])
     return dict(rise_s=float(rise), overshoot_pct=float(overshoot), settle_s=settle, sse=sse)
 
@@ -68,14 +74,14 @@ def backlash_deg(cmd, resp) -> float:
     dc = np.gradient(cmd)
     up, dn = dc > 0, dc < 0
     if up.sum() < 5 or dn.sum() < 5:
-        return float("nan")
+        return float('nan')
     grid = np.linspace(np.percentile(cmd, 10), np.percentile(cmd, 90), 40)
     ru = np.interp(grid, cmd[up], resp[up], left=np.nan, right=np.nan)
     dn_order = np.argsort(cmd[dn])
     rd = np.interp(grid, cmd[dn][dn_order], resp[dn][dn_order], left=np.nan, right=np.nan)
     diff = np.abs(ru - rd)
     diff = diff[np.isfinite(diff)]
-    return float(np.degrees(np.median(diff))) if diff.size else float("nan")
+    return float(np.degrees(np.median(diff))) if diff.size else float('nan')
 
 
 def friction_fit(vel, tau) -> dict:
@@ -94,7 +100,7 @@ def breakaway_torque(tau_cmd, moved) -> float:
     tau_cmd = np.asarray(tau_cmd, float)
     moved = np.asarray(moved, bool)
     idx = np.where(moved)[0]
-    return float(tau_cmd[idx[0]]) if idx.size else float("nan")
+    return float(tau_cmd[idx[0]]) if idx.size else float('nan')
 
 
 def kt_fit(current_a, torque_nm) -> dict:
@@ -109,7 +115,7 @@ def kt_fit(current_a, torque_nm) -> dict:
 def tracking_error(cmd, resp) -> dict:
     """RMS / peak of (output - command) over a folding-speed trajectory."""
     e = np.asarray(resp, float) - np.asarray(cmd, float)
-    return dict(rms=float(np.sqrt(np.mean(e ** 2))), peak=float(np.max(np.abs(e))))
+    return dict(rms=float(np.sqrt(np.mean(e**2))), peak=float(np.max(np.abs(e))))
 
 
 def latency_s(t, cmd, resp, max_lag_s: float = 0.2) -> dict:
@@ -118,7 +124,7 @@ def latency_s(t, cmd, resp, max_lag_s: float = 0.2) -> dict:
     c = np.asarray(cmd, float) - np.mean(cmd)
     r = np.asarray(resp, float) - np.mean(resp)
     dt = float(np.median(np.diff(t)))
-    xcorr = np.correlate(r, c, mode="full")
+    xcorr = np.correlate(r, c, mode='full')
     lags = np.arange(-c.size + 1, c.size)
     keep = np.abs(lags) <= int(max_lag_s / dt)
     best = int(lags[keep][int(np.argmax(xcorr[keep]))])
@@ -133,5 +139,9 @@ def repeatability_rp(pose_errors_m) -> dict:
     e = e[np.isfinite(e)]
     if e.size == 0:
         return dict(mean_m=np.nan, sigma_m=np.nan, rp_m=np.nan, n=0)
-    return dict(mean_m=float(e.mean()), sigma_m=float(e.std(ddof=1) if e.size > 1 else 0.0),
-                rp_m=float(e.mean() + 3.0 * (e.std(ddof=1) if e.size > 1 else 0.0)), n=int(e.size))
+    return dict(
+        mean_m=float(e.mean()),
+        sigma_m=float(e.std(ddof=1) if e.size > 1 else 0.0),
+        rp_m=float(e.mean() + 3.0 * (e.std(ddof=1) if e.size > 1 else 0.0)),
+        n=int(e.size),
+    )

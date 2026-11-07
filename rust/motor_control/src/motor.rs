@@ -41,7 +41,7 @@ pub struct FaultInfo {
 pub struct MotorConfig {
     pub id: String,
     pub can_id: u8,
-    pub can_bus: String,  // CAN bus name (e.g., "can1", "can2")
+    pub can_bus: String, // CAN bus name (e.g., "can1", "can2")
     pub model: MotorModel,
     pub min_position: Option<f32>,
     pub max_position: Option<f32>,
@@ -100,7 +100,8 @@ impl Motor {
         // Mode transition detection: Run → Reset means the motor faulted
         // Only detect faults when motor is expected to be active (Enabled/Running)
         if let Some(prev) = &self.feedback {
-            if prev.mode == MotorMode::Run && feedback.mode == MotorMode::Reset
+            if prev.mode == MotorMode::Run
+                && feedback.mode == MotorMode::Reset
                 && matches!(self.state, MotorState::Enabled | MotorState::Running)
             {
                 if self.state != MotorState::Error {
@@ -198,20 +199,12 @@ impl Motor {
         // Validate soft limits
         if let Some(min_pos) = self.config.min_position {
             if position < min_pos {
-                return Err(anyhow!(
-                    "Position {} below minimum {}",
-                    position,
-                    min_pos
-                ));
+                return Err(anyhow!("Position {} below minimum {}", position, min_pos));
             }
         }
         if let Some(max_pos) = self.config.max_position {
             if position > max_pos {
-                return Err(anyhow!(
-                    "Position {} above maximum {}",
-                    position,
-                    max_pos
-                ));
+                return Err(anyhow!("Position {} above maximum {}", position, max_pos));
             }
         }
 

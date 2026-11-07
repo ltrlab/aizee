@@ -10,6 +10,7 @@ Contacts are off (contype/conaffinity 0) until a reviewed contact model exists,
 and no damping, friction, armature or actuator is invented. Generating the MJCF is
 not physical validation; the manifest says what the model is and is not.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,8 +33,8 @@ MUJOCO_STL_MAX_FACES = 200_000
 # MujocoPlant's default step. A mimic is a rigid mechanical coupling (rack and
 # pinion jaws), so its equality uses the stiffest time constant MuJoCo keeps stable
 # (two steps; the refsafe flag raises it if a caller lengthens the step).
-TIMESTEP_S = .0005
-MIMIC_SOLREF = (2 * TIMESTEP_S, 1.)
+TIMESTEP_S = 0.0005
+MIMIC_SOLREF = (2 * TIMESTEP_S, 1.0)
 DERIVED_MESH_DIR = 'meshes'
 
 
@@ -50,8 +51,9 @@ def stl_to_obj(path):
     """The same triangles as OBJ text with exactly shared vertices merged; no decimation."""
     raw = Path(path).read_bytes()
     count = stl_face_count(path)
-    records = np.frombuffer(raw, dtype=np.dtype([('normal', '<f4', 3), ('v', '<f4', (3, 3)),
-                                                 ('attr', '<u2')]), count=count, offset=84)
+    records = np.frombuffer(
+        raw, dtype=np.dtype([('normal', '<f4', 3), ('v', '<f4', (3, 3)), ('attr', '<u2')]), count=count, offset=84
+    )
     corners = records['v'].reshape(-1, 3).astype(float)
     vertices, index = np.unique(corners, axis=0, return_inverse=True)
     faces = index.reshape(-1, 3)
@@ -64,11 +66,21 @@ def stl_to_obj(path):
 def rpy_matrix(rpy):
     """URDF rpy: fixed-axis roll about X, then pitch about Y, then yaw about Z."""
     roll, pitch, yaw = rpy
-    cr, sr, cp, sp, cy, sy = (math.cos(roll), math.sin(roll), math.cos(pitch),
-                             math.sin(pitch), math.cos(yaw), math.sin(yaw))
-    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-                     [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-                     [-sp, cp * sr, cp * cr]])
+    cr, sr, cp, sp, cy, sy = (
+        math.cos(roll),
+        math.sin(roll),
+        math.cos(pitch),
+        math.sin(pitch),
+        math.cos(yaw),
+        math.sin(yaw),
+    )
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
 
 
 def matrix_quat(matrix):
@@ -82,7 +94,7 @@ def matrix_quat(matrix):
         i = int(np.argmax(np.diag(m)))
         j, k = (i + 1) % 3, (i + 2) % 3
         s = 2 * math.sqrt(1 + m[i, i] - m[j, j] - m[k, k])
-        q = [0.] * 4
+        q = [0.0] * 4
         q[0] = (m[k, j] - m[j, k]) / s
         q[1 + i] = s / 4
         q[1 + j] = (m[j, i] + m[i, j]) / s
@@ -113,7 +125,7 @@ def _inertials(root):
         if not nodes:
             continue
         if len(nodes) > 1:
-            raise ValueError(f"{link.get('name')}: multiple inertial elements")
+            raise ValueError(f'{link.get("name")}: multiple inertial elements')
         node = nodes[0]
         frame = node.find('origin')
         rpy = numbers(frame.get('rpy', '0 0 0') if frame is not None else '0 0 0', 3, 'inertial rpy')
@@ -121,16 +133,19 @@ def _inertials(root):
         mass = node.find('mass')
         tensor = node.find('inertia')
         if mass is None or tensor is None:
-            raise ValueError(f"{link.get('name')}: inertial needs mass and inertia")
+            raise ValueError(f'{link.get("name")}: inertial needs mass and inertia')
         xx, xy, xz, yy, yz, zz = numbers(
-            [tensor.get(k) for k in ('ixx', 'ixy', 'ixz', 'iyy', 'iyz', 'izz')], 6, 'inertia')
+            [tensor.get(k) for k in ('ixx', 'ixy', 'ixz', 'iyy', 'iyz', 'izz')], 6, 'inertia'
+        )
         # URDF expresses the tensor in the inertial frame; MJCF gets it in the
         # body (link) frame so no second orientation convention is involved.
         r = rpy_matrix(rpy)
         body = r @ np.array([[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]]) @ r.T
         result[link.get('name')] = dict(
-            pos=xyz, mass=numbers([mass.get('value')], 1, 'mass', True)[0],
-            fullinertia=[body[0, 0], body[1, 1], body[2, 2], body[0, 1], body[0, 2], body[1, 2]])
+            pos=xyz,
+            mass=numbers([mass.get('value')], 1, 'mass', True)[0],
+            fullinertia=[body[0, 0], body[1, 1], body[2, 2], body[0, 1], body[0, 2], body[1, 2]],
+        )
     return result
 
 
@@ -158,17 +173,26 @@ def swept_ranges(limits, directions):
             raise ValueError(f'{joint}: invalid direction mapping')
         saved = limits['joints'].get(row['motor'])
         if saved is None:
-            raise ValueError(f"{row['motor']}: no swept limits; sweep it in Helm")
+            raise ValueError(f'{row["motor"]}: no swept limits; sweep it in Helm')
         swept = [float(saved['min_rad']), float(saved['max_rad'])]
         if not all(map(math.isfinite, swept)) or swept[0] >= swept[1]:
-            raise ValueError(f"{row['motor']}: invalid swept limits")
-        ranges[joint] = {'motor': row['motor'], 'sign': sign, 'offset_rad': float(offset),
-                         'swept_motor_rad': swept, 'range': sorted(sign * q + offset for q in swept)}
+            raise ValueError(f'{row["motor"]}: invalid swept limits')
+        ranges[joint] = {
+            'motor': row['motor'],
+            'sign': sign,
+            'offset_rad': float(offset),
+            'swept_motor_rad': swept,
+            'range': sorted(sign * q + offset for q in swept),
+        }
     if not ranges:
         raise ValueError('The direction session maps no joints')
-    source = {'limits': {k: limits.get(k) for k in ('asset_id', 'reference', 'reference_sha256',
-                                                     'model_revision', 'updated_at', 'method')},
-              'directions': {'bindings': bindings}}
+    source = {
+        'limits': {
+            k: limits.get(k)
+            for k in ('asset_id', 'reference', 'reference_sha256', 'model_revision', 'updated_at', 'method')
+        },
+        'directions': {'bindings': bindings},
+    }
     return {'ranges': ranges, 'source': source}
 
 
@@ -201,9 +225,19 @@ def build_mjcf(profile, output, *, meshes=True, swept=None):
         children[joint['parent']].append(joint)
 
     mujoco = ET.Element('mujoco', model=root.get('name') or profile.id)
-    ET.SubElement(mujoco, 'compiler', angle='radian', autolimits='true', inertiafromgeom='false',
-                  balanceinertia='false', boundmass='0', boundinertia='0', fusestatic='false',
-                  discardvisual='false', meshdir=_relative(profile.urdf.parent, output.parent))
+    ET.SubElement(
+        mujoco,
+        'compiler',
+        angle='radian',
+        autolimits='true',
+        inertiafromgeom='false',
+        balanceinertia='false',
+        boundmass='0',
+        boundinertia='0',
+        fusestatic='false',
+        discardvisual='false',
+        meshdir=_relative(profile.urdf.parent, output.parent),
+    )
     ET.SubElement(mujoco, 'option', timestep=repr(TIMESTEP_S), gravity='0 0 -9.81')
     ET.SubElement(mujoco, 'default')  # Explicitly empty: no inherited joint/geom physics.
     asset = ET.SubElement(mujoco, 'asset')
@@ -224,9 +258,16 @@ def build_mjcf(profile, output, *, meshes=True, swept=None):
                     raise ValueError(f'Derived mesh name collision: {relative}')
                 derived[relative] = content
                 files[path] = output.parent / relative
-                derivations.append({'source': _relative(path, output.parent), 'source_sha256': assets[path],
-                                    'derived': relative, 'derived_sha256': hashlib.sha256(content).hexdigest(),
-                                    'triangles': faces, 'method': 'binary STL to OBJ, exact shared vertices merged'})
+                derivations.append(
+                    {
+                        'source': _relative(path, output.parent),
+                        'source_sha256': assets[path],
+                        'derived': relative,
+                        'derived_sha256': hashlib.sha256(content).hexdigest(),
+                        'triangles': faces,
+                        'method': 'binary STL to OBJ, exact shared vertices merged',
+                    }
+                )
         return files[path]
 
     def mesh_name(desc):
@@ -235,11 +276,11 @@ def build_mjcf(profile, output, *, meshes=True, swept=None):
             path = model.assets[desc['asset']]
             # Visual and collision sets reuse file names; the source path tells them apart.
             name = _relative(path.with_suffix(''), profile.urdf.parent)
-            if desc['scale'] != [1., 1., 1.]:
+            if desc['scale'] != [1.0, 1.0, 1.0]:
                 name += '@' + 'x'.join(repr(float(v)) for v in desc['scale'])
             mesh_names[key] = name
             element = ET.SubElement(asset, 'mesh', name=name, file=_relative(mesh_file(path), profile.urdf.parent))
-            if desc['scale'] != [1., 1., 1.]:
+            if desc['scale'] != [1.0, 1.0, 1.0]:
                 element.set('scale', text(desc['scale']))
         return mesh_names[key]
 
@@ -280,17 +321,26 @@ def build_mjcf(profile, output, *, meshes=True, swept=None):
         if joint is not None:
             _frame(body, joint['origin'])
             if joint['type'] != 'fixed':
-                element = ET.SubElement(body, 'joint', name=joint['name'],
-                                        type='slide' if joint['type'] == 'prismatic' else 'hinge',
-                                        axis=text(joint['axis']))
+                element = ET.SubElement(
+                    body,
+                    'joint',
+                    name=joint['name'],
+                    type='slide' if joint['type'] == 'prismatic' else 'hinge',
+                    axis=text(joint['axis']),
+                )
                 if joint['name'] in ranges:
                     element.set('range', text(ranges[joint['name']]))
                 elif joint['bounds'] is not None:
                     element.set('range', text(joint['bounds']))
         if link in inertials:
             values = inertials[link]
-            ET.SubElement(body, 'inertial', pos=text(values['pos']), mass=repr(float(values['mass'])),
-                          fullinertia=text(values['fullinertia']))
+            ET.SubElement(
+                body,
+                'inertial',
+                pos=text(values['pos']),
+                mass=repr(float(values['mass'])),
+                fullinertia=text(values['fullinertia']),
+            )
         add_geoms(body, link)
         for joint in children[link]:
             add_body(body, joint['child'])
@@ -303,42 +353,77 @@ def build_mjcf(profile, output, *, meshes=True, swept=None):
         for joint in mimics:
             m = joint['mimic']
             # MuJoCo: q1 - q1ref = a0 + a1*(q2 - q2ref); every ref here is zero.
-            ET.SubElement(equality, 'joint', name=f"{joint['name']}/mimic", joint1=joint['name'],
-                          joint2=m['joint'], polycoef=text([m['offset'], m['multiplier'], 0, 0, 0]),
-                          solref=text(MIMIC_SOLREF))
+            ET.SubElement(
+                equality,
+                'joint',
+                name=f'{joint["name"]}/mimic',
+                joint1=joint['name'],
+                joint2=m['joint'],
+                polycoef=text([m['offset'], m['multiplier'], 0, 0, 0]),
+                solref=text(MIMIC_SOLREF),
+            )
     custom = ET.SubElement(mujoco, 'custom')
     ET.SubElement(custom, 'text', name='source_urdf_sha256', data=model.sha256)
     ET.SubElement(custom, 'text', name='generator', data=GENERATOR)
     ET.indent(mujoco)
-    xml = ('<!-- Generated by robot_platform.models.mjcf from the URDF; do not edit by hand. -->\n'
-           + ET.tostring(mujoco, encoding='unicode') + '\n')
+    xml = (
+        '<!-- Generated by robot_platform.models.mjcf from the URDF; do not edit by hand. -->\n'
+        + ET.tostring(mujoco, encoding='unicode')
+        + '\n'
+    )
 
     placeholders = sorted(name for name, values in inertials.items() if values['mass'] <= 1e-6)
     manifest = {
-        'schema_version': 1, 'kind': 'mjcf_export', 'generator': GENERATOR, 'model_id': profile.id,
-        'source_urdf': _relative(profile.urdf, output.parent), 'source_urdf_sha256': model.sha256,
-        'mjcf_sha256': hashlib.sha256(xml.encode()).hexdigest(), 'meshes_included': bool(meshes),
-        'mesh_assets': [{'file': _relative(path, output.parent), 'sha256': sha}
-                        for path, sha in sorted(assets.items(), key=lambda item: str(item[0]))],
+        'schema_version': 1,
+        'kind': 'mjcf_export',
+        'generator': GENERATOR,
+        'model_id': profile.id,
+        'source_urdf': _relative(profile.urdf, output.parent),
+        'source_urdf_sha256': model.sha256,
+        'mjcf_sha256': hashlib.sha256(xml.encode()).hexdigest(),
+        'meshes_included': bool(meshes),
+        'mesh_assets': [
+            {'file': _relative(path, output.parent), 'sha256': sha}
+            for path, sha in sorted(assets.items(), key=lambda item: str(item[0]))
+        ],
         'derived_meshes': derivations,
         'independent_joints': list(model.independent),
-        'mimic_equalities': [{'follower': j['name'], 'source': j['mimic']['joint'],
-                              'multiplier': j['mimic']['multiplier'], 'offset': j['mimic']['offset']}
-                             for j in mimics],
-        'joint_ranges': {j['name']: ({'source': 'helm_swept', **swept['ranges'][j['name']]} if j['name'] in ranges
-                                     else {'source': 'urdf', 'range': j['bounds']})
-                         for j in model.joints if j['type'] != 'fixed'},
+        'mimic_equalities': [
+            {
+                'follower': j['name'],
+                'source': j['mimic']['joint'],
+                'multiplier': j['mimic']['multiplier'],
+                'offset': j['mimic']['offset'],
+            }
+            for j in mimics
+        ],
+        'joint_ranges': {
+            j['name']: (
+                {'source': 'helm_swept', **swept['ranges'][j['name']]}
+                if j['name'] in ranges
+                else {'source': 'urdf', 'range': j['bounds']}
+            )
+            for j in model.joints
+            if j['type'] != 'fixed'
+        },
         'range_source': swept['source'] if swept is not None else None,
-        'assumptions': ['mimic couplings are rigid: stiffest stable equality, no backlash or compliance',
-                        'helm_swept ranges are the hand-swept ends exactly (motors disabled); a sweep can '
-                        'only fall short of a hard stop, never pass it; urdf ranges are CAD limits',
-                        'gravity is -Z in the URDF root frame; the mounting pose is unverified'],
+        'assumptions': [
+            'mimic couplings are rigid: stiffest stable equality, no backlash or compliance',
+            'helm_swept ranges are the hand-swept ends exactly (motors disabled); a sweep can '
+            'only fall short of a hard stop, never pass it; urdf ranges are CAD limits',
+            'gravity is -Z in the URDF root frame; the mounting pose is unverified',
+        ],
         'placeholder_inertial_links': placeholders,
         'physical_validation': 'unvalidated',
         'dynamics_usable': not placeholders,
         'contacts': 'disabled: no reviewed contact model',
-        'not_modeled': ['joint damping', 'joint friction', 'rotor/gear armature', 'actuators',
-                        'motor-to-joint transmissions (receiver bindings are separate)'],
+        'not_modeled': [
+            'joint damping',
+            'joint friction',
+            'rotor/gear armature',
+            'actuators',
+            'motor-to-joint transmissions (receiver bindings are separate)',
+        ],
     }
     return xml, manifest, derived
 
@@ -368,16 +453,20 @@ def main():
     parser.add_argument('profile', type=Path, help='model.json profile (for example urdf/minerva/model.json)')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--no-meshes', action='store_true', help='kinematic tree only')
-    parser.add_argument('--limits', type=Path, help="Helm's saved joint limits (config/devices/<asset>-joint-limits.json)")
-    parser.add_argument('--directions', type=Path,
-                        help="Helm's direction session (calibration_runs/<asset>-directions/session.json)")
+    parser.add_argument(
+        '--limits', type=Path, help="Helm's saved joint limits (config/devices/<asset>-joint-limits.json)"
+    )
+    parser.add_argument(
+        '--directions', type=Path, help="Helm's direction session (calibration_runs/<asset>-directions/session.json)"
+    )
     args = parser.parse_args()
     if (args.limits is None) != (args.directions is None):
         parser.error('--limits and --directions go together')
     swept = None
     if args.limits:
-        swept = swept_ranges(json.loads(args.limits.read_text(encoding='utf-8')),
-                             json.loads(args.directions.read_text(encoding='utf-8')))
+        swept = swept_ranges(
+            json.loads(args.limits.read_text(encoding='utf-8')), json.loads(args.directions.read_text(encoding='utf-8'))
+        )
     manifest = write_mjcf(ModelProfile.load(args.profile), args.output, meshes=not args.no_meshes, swept=swept)
     print(json.dumps({k: manifest[k] for k in ('mjcf_sha256', 'dynamics_usable', 'physical_validation')}))
     return 0

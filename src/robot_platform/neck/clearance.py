@@ -14,10 +14,11 @@ corner less the margin, and never eases off further out: past its last corner, n
 region allowed only shrinks outward and downward, and a move back toward straight ahead and level on both joints
 (Return) stays in it, however each joint's speed shares the move.
 """
+
 import math
 
-MARGIN_RAD = .1  # About 6 degrees above each corner: the servo's tracking error and the head's give.
-MIN_CORNER_RAD = .1  # A corner is turned and tilted at least this far: less says nothing about a shoulder.
+MARGIN_RAD = 0.1  # About 6 degrees above each corner: the servo's tracking error and the head's give.
+MIN_CORNER_RAD = 0.1  # A corner is turned and tilted at least this far: less says nothing about a shoulder.
 PAN, TILT = 'neck_z', 'neck_y'  # The CAD joints head_pan and head_tilt drive.
 
 
@@ -28,9 +29,9 @@ def section(corners, *, margin_rad=MARGIN_RAD):
         raise ValueError('A corner is a pan and a tilt reading')
     if any(abs(c['pan']) < MIN_CORNER_RAD for c in corners):
         raise ValueError('A corner is recorded with the head turned to a side')
-    if {math.copysign(1., c['pan']) for c in corners} != {-1., 1.}:
+    if {math.copysign(1.0, c['pan']) for c in corners} != {-1.0, 1.0}:
         raise ValueError('Record a corner on each side: the head reaches both shoulders')
-    downs = {math.copysign(1., c['tilt']) for c in corners}
+    downs = {math.copysign(1.0, c['tilt']) for c in corners}
     if len(downs) != 1 or any(abs(c['tilt']) < MIN_CORNER_RAD for c in corners):
         raise ValueError('Each corner is recorded with the head tilted down, the same way every time')
     if not (math.isfinite(margin_rad) and margin_rad >= 0):
@@ -40,7 +41,7 @@ def section(corners, *, margin_rad=MARGIN_RAD):
 
 def unbounded():
     """No floor: the same steps for a head with no clearance saved (a virtual session's)."""
-    return Clearance({'corners': [], 'down': -1, 'margin_rad': 0.}, math.inf)
+    return Clearance({'corners': [], 'down': -1, 'margin_rad': 0.0}, math.inf)
 
 
 def from_limits(limits, reference):
@@ -66,10 +67,10 @@ class Clearance:
             raise ValueError('A clearance needs its down side and the tilt range below level')
         self.sides = {}
         for side in (-1, 1):
-            knots, depth = [(0., self.reach)], self.reach
+            knots, depth = [(0.0, self.reach)], self.reach
             for corner in sorted((c for c in saved['corners'] if c['pan'] * side > 0), key=lambda c: abs(c['pan'])):
                 # Never easing off outward, and level always allowed (a pan alone never reaches the shoulder).
-                depth = min(depth, max(0., self.down * corner['tilt'] - self.margin))
+                depth = min(depth, max(0.0, self.down * corner['tilt'] - self.margin))
                 knots.append((abs(corner['pan']), depth))
             self.sides[side] = knots
 
@@ -99,7 +100,7 @@ class Clearance:
             return pan, tilt - self.down * min(limit[1], self.down * tilt - self.depth(pan))
         goal = self.clamp(*goal)
         moves = [goal[0] - pan, goal[1] - tilt]
-        scale = min([1.] + [cap / abs(move) for move, cap in zip(moves, limit) if abs(move) > cap])
+        scale = min([1.0] + [cap / abs(move) for move, cap in zip(moves, limit) if abs(move) > cap])
         for _ in range(30):
             pose = self.clamp(pan + moves[0] * scale, tilt + moves[1] * scale)
             if abs(pose[1] - tilt) <= limit[1] * (1 + 1e-9):

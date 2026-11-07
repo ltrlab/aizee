@@ -1,63 +1,130 @@
-import {SettingsPanel} from './settings.js';
-import {LiveCameraView} from './camera_live.js';
-import {PedalControls, presentation, recordingLabel, recordingMode, StateOrder} from './pedals.js';
-import {LiveReplayCard, ReplayView, replayTelemetry} from './replay.js';
-import {driverText, HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats, switchLabel} from './policy.js';
-import {GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView} from './grip.js';
-import {upsView} from './ups.js';
-import {bridgeView, headsetLinks, networkView} from './network.js';
-import {headView} from './head.js';
-import {HeadsetMirror} from './headset_mirror.js';
-import {headSetupView} from './head_setup.js';
-import {captureBlock, countsText, headCaptureBlock, headCountsText, headLastText, headResultLines, lastText,
-  resultLines} from './calibration.js';
-import {firstStep, headProgress, headVerdict, HOW, nextStep, sessionChecks, solveCurrent, STEPS, stepStatus, stepWarning,
-  WRISTS, wristProgress, wristVerdict} from './calibration_guide.js';
-import {mapCaptureBlock, mapLines, mapStatusText} from './maps.js';
-import {twinCanApply, twinLines, twinStatusText} from './twin.js';
-import {jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices} from './joint_zero.js';
-import {headsetArm, inputChoice, knownInput, knownMode, modeCards, modeChoice, NO_RECORDING, NOTE_MS, PauseStill,
-  pauseStillText, sessionInput, sessionMode, STILL_PENDING, stillOutcome, stillTaking} from './teleop_mode.js';
+import { SettingsPanel } from './settings.js';
+import { LiveCameraView } from './camera_live.js';
+import { PedalControls, presentation, recordingLabel, recordingMode, StateOrder } from './pedals.js';
+import { LiveReplayCard, ReplayView, replayTelemetry } from './replay.js';
+import { driverText, HOLD_STILL, policyLabel, policyNote, policyOptions, policyStats, switchLabel } from './policy.js';
+import { GRIP_SETTINGS, gripLive, gripSettingText, gripSliderValue, gripView } from './grip.js';
+import { upsView } from './ups.js';
+import { bridgeView, headsetLinks, networkView } from './network.js';
+import { headView } from './head.js';
+import { HeadsetMirror } from './headset_mirror.js';
+import { headSetupView } from './head_setup.js';
+import {
+  captureBlock,
+  countsText,
+  headCaptureBlock,
+  headCountsText,
+  headLastText,
+  headResultLines,
+  lastText,
+  resultLines,
+} from './calibration.js';
+import {
+  firstStep,
+  headProgress,
+  headVerdict,
+  HOW,
+  nextStep,
+  sessionChecks,
+  solveCurrent,
+  STEPS,
+  stepStatus,
+  stepWarning,
+  WRISTS,
+  wristProgress,
+  wristVerdict,
+} from './calibration_guide.js';
+import { mapCaptureBlock, mapLines, mapStatusText } from './maps.js';
+import { twinCanApply, twinLines, twinStatusText } from './twin.js';
+import { jointZeroBlocked, jointZeroResult, jointZeroStatus, pendingLines, zeroChoices } from './joint_zero.js';
+import {
+  headsetArm,
+  inputChoice,
+  knownInput,
+  knownMode,
+  modeCards,
+  modeChoice,
+  NO_RECORDING,
+  NOTE_MS,
+  PauseStill,
+  pauseStillText,
+  sessionInput,
+  sessionMode,
+  STILL_PENDING,
+  stillOutcome,
+  stillTaking,
+} from './teleop_mode.js';
 
 // Helm operator page. Reads /api/helm/state; every action needs the session token.
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 const DEG = 180 / Math.PI;
 const cards = new Map();
-let token = null, last = null, busy = false, lockNoticeShown = false;
-let replayView = null;  // Built once the page's other panels are; showTab may run before.
-let replayCard = null;  // Teleop's live replay card, built with replayView.
-let policyListing = null, policyListedAt = -Infinity;  // Policy mode's choices, read from Minerva when Teleop opens.
+let token = null,
+  last = null,
+  busy = false,
+  lockNoticeShown = false;
+let replayView = null; // Built once the page's other panels are; showTab may run before.
+let replayCard = null; // Teleop's live replay card, built with replayView.
+let policyListing = null,
+  policyListedAt = -Infinity; // Policy mode's choices, read from Minerva when Teleop opens.
 // Teleop's mode (teleop_mode.js), remembered in this browser: Direct, Calibrate or Policy.
 let teleopMode = 'direct';
-try { teleopMode = knownMode(localStorage.getItem('helm-teleop-mode')); } catch { /* storage unavailable */ }
+try {
+  teleopMode = knownMode(localStorage.getItem('helm-teleop-mode'));
+} catch {
+  /* storage unavailable */
+}
 // Teleop's input (teleop_mode.js), remembered in this browser too: the GELLO leaders or the headset's controllers.
 let teleopInput = 'gello';
-try { teleopInput = knownInput(localStorage.getItem('helm-teleop-input')); } catch { /* storage unavailable */ }
-const pauseStill = new PauseStill();  // Calibrate: the still a pause takes.
-const responseMeta=new WeakMap(), stateOrder=new StateOrder();
-let requestId=0;
-let pendingConfirm = null;  // An open live confirmation: {kind: 'start' | 'stop', arm}
+try {
+  teleopInput = knownInput(localStorage.getItem('helm-teleop-input'));
+} catch {
+  /* storage unavailable */
+}
+const pauseStill = new PauseStill(); // Calibrate: the still a pause takes.
+const responseMeta = new WeakMap(),
+  stateOrder = new StateOrder();
+let requestId = 0;
+let pendingConfirm = null; // An open live confirmation: {kind: 'start' | 'stop', arm}
 
-const signed = (q, digits = 3) => (q == null || !Number.isFinite(q)) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
-const range = entry => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
+const signed = (q, digits = 3) =>
+  q == null || !Number.isFinite(q) ? '—' : `${q < 0 ? '−' : '+'}${Math.abs(q).toFixed(digits)}`;
+const range = (entry) => `${signed(entry.min_rad, 2)} … ${signed(entry.max_rad, 2)} rad`;
 
 async function request(path, payload, timeoutMs = payload === undefined ? 3000 : 15000) {
-  const meta={id:++requestId,startedAt:performance.now()};
-  const options = payload === undefined
-    ? {cache: 'no-store', signal: AbortSignal.timeout(timeoutMs)}
-    : {method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(payload),
-       headers: {'Content-Type': 'application/json', 'X-Helm-Token': token || ''}};
+  const meta = { id: ++requestId, startedAt: performance.now() };
+  const options =
+    payload === undefined
+      ? { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }
+      : {
+          method: 'POST',
+          cache: 'no-store',
+          signal: AbortSignal.timeout(timeoutMs),
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json', 'X-Helm-Token': token || '' },
+        };
   const response = await fetch(path, options);
   let data = null;
-  try { data = await response.json(); } catch { data = null; }
-  if (response.status === 401 && data?.login) location.href = '/login';  // Helm on Minerva: the session ended.
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (response.status === 401 && data?.login) location.href = '/login'; // Helm on Minerva: the session ended.
   if (!response.ok) throw new Error(data?.error || `Helm returned HTTP ${response.status}`);
-  if(data && typeof data==='object')responseMeta.set(data,meta);
+  if (data && typeof data === 'object') responseMeta.set(data, meta);
   return data;
 }
 
-const STATUS = {check: 'check-status', limits: 'action-status', leaders: 'leaders-status', teleop: 'teleop-status',
-  tune: 'tune-status', settings:'settings-status', replay: 'replay-status'};
+const STATUS = {
+  check: 'check-status',
+  limits: 'action-status',
+  leaders: 'leaders-status',
+  teleop: 'teleop-status',
+  tune: 'tune-status',
+  settings: 'settings-status',
+  replay: 'replay-status',
+};
 
 function say(text, kind = '') {
   const status = $(STATUS[document.body.dataset.tab] || 'action-status');
@@ -79,7 +146,7 @@ async function act(path, payload, done) {
 }
 
 // A joint card's steps: the arms' endpoints, or the head's (Head section, below).
-const ARM_API = {limits: '/api/helm/limits', direction: '/api/helm/direction'};
+const ARM_API = { limits: '/api/helm/limits', direction: '/api/helm/direction' };
 function build(row, api = ARM_API) {
   const card = document.createElement('div');
   card.className = 'joint';
@@ -93,17 +160,24 @@ function build(row, api = ARM_API) {
   card.querySelector('.joint-name').textContent = row.label;
   card.querySelector('.motor').textContent = row.name;
   card.querySelector('.reset').onclick = () =>
-    act(api.limits, {action: 'reset', motor: row.name}, `Cleared the sweep for ${row.label}.`);
+    act(api.limits, { action: 'reset', motor: row.name }, `Cleared the sweep for ${row.label}.`);
   card.querySelector('.confirm').onclick = () => {
     const undo = ['confirmed', 'changed'].includes(card.dataset.status);
-    act(api.limits, {action: undo ? 'unconfirm' : 'confirm', motor: row.name},
-      undo ? `${row.label} is no longer confirmed.` : `${row.label} confirmed. Save when you are done.`);
+    act(
+      api.limits,
+      { action: undo ? 'unconfirm' : 'confirm', motor: row.name },
+      undo ? `${row.label} is no longer confirmed.` : `${row.label} confirmed. Save when you are done.`,
+    );
   };
   if (row.direction && row.direction.editable !== false) {
     card.querySelector('.flip').onclick = () =>
-      act(api.direction, {action: 'flip', joint: row.direction.joint}, `Reversed the model direction for ${row.label}.`);
+      act(
+        api.direction,
+        { action: 'flip', joint: row.direction.joint },
+        `Reversed the model direction for ${row.label}.`,
+      );
     card.querySelector('.accept').onclick = () =>
-      act(api.direction, {action: 'accept', joint: row.direction.joint}, `Direction confirmed for ${row.label}.`);
+      act(api.direction, { action: 'accept', joint: row.direction.joint }, `Direction confirmed for ${row.label}.`);
   } else {
     card.querySelector('.flip').remove();
     card.querySelector('.accept').remove();
@@ -112,23 +186,31 @@ function build(row, api = ARM_API) {
 }
 
 function place(element, from, to, extent) {
-  const at = q => 50 + Math.max(-1, Math.min(1, q / extent)) * 50;
+  const at = (q) => 50 + Math.max(-1, Math.min(1, q / extent)) * 50;
   element.hidden = false;
   element.style.left = `${at(from)}%`;
-  if (to !== undefined) element.style.width = `${Math.max(at(to) - at(from), .6)}%`;
+  if (to !== undefined) element.style.width = `${Math.max(at(to) - at(from), 0.6)}%`;
 }
 
 function update(card, row, live) {
-  const {saved, confirmed} = row;
-  const untouched = !row.samples || (row.span_rad != null && row.span_rad < .02);
+  const { saved, confirmed } = row;
+  const untouched = !row.samples || (row.span_rad != null && row.span_rad < 0.02);
   const problem = untouched ? 'Not swept yet: move it to each end and hold there' : row.problem;
-  const sameAsSaved = saved && Number.isFinite(row.min_rad)
-    && row.min_rad >= saved.min_rad - .005 && row.max_rad <= saved.max_rad + .005;
+  const sameAsSaved =
+    saved &&
+    Number.isFinite(row.min_rad) &&
+    row.min_rad >= saved.min_rad - 0.005 &&
+    row.max_rad <= saved.max_rad + 0.005;
   let status, text;
-  if (confirmed && row.changed_since_confirmed) [status, text] = ['changed', 'The range grew after confirming. Confirm again.'];
+  if (confirmed && row.changed_since_confirmed)
+    [status, text] = ['changed', 'The range grew after confirming. Confirm again.'];
   else if (confirmed) [status, text] = ['confirmed', 'Confirmed. Save to keep it.'];
   else if (saved && (untouched || sameAsSaved)) [status, text] = ['saved', `Saved ${range(saved)}`];
-  else if (!row.problem) [status, text] = ['ready', saved ? 'Wider than the saved range. Confirm to replace it.' : 'Both ends held. Confirm when this joint is done.'];
+  else if (!row.problem)
+    [status, text] = [
+      'ready',
+      saved ? 'Wider than the saved range. Confirm to replace it.' : 'Both ends held. Confirm when this joint is done.',
+    ];
   else if (saved) [status, text] = ['saved', `Saved ${range(saved)} · new sweep: ${problem}`];
   else [status, text] = ['sweeping', problem];
   if (row.jumps) text += ` · ${row.jumps} sudden jump${row.jumps > 1 ? 's' : ''} ignored`;
@@ -140,14 +222,18 @@ function update(card, row, live) {
   card.querySelector('.v-now').textContent = signed(row.current_rad);
   card.querySelector('.v-min').textContent = signed(row.min_rad);
   card.querySelector('.v-max').textContent = signed(row.max_rad);
-  card.querySelector('.v-span').textContent = row.span_rad == null ? '—' : `${row.span_rad.toFixed(3)} (${(row.span_rad * DEG).toFixed(0)}°)`;
+  card.querySelector('.v-span').textContent =
+    row.span_rad == null ? '—' : `${row.span_rad.toFixed(3)} (${(row.span_rad * DEG).toFixed(0)}°)`;
 
   const values = [row.current_rad, row.min_rad, row.max_rad, saved?.min_rad, saved?.max_rad].filter(Number.isFinite);
-  const extent = Math.max(.5, ...values.map(Math.abs)) * 1.1;
-  const [held, savedBox, now] = ['.held', '.saved', '.now'].map(s => card.querySelector(s));
-  if (Number.isFinite(row.min_rad)) place(held, row.min_rad, row.max_rad, extent); else held.hidden = true;
-  if (saved) place(savedBox, saved.min_rad, saved.max_rad, extent); else savedBox.hidden = true;
-  if (Number.isFinite(row.current_rad)) place(now, row.current_rad, undefined, extent); else now.hidden = true;
+  const extent = Math.max(0.5, ...values.map(Math.abs)) * 1.1;
+  const [held, savedBox, now] = ['.held', '.saved', '.now'].map((s) => card.querySelector(s));
+  if (Number.isFinite(row.min_rad)) place(held, row.min_rad, row.max_rad, extent);
+  else held.hidden = true;
+  if (saved) place(savedBox, saved.min_rad, saved.max_rad, extent);
+  else savedBox.hidden = true;
+  if (Number.isFinite(row.current_rad)) place(now, row.current_rad, undefined, extent);
+  else now.hidden = true;
 
   const confirm = card.querySelector('.confirm');
   const undo = status === 'confirmed' || status === 'changed';
@@ -170,7 +256,8 @@ function update(card, row, live) {
 }
 
 // Gripper zero (helm.gripper_zero): an in-page confirmation, then the robot zeroes and saves that gripper.
-let gripperZeroPending = false, gripperZeroError = null;  // A refusal shows until a newer result arrives.
+let gripperZeroPending = false,
+  gripperZeroError = null; // A refusal shows until a newer result arrives.
 function gripperZeroBlocked(state) {
   if (['starting', 'running'].includes(state?.teleop?.phase)) return 'Stop the teleop session first.';
   if (['starting', 'running'].includes(state?.tune?.phase)) return 'Finish or stop the servo sweep first.';
@@ -179,37 +266,51 @@ function gripperZeroBlocked(state) {
   return '';
 }
 function renderGripperZero(state) {
-  const zero = state?.gripper_zero, busy = !!zero?.running || gripperZeroPending, blocked = gripperZeroBlocked(state);
+  const zero = state?.gripper_zero,
+    busy = !!zero?.running || gripperZeroPending,
+    blocked = gripperZeroBlocked(state);
   for (const block of document.querySelectorAll('.gripper-zero')) {
-    const row = (state?.limits?.rows || []).find(r => r.name === block.dataset.motor);
+    const row = (state?.limits?.rows || []).find((r) => r.name === block.dataset.motor);
     block.querySelector('.gripper-reading').textContent = Number.isFinite(row?.current_rad)
-      ? `reads ${row.current_rad.toFixed(3)} rad now · closed should read 0` : 'no live reading';
+      ? `reads ${row.current_rad.toFixed(3)} rad now · closed should read 0`
+      : 'no live reading';
     const ask = block.querySelector('.gripper-zero-ask');
     ask.disabled = busy || !!blocked;
     ask.title = blocked;
     block.querySelector('.gripper-zero-yes').disabled = busy || !!blocked;
     if (busy || blocked) block.querySelector('.gripper-zero-confirm').hidden = true;
   }
-  const node = $('gripper-zero-feedback'), last = zero?.last;
+  const node = $('gripper-zero-feedback'),
+    last = zero?.last;
   if (busy) return;
-  if (blocked) { node.textContent = blocked; node.classList.remove('bad'); return; }
+  if (blocked) {
+    node.textContent = blocked;
+    node.classList.remove('bad');
+    return;
+  }
   if (gripperZeroError && !(last?.finished_at > gripperZeroError.at)) {
-    node.textContent = gripperZeroError.message; node.classList.add('bad'); return;
+    node.textContent = gripperZeroError.message;
+    node.classList.add('bad');
+    return;
   }
   if (!last) return;
   const name = last.motor === 'left_gripper' ? 'Left gripper' : 'Right gripper';
-  const value = v => Number.isFinite(v) ? `${v.toFixed(4)} rad` : '—';
+  const value = (v) => (Number.isFinite(v) ? `${v.toFixed(4)} rad` : '—');
   node.classList.toggle('bad', !last.success);
   node.textContent = last.success
-    ? `${name} zeroed: read ${value(last.before_rad)} before, ${value(last.after_save_rad ?? last.after_zero_rad)} after`
-      + `${last.save_response_missing ? ' (the drive gave no reply to the save)' : ''}. Saved on the drive; power-cycle `
-      + 'the arm, then check it still reads 0 when closed.'
+    ? `${name} zeroed: read ${value(last.before_rad)} before, ${value(last.after_save_rad ?? last.after_zero_rad)} after` +
+      `${last.save_response_missing ? ' (the drive gave no reply to the save)' : ''}. Saved on the drive; power-cycle ` +
+      'the arm, then check it still reads 0 when closed.'
     : `${name} not zeroed: ${last.error || 'the robot reported a failure'}`;
 }
 for (const block of document.querySelectorAll('.gripper-zero')) {
   const confirm = block.querySelector('.gripper-zero-confirm');
-  block.querySelector('.gripper-zero-ask').onclick = () => { confirm.hidden = false; };
-  block.querySelector('.gripper-zero-no').onclick = () => { confirm.hidden = true; };
+  block.querySelector('.gripper-zero-ask').onclick = () => {
+    confirm.hidden = false;
+  };
+  block.querySelector('.gripper-zero-no').onclick = () => {
+    confirm.hidden = true;
+  };
   block.querySelector('.gripper-zero-yes').onclick = async () => {
     if (gripperZeroPending) return;
     gripperZeroPending = true;
@@ -217,13 +318,14 @@ for (const block of document.querySelectorAll('.gripper-zero')) {
     confirm.hidden = true;
     const node = $('gripper-zero-feedback');
     node.classList.remove('bad');
-    node.textContent = `Zeroing the ${block.dataset.label}: the live view pauses, every drive is checked, then this one is `
-      + 'zeroed and saved. Keep the jaws closed and still…';
+    node.textContent =
+      `Zeroing the ${block.dataset.label}: the live view pauses, every drive is checked, then this one is ` +
+      'zeroed and saved. Keep the jaws closed and still…';
     renderGripperZero(last);
     try {
-      render(await request('/api/helm/grippers/zero', {motor: block.dataset.motor, confirm: true}, 90000));
+      render(await request('/api/helm/grippers/zero', { motor: block.dataset.motor, confirm: true }, 90000));
     } catch (error) {
-      gripperZeroError = {message: `Not zeroed: ${error.message}`, at: Date.now() / 1000};
+      gripperZeroError = { message: `Not zeroed: ${error.message}`, at: Date.now() / 1000 };
     } finally {
       gripperZeroPending = false;
       renderGripperZero(last);
@@ -233,55 +335,71 @@ for (const block of document.querySelectorAll('.gripper-zero')) {
 
 // Joint zero (helm.joint_zero, Limits tab): choose arm joints and zero them at the zero pose, then Verify after the
 // motors' power cycle, which records the arms' new reference; Helm then restarts to load it.
-let jointZeroPending = null, jointZeroError = null;  // A refusal shows until the next action.
+let jointZeroPending = null,
+  jointZeroError = null; // A refusal shows until the next action.
 const jointZeroChosen = new Set();
 function renderJointZero(state) {
-  const zero = state?.joint_zero, section = $('joint-zero');
+  const zero = state?.joint_zero,
+    section = $('joint-zero');
   section.hidden = !zero;
   if (!zero) return;
-  const blocked = jointZeroBlocked(state), busy = !!jointZeroPending || !!zero.running;
+  const blocked = jointZeroBlocked(state),
+    busy = !!jointZeroPending || !!zero.running;
   const status = $('jz-status');
   status.textContent = jointZeroStatus(zero);
   status.classList.toggle('bad', !!zero.pending?.length);
-  $('jz-pending').replaceChildren(...pendingLines(zero).map(text => {
-    const item = document.createElement('li');
-    item.textContent = text;
-    return item;
-  }));
+  $('jz-pending').replaceChildren(
+    ...pendingLines(zero).map((text) => {
+      const item = document.createElement('li');
+      item.textContent = text;
+      return item;
+    }),
+  );
   $('jz-verify').hidden = !zero.pending?.length || !!zero.applied;
   $('jz-verify-go').disabled = busy || !!blocked || !$('jz-cycled').checked;
   $('jz-choose').disabled = busy || !!blocked;
   $('jz-blocked').textContent = busy ? '' : blocked;
-  const choices = zeroChoices(state.limits?.rows), container = $('jz-joints');
+  const choices = zeroChoices(state.limits?.rows),
+    container = $('jz-joints');
   if (container.childElementCount !== choices.length) {
-    container.replaceChildren(...choices.map(choice => {
-      const label = document.createElement('label'), box = document.createElement('input');
-      const reading = document.createElement('span');
-      box.type = 'checkbox';
-      box.dataset.motor = choice.motor;
-      box.onchange = () => {
-        if (box.checked) jointZeroChosen.add(choice.motor); else jointZeroChosen.delete(choice.motor);
-        if (last) renderJointZero(last);
-      };
-      reading.className = 'jz-reading';
-      label.append(box, document.createTextNode(choice.label), reading);
-      return label;
-    }));
+    container.replaceChildren(
+      ...choices.map((choice) => {
+        const label = document.createElement('label'),
+          box = document.createElement('input');
+        const reading = document.createElement('span');
+        box.type = 'checkbox';
+        box.dataset.motor = choice.motor;
+        box.onchange = () => {
+          if (box.checked) jointZeroChosen.add(choice.motor);
+          else jointZeroChosen.delete(choice.motor);
+          if (last) renderJointZero(last);
+        };
+        reading.className = 'jz-reading';
+        label.append(box, document.createTextNode(choice.label), reading);
+        return label;
+      }),
+    );
   }
   choices.forEach((choice, index) => {
-    const label = container.children[index], box = label.querySelector('input');
+    const label = container.children[index],
+      box = label.querySelector('input');
     box.checked = jointZeroChosen.has(choice.motor);
     box.disabled = busy;
     label.querySelector('.jz-reading').textContent = choice.text;
   });
-  const zeroButton = $('jz-zero'), count = jointZeroChosen.size;
+  const zeroButton = $('jz-zero'),
+    count = jointZeroChosen.size;
   zeroButton.disabled = busy || !!blocked || !count;
   zeroButton.textContent = count ? `Zero ${count} joint${count === 1 ? '' : 's'} now` : 'Zero the chosen joints now';
-  const node = $('jz-feedback'), result = jointZeroError || jointZeroResult(zero);
-  node.textContent = jointZeroPending === 'zero'
-    ? 'Zeroing: the live view pauses, every drive is checked, then the chosen ones are zeroed and saved. Keep the arm '
-      + 'still…'
-    : jointZeroPending === 'verify' ? 'Reading every drive, motors disabled…' : result?.text || zero.error || '';
+  const node = $('jz-feedback'),
+    result = jointZeroError || jointZeroResult(zero);
+  node.textContent =
+    jointZeroPending === 'zero'
+      ? 'Zeroing: the live view pauses, every drive is checked, then the chosen ones are zeroed and saved. Keep the arm ' +
+        'still…'
+      : jointZeroPending === 'verify'
+        ? 'Reading every drive, motors disabled…'
+        : result?.text || zero.error || '';
   node.classList.toggle('bad', !jointZeroPending && (!!result?.bad || (!result && !!zero.error)));
 }
 async function jointZeroAction(action, payload) {
@@ -298,54 +416,63 @@ async function jointZeroAction(action, payload) {
       $('jz-cycled').checked = false;
     }
   } catch (error) {
-    jointZeroError = {text: `${action === 'zero' ? 'Not zeroed' : 'Not verified'}: ${error.message}`, bad: true};
+    jointZeroError = { text: `${action === 'zero' ? 'Not zeroed' : 'Not verified'}: ${error.message}`, bad: true };
   } finally {
     jointZeroPending = null;
     if (last) renderJointZero(last);
   }
 }
-$('jz-choose').onclick = () => { $('jz-picker').hidden = false; };
+$('jz-choose').onclick = () => {
+  $('jz-picker').hidden = false;
+};
 $('jz-cancel').onclick = () => {
   $('jz-picker').hidden = true;
   jointZeroChosen.clear();
   if (last) renderJointZero(last);
 };
-$('jz-cycled').onchange = () => { if (last) renderJointZero(last); };
-$('jz-zero').onclick = () => jointZeroAction('zero', {motors: [...jointZeroChosen], confirm: true});
-$('jz-verify-go').onclick = () => jointZeroAction('verify', {confirm: true});
+$('jz-cycled').onchange = () => {
+  if (last) renderJointZero(last);
+};
+$('jz-zero').onclick = () => jointZeroAction('zero', { motors: [...jointZeroChosen], confirm: true });
+$('jz-verify-go').onclick = () => jointZeroAction('verify', { confirm: true });
 
 function render(state) {
   if (!state) return;
-  const meta=responseMeta.get(state);
-  if(meta && state !== last && !stateOrder.accept(state,meta.id))return;
-  const newlyReceived=state !== last;
+  const meta = responseMeta.get(state);
+  if (meta && state !== last && !stateOrder.accept(state, meta.id)) return;
+  const newlyReceived = state !== last;
   last = state;
-  if(newlyReceived)pedalControls.update(state,meta?.startedAt);
+  if (newlyReceived) pedalControls.update(state, meta?.startedAt);
   renderGripperZero(state);
   renderJointZero(state);
-  if (!underTorque(state)) closeDisable();  // Nothing left to drop: the question no longer applies.
+  if (!underTorque(state)) closeDisable(); // Nothing left to drop: the question no longer applies.
   token = state.action_token;
-  const {feed, limits, robot, session} = state;
+  const { feed, limits, robot, session } = state;
   $('robot-name').textContent = $('robot-name').title = `${robot.model} · ${robot.asset_id} · ${robot.address}`;
   // The connection is fixed while a teleop session, a sweep or a check uses it (the reader steps aside).
   const owner = state.live_view?.owner;
   const inUse = !!owner || ['running', 'starting'].includes(state.teleop?.phase) || !!state.check?.running;
   for (const button of document.querySelectorAll('#via button')) {
     const key = button.dataset.connection;
-    const option = (robot.connections || []).find(c => c.key === key);
+    const option = (robot.connections || []).find((c) => c.key === key);
     button.setAttribute('aria-pressed', String(key === robot.connection));
     button.disabled = !option || inUse;
-    button.title = !option ? '' : key === 'tether'
-      ? `USB Ethernet tether · ${option.address} · required for Minerva Check and live teleop`
-      : `Minerva's Wi-Fi · ${option.address} · stopped reads and virtual teleop only`;
+    button.title = !option
+      ? ''
+      : key === 'tether'
+        ? `USB Ethernet tether · ${option.address} · required for Minerva Check and live teleop`
+        : `Minerva's Wi-Fi · ${option.address} · stopped reads and virtual teleop only`;
   }
   document.body.dataset.feed = feed.state;
   const live = feed.state === 'reading' && feed.fresh;
-  $('feed-text').textContent = {
-    reading: live ? `Live · frame ${feed.sequence} · ${Math.round(feed.age_seconds * 1000)} ms` : 'Live feed stale',
-    connecting: 'Connecting…', reconnecting: 'Reconnecting…', waiting: 'Waiting for motors',
-    fault: 'Connection failed',
-  }[feed.state] || 'Not connected';
+  $('feed-text').textContent =
+    {
+      reading: live ? `Live · frame ${feed.sequence} · ${Math.round(feed.age_seconds * 1000)} ms` : 'Live feed stale',
+      connecting: 'Connecting…',
+      reconnecting: 'Reconnecting…',
+      waiting: 'Waiting for motors',
+      fault: 'Connection failed',
+    }[feed.state] || 'Not connected';
   if (owner && !state.link.running) $('feed-text').textContent = `Motors in use: ${owner}`;
   // The live view reads the arms whenever Minerva is online; Disconnect turns it off until Connect.
   const viewing = state.live_view ? state.live_view.enabled : state.link.running;
@@ -353,10 +480,13 @@ function render(state) {
   connect.textContent = viewing ? 'Disconnect' : 'Connect';
   connect.className = viewing ? 'danger' : 'primary';
 
-  let banner = null, bad = false;
-  if (['fault', 'connecting', 'reconnecting', 'waiting'].includes(feed.state)) [banner, bad] = [feed.message, feed.state === 'fault'];
+  let banner = null,
+    bad = false;
+  if (['fault', 'connecting', 'reconnecting', 'waiting'].includes(feed.state))
+    [banner, bad] = [feed.message, feed.state === 'fault'];
   else if (limits.saved_error) [banner, bad] = [`Saved limits were not loaded: ${limits.saved_error}`, true];
-  else if (session.stale_lock_pid && !lockNoticeShown) banner = `Took over a calibration lock left by exited process ${session.stale_lock_pid}.`;
+  else if (session.stale_lock_pid && !lockNoticeShown)
+    banner = `Took over a calibration lock left by exited process ${session.stale_lock_pid}.`;
   else if (replacedFiles(state)) banner = replacedFiles(state);
   $('banner').hidden = !banner;
   $('banner').textContent = banner || '';
@@ -373,8 +503,12 @@ function render(state) {
 
   const container = $('joints');
   if (!cards.size) {
-    for (const [arm, title] of [['left', 'LEFT ARM'], ['right', 'RIGHT ARM'], ['other', 'OTHER']]) {
-      const group = limits.rows.filter(row => row.arm === arm);
+    for (const [arm, title] of [
+      ['left', 'LEFT ARM'],
+      ['right', 'RIGHT ARM'],
+      ['other', 'OTHER'],
+    ]) {
+      const group = limits.rows.filter((row) => row.arm === arm);
       if (!group.length) continue;
       const heading = document.createElement('div');
       heading.className = 'arm';
@@ -386,7 +520,7 @@ function render(state) {
         container.append(card);
       }
     }
-    container.append($('head-setup'));  // The head's section stays after the arms.
+    container.append($('head-setup')); // The head's section stays after the arms.
   }
   for (const row of limits.rows) update(cards.get(row.name), row, live);
   renderLeaders(state.leaders);
@@ -421,7 +555,8 @@ let claimArmed = 0;
 function renderAccess(state) {
   const onRobot = state.robot?.connection === 'robot';
   $('via').hidden = $('mode-pill').hidden = onRobot;
-  const bridge = bridgeView(state.bridge), bridgePill = $('bridge-pill');
+  const bridge = bridgeView(state.bridge),
+    bridgePill = $('bridge-pill');
   bridgePill.hidden = bridge.hidden;
   if (!bridge.hidden) {
     bridgePill.textContent = bridge.text;
@@ -429,27 +564,33 @@ function renderAccess(state) {
     bridgePill.title = bridge.title;
   }
   renderNetwork(state.network);
-  const access = state.access || {}, pill = $('access-pill'), claim = $('access-claim');
+  const access = state.access || {},
+    pill = $('access-pill'),
+    claim = $('access-claim');
   pill.hidden = !access.enabled || !access.in_control;
   claim.hidden = !access.enabled || access.in_control;
   if (!access.enabled) return;
   pill.textContent = 'In control';
   pill.dataset.tone = 'good';
   pill.title = `This device (${access.device}) is in control of Helm`;
-  claim.title = `View only: ${access.holder ? `${access.holder.device} has control` : 'no device has control'}. `
-    + 'Any device can still Disable or Shut down.';
+  claim.title =
+    `View only: ${access.holder ? `${access.holder.device} has control` : 'no device has control'}. ` +
+    'Any device can still Disable or Shut down.';
   if (performance.now() > claimArmed) claim.textContent = 'View only · Take control';
   document.body.dataset.viewOnly = String(!access.in_control);
 }
 // A release that replaced files the operator had saved on Minerva (helm.operator_files): the banner says where the
 // saved copies are kept.
 function replacedFiles(state) {
-  return (state.operator_files?.notices || []).filter(notice => notice.kind === 'replaced')
-    .map(notice => notice.message).join(' ');
+  return (state.operator_files?.notices || [])
+    .filter((notice) => notice.kind === 'replaced')
+    .map((notice) => notice.message)
+    .join(' ');
 }
 $('access-claim').onclick = () => {
   const holder = last?.access?.holder;
-  if (holder && performance.now() > claimArmed) {  // Asked in the page: embedded browsers suppress confirm().
+  if (holder && performance.now() > claimArmed) {
+    // Asked in the page: embedded browsers suppress confirm().
     claimArmed = performance.now() + 4000;
     $('access-claim').textContent = `Take control from ${holder.device}?`;
     return;
@@ -460,9 +601,9 @@ $('access-claim').onclick = () => {
 
 // Minerva's UPS (helm.ups): a battery pill in the header on every tab, and a banner on battery or shutting down.
 // Minerva's network (network.js): the header pill and Settings → Network with the access point switch.
-let networkShown = {hidden: true};
+let networkShown = { hidden: true };
 function renderNetwork(network) {
-  const view = networkShown = networkView(network);
+  const view = (networkShown = networkView(network));
   const pill = $('net-pill');
   pill.hidden = view.hidden || !view.text;
   if (!pill.hidden) {
@@ -470,12 +611,14 @@ function renderNetwork(network) {
     pill.dataset.tone = view.tone;
     pill.title = view.title;
   }
-  $('network-mode').textContent = network ? (view.mode || '') : 'Helm runs on this PC: the network belongs to Minerva.';
-  $('network-lines').replaceChildren(...(view.lines || []).map(line => {
-    const item = document.createElement('li');
-    item.textContent = line;
-    return item;
-  }));
+  $('network-mode').textContent = network ? view.mode || '' : 'Helm runs on this PC: the network belongs to Minerva.';
+  $('network-lines').replaceChildren(
+    ...(view.lines || []).map((line) => {
+      const item = document.createElement('li');
+      item.textContent = line;
+      return item;
+    }),
+  );
   $('network-ap').hidden = !network || !network.installed;
   $('network-ap').textContent = view.apLabel || 'Turn the access point on';
   $('network-ap').disabled = !view.apEnabled;
@@ -484,7 +627,7 @@ $('network-ap').onclick = () => {
   const view = networkShown;
   if (!view.apConfirm || !window.confirm(view.apConfirm)) return;
   say(view.apOn ? 'Switching the access point off…' : 'Switching the access point on…');
-  act('/api/helm/network/ap', {on: !view.apOn}, view.apOn ? 'Access point off.' : 'Access point on.');
+  act('/api/helm/network/ap', { on: !view.apOn }, view.apOn ? 'Access point off.' : 'Access point on.');
 };
 
 function renderUps(ups) {
@@ -514,13 +657,18 @@ function renderHead(state) {
   $('head-headset').textContent = view.headset;
   $('head-zero').disabled = !view.zero;
 }
-$('head-zero').onclick = () => act('/api/helm/xr/zero', {}, "Zeroed: where the headset looks is the head's straight ahead.");
+$('head-zero').onclick = () =>
+  act('/api/helm/xr/zero', {}, "Zeroed: where the headset looks is the head's straight ahead.");
 
 // Settings → Headset: the headset's state, Zero, the 3D view's preview and what the headset shows (headset_mirror.js).
-const headsetMirror = new HeadsetMirror({picture: $('headset-picture'), strip: $('headset-strip'),
-  panel: $('headset-panel')});
+const headsetMirror = new HeadsetMirror({
+  picture: $('headset-picture'),
+  strip: $('headset-strip'),
+  panel: $('headset-panel'),
+});
 function renderHeadset(state) {
-  const view = headView(state.teleop, state.xr, location.host), xr = state.xr || {};
+  const view = headView(state.teleop, state.xr, location.host),
+    xr = state.xr || {};
   $('headset-state').textContent = view.headset;
   $('headset-zero').disabled = !view.zero;
   const preview = $('headset-preview');
@@ -528,26 +676,31 @@ function renderHeadset(state) {
   preview.title = xr.preview_available ? '' : 'The 3D view has no head model to preview';
   if (document.activeElement !== preview) preview.checked = !!xr.preview;
   const links = headsetLinks(state.network);
-  $('headset-links').replaceChildren(...links.links.map(link => {
-    const item = document.createElement('li'), anchor = document.createElement('a');
-    anchor.href = link.url;
-    anchor.textContent = link.text;
-    item.dataset.tone = link.tone;
-    item.append(anchor);
-    return item;
-  }));
+  $('headset-links').replaceChildren(
+    ...links.links.map((link) => {
+      const item = document.createElement('li'),
+        anchor = document.createElement('a');
+      anchor.href = link.url;
+      anchor.textContent = link.text;
+      item.dataset.tone = link.tone;
+      item.append(anchor);
+      return item;
+    }),
+  );
   $('headset-links-hint').textContent = links.hint;
-  headsetMirror.update(state, document.body.dataset.tab === 'settings' && !$('settings-headset').hidden
-    && !document.hidden);
+  headsetMirror.update(
+    state,
+    document.body.dataset.tab === 'settings' && !$('settings-headset').hidden && !document.hidden,
+  );
 }
 $('headset-zero').onclick = $('head-zero').onclick;
 
 // The Limits tab's Head section (head_setup.js): the head's own limp reader, its reference, directions and limits.
-const HEAD_API = {limits: '/api/helm/head/limits', direction: '/api/helm/head/direction'};
+const HEAD_API = { limits: '/api/helm/head/limits', direction: '/api/helm/head/direction' };
 const headCards = new Map();
 let headSetupShown = null;
 function renderHeadSetup(state) {
-  const view = headSetupShown = headSetupView(state.head_setup);
+  const view = (headSetupShown = headSetupView(state.head_setup));
   $('hs-note').hidden = view.available;
   $('hs-note').textContent = view.note || '';
   $('hs-steps').hidden = !view.available;
@@ -566,35 +719,56 @@ function renderHeadSetup(state) {
   $('hs-clearance-save').disabled = !view.clearanceSaveEnabled;
   $('hs-clearance-text').textContent = view.clearanceText;
   $('hs-limits-text').textContent = [view.limitsText, view.status].filter(Boolean).join(' ');
-  if ([...headCards.keys()].join() !== view.rows.map(row => row.name).join()) {
+  if ([...headCards.keys()].join() !== view.rows.map((row) => row.name).join()) {
     headCards.clear();
-    $('head-joints').replaceChildren(...view.rows.map(row => {
-      const card = build(row, HEAD_API);
-      headCards.set(row.name, card);
-      return card;
-    }));
+    $('head-joints').replaceChildren(
+      ...view.rows.map((row) => {
+        const card = build(row, HEAD_API);
+        headCards.set(row.name, card);
+        return card;
+      }),
+    );
   }
   for (const row of view.rows) update(headCards.get(row.name), row, view.live);
 }
 $('hs-read').onclick = () => {
   const reading = !!headSetupShown?.reading;
-  act('/api/helm/head/read', {on: !reading}, reading ? 'Stopped reading the head.' : 'Reading the head: its servos stay limp.');
+  act(
+    '/api/helm/head/read',
+    { on: !reading },
+    reading ? 'Stopped reading the head.' : 'Reading the head: its servos stay limp.',
+  );
 };
 $('hs-reference').onclick = () => {
   if (!headSetupShown || !window.confirm(headSetupShown.referenceConfirm)) return;
-  act('/api/helm/head/reference', {}, "Reference set: both servos read mid-turn with the head straight ahead and level.");
+  act(
+    '/api/helm/head/reference',
+    {},
+    'Reference set: both servos read mid-turn with the head straight ahead and level.',
+  );
 };
 $('hs-save').onclick = () =>
   act('/api/helm/head/limits/save', {}, "Head limits saved, and each servo's own limits set just outside them.");
-$('hs-corner').onclick = () => act('/api/helm/head/corner', {action: 'record'},
-  'Corner recorded. Record each side\'s end and halfway, then save the shoulder clearance.');
-$('hs-corners-clear').onclick = () => act('/api/helm/head/corner', {action: 'clear'}, 'Corners cleared.');
-$('hs-clearance-save').onclick = () => act('/api/helm/head/clearance/save', {},
-  'Shoulder clearance saved: the head keeps above its corners from the next session.');
+$('hs-corner').onclick = () =>
+  act(
+    '/api/helm/head/corner',
+    { action: 'record' },
+    "Corner recorded. Record each side's end and halfway, then save the shoulder clearance.",
+  );
+$('hs-corners-clear').onclick = () => act('/api/helm/head/corner', { action: 'clear' }, 'Corners cleared.');
+$('hs-clearance-save').onclick = () =>
+  act(
+    '/api/helm/head/clearance/save',
+    {},
+    'Shoulder clearance saved: the head keeps above its corners from the next session.',
+  );
 $('headset-preview').onchange = () => {
   const on = $('headset-preview').checked;
-  act('/api/helm/xr/preview', {on}, on ? 'Preview on: the 3D view\'s head follows the headset; no motors move.'
-    : 'Preview off.');
+  act(
+    '/api/helm/xr/preview',
+    { on },
+    on ? "Preview on: the 3D view's head follows the headset; no motors move." : 'Preview off.',
+  );
 };
 
 function renderGripFeedback(teleop) {
@@ -612,7 +786,8 @@ function renderGripFeedback(teleop) {
   }
   $('grip-readout').textContent = view.text;
   for (const setting of GRIP_SETTINGS) {
-    const input = $(setting.id), value = Number(view.settings[setting.key]);
+    const input = $(setting.id),
+      value = Number(view.settings[setting.key]);
     input.disabled = !teleop || gripPending;
     if (document.activeElement !== input && Number.isFinite(value)) input.value = gripSliderValue(setting, value);
     $(`${setting.id}-value`).textContent = gripSettingText(setting, input.value);
@@ -634,20 +809,25 @@ async function setGripFeedback(payload, done) {
     renderGripFeedback(last?.teleop);
   }
 }
-$('grip-on').onchange = () => setGripFeedback({enabled: $('grip-on').checked});
+$('grip-on').onchange = () => setGripFeedback({ enabled: $('grip-on').checked });
 for (const setting of GRIP_SETTINGS) {
   const input = $(setting.id);
-  input.oninput = () => { $(`${setting.id}-value`).textContent = gripSettingText(setting, input.value); };
-  input.onchange = () => setGripFeedback({[setting.key]: Number(input.value) / setting.scale},
-    `Saved: ${setting.label} ${gripSettingText(setting, input.value)}.`);
+  input.oninput = () => {
+    $(`${setting.id}-value`).textContent = gripSettingText(setting, input.value);
+  };
+  input.onchange = () =>
+    setGripFeedback(
+      { [setting.key]: Number(input.value) / setting.scale },
+      `Saved: ${setting.label} ${gripSettingText(setting, input.value)}.`,
+    );
 }
-$('grip-defaults').onclick = () => setGripFeedback({reset: true}, 'Saved: the default settings.');
+$('grip-defaults').onclick = () => setGripFeedback({ reset: true }, 'Saved: the default settings.');
 
 // Recording, seen from the leader arms: a frame round the whole window and a big badge over the view, red while
 // recording (with the time since this page saw it start), amber while it starts or saves; a short green "Saved", or
 // red "Recording failed", when it ends.
-const REC_FLASH_MS = {saved: 5000, failed: 10000};
-let recIndicator = {mode: 'off', since: null, shown: 'off', until: 0, elapsed: 0};
+const REC_FLASH_MS = { saved: 5000, failed: 10000 };
+let recIndicator = { mode: 'off', since: null, shown: 'off', until: 0, elapsed: 0 };
 function recClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -657,7 +837,8 @@ function renderRecording(state) {
   const mode = running ? recordingMode(state.teleop?.task) : 'off';
   const now = performance.now();
   if (mode === 'recording' && recIndicator.since === null) recIndicator.since = now;
-  if (['recording', 'finishing'].includes(mode) && recIndicator.since !== null) recIndicator.elapsed = now - recIndicator.since;
+  if (['recording', 'finishing'].includes(mode) && recIndicator.since !== null)
+    recIndicator.elapsed = now - recIndicator.since;
   if (mode !== recIndicator.mode) {
     if (['saved', 'failed'].includes(mode) && ['recording', 'starting', 'finishing'].includes(recIndicator.mode)) {
       recIndicator.shown = mode;
@@ -675,10 +856,12 @@ function renderRecording(state) {
   document.body.dataset.recording = shown;
   $('rec-badge').hidden = shown === 'off';
   $('rec-frame').hidden = !['starting', 'recording', 'finishing'].includes(shown);
-  $('rec-text').textContent = {starting: 'REC starting', recording: 'REC', finishing: 'Saving', saved: 'Saved',
-    failed: 'Recording failed'}[shown] || 'REC';
-  $('rec-time').textContent = ['recording', 'finishing', 'saved'].includes(shown) && recIndicator.elapsed
-    ? recClock(recIndicator.elapsed) : '';
+  $('rec-text').textContent =
+    { starting: 'REC starting', recording: 'REC', finishing: 'Saving', saved: 'Saved', failed: 'Recording failed' }[
+      shown
+    ] || 'REC';
+  $('rec-time').textContent =
+    ['recording', 'finishing', 'saved'].includes(shown) && recIndicator.elapsed ? recClock(recIndicator.elapsed) : '';
   const title = shown === 'recording' ? `● REC ${recClock(recIndicator.elapsed)} · Helm` : 'Helm';
   if (document.title !== title) document.title = title;
 }
@@ -686,31 +869,45 @@ function renderRecording(state) {
 // Camera calibration, guided (calibration_guide.js) in three steps: the wrist cameras' stills and solve
 // (helm.calibration), the head camera's alignment, saved for the head's pose feed (helm.head_alignment), and the
 // digital twin (helm.twin). The card says the one thing to do next, each camera's progress, and what a solve means.
-let calibrationStep = null, wristRole = 'left_wrist', calibrationPending = false, calibrationNext = null;
+let calibrationStep = null,
+  wristRole = 'left_wrist',
+  calibrationPending = false,
+  calibrationNext = null;
 try {
-  const step = localStorage.getItem('helm-calibration-step'), role = localStorage.getItem('helm-calibration-role');
+  const step = localStorage.getItem('helm-calibration-step'),
+    role = localStorage.getItem('helm-calibration-role');
   if (STEPS.includes(step)) calibrationStep = step;
   if (WRISTS.includes(role)) wristRole = role;
-  else if (role === 'head') calibrationStep ??= 'head';  // Chosen before the steps.
-} catch { /* storage unavailable */ }
+  else if (role === 'head') calibrationStep ??= 'head'; // Chosen before the steps.
+} catch {
+  /* storage unavailable */
+}
 const headSelected = () => calibrationStep === 'head';
-const calibrationRole = () => headSelected() ? 'head' : wristRole;
-let stillNote = {text: null, until: 0};  // What the last still found (stillOutcome), shown for NOTE_MS.
+const calibrationRole = () => (headSelected() ? 'head' : wristRole);
+let stillNote = { text: null, until: 0 }; // What the last still found (stillOutcome), shown for NOTE_MS.
 // A still is being taken (this page's, or another's Helm reports): the arms hold until it is saved.
-const stillBusy = (state = last) => stillTaking({pending: calibrationPending, calibration: state?.calibration,
-  headAlignment: state?.head_alignment});
+const stillBusy = (state = last) =>
+  stillTaking({ pending: calibrationPending, calibration: state?.calibration, headAlignment: state?.head_alignment });
 function stillLine(now) {
-  return pauseStillText(pauseStill.remaining(now), calibrationRole(),
-    {taking: stillBusy(), note: now < stillNote.until ? stillNote.text : null, input: teleopView(last?.teleop).input});
+  return pauseStillText(pauseStill.remaining(now), calibrationRole(), {
+    taking: stillBusy(),
+    note: now < stillNote.until ? stillNote.text : null,
+    input: teleopView(last?.teleop).input,
+  });
 }
 function calibrationBlock(state) {
   if (calibrationStep === 'twin') return 'The digital twin takes no stills.';
-  return headSelected() ? headCaptureBlock(state?.head_alignment, state?.teleop)
+  return headSelected()
+    ? headCaptureBlock(state?.head_alignment, state?.teleop)
     : captureBlock(state?.calibration, state?.teleop);
 }
 function chooseStep(step) {
   calibrationStep = step;
-  try { localStorage.setItem('helm-calibration-step', step); } catch { /* storage unavailable */ }
+  try {
+    localStorage.setItem('helm-calibration-step', step);
+  } catch {
+    /* storage unavailable */
+  }
   if (last) renderCalibration(last);
 }
 function chooseRole(role) {
@@ -719,35 +916,42 @@ function chooseRole(role) {
   try {
     localStorage.setItem('helm-calibration-role', role);
     localStorage.setItem('helm-calibration-step', 'wrists');
-  } catch { /* storage unavailable */ }
+  } catch {
+    /* storage unavailable */
+  }
   if (last) renderCalibration(last);
 }
-const listItems = (texts, className = '') => texts.map(text =>
-  Object.assign(document.createElement('li'), {textContent: text, className}));
+const listItems = (texts, className = '') =>
+  texts.map((text) => Object.assign(document.createElement('li'), { textContent: text, className }));
 function renderCalibration(state) {
   const section = $('calibration');
-  section.hidden = (!state.calibration && !state.head_alignment && !state.twin)
-    || !teleopView(state.teleop).cards.calibration;
+  section.hidden =
+    (!state.calibration && !state.head_alignment && !state.twin) || !teleopView(state.teleop).cards.calibration;
   if (section.hidden) return;
   const statuses = stepStatus(state);
   calibrationStep ??= firstStep(statuses);
-  const step = calibrationStep, head = step === 'head';
+  const step = calibrationStep,
+    head = step === 'head';
   for (const button of document.querySelectorAll('#cal-steps button')) {
-    const key = button.dataset.step, status = statuses[key];
+    const key = button.dataset.step,
+      status = statuses[key];
     button.dataset.status = status.status;
     button.setAttribute('aria-current', key === step ? 'step' : 'false');
     button.querySelector('small').textContent = status.summary;
   }
-  const next = calibrationNext = nextStep(state, step, wristRole);
+  const next = (calibrationNext = nextStep(state, step, wristRole));
   $('cal-next').dataset.tone = next.tone;
   $('cal-next-text').textContent = next.text;
   const moves = Boolean(next.action && typeof next.action === 'object');
   $('cal-next-go').hidden = !moves;
   if (moves) $('cal-next-go').textContent = next.label;
   const checks = sessionChecks(state.teleop, step);
-  $('cal-checks').hidden = checks.every(check => check.ok);
-  $('cal-checks').replaceChildren(...checks.map(check =>
-    Object.assign(document.createElement('li'), {textContent: check.text, className: check.ok ? 'ok' : 'missing'})));
+  $('cal-checks').hidden = checks.every((check) => check.ok);
+  $('cal-checks').replaceChildren(
+    ...checks.map((check) =>
+      Object.assign(document.createElement('li'), { textContent: check.text, className: check.ok ? 'ok' : 'missing' }),
+    ),
+  );
   const warning = stepWarning(state, step);
   $('cal-warning').hidden = !warning;
   $('cal-warning').textContent = warning || '';
@@ -765,21 +969,28 @@ function renderCalibration(state) {
   }
   const idle = !calibrationPending && Boolean(calibration) && !calibration.busy && !calibration.solving;
   $('calibration-capture').disabled = calibrationPending || Boolean(blocked);
-  $('calibration-capture').title = blocked || (head
-    ? 'Average a stack of frames and find the tags; the head must stay still (P)'
-    : 'Average a stack of frames and find the tags; the arm must stay still (P)');
+  $('calibration-capture').title =
+    blocked ||
+    (head
+      ? 'Average a stack of frames and find the tags; the head must stay still (P)'
+      : 'Average a stack of frames and find the tags; the arm must stay still (P)');
   const stills = head ? calibration?.stills || 0 : calibration?.counts?.[wristRole]?.stills || 0;
   $('calibration-undo').disabled = !idle || !stills;
-  $('calibration-solve').disabled = !idle || !(head ? calibration.tagged
-    : Object.values(calibration.counts || {}).some(count => count.tagged));
-  $('calibration-solve').title = head ? "Fit the head camera's mount and the board to the run's stills"
+  $('calibration-solve').disabled =
+    !idle || !(head ? calibration.tagged : Object.values(calibration.counts || {}).some((count) => count.tagged));
+  $('calibration-solve').title = head
+    ? "Fit the head camera's mount and the board to the run's stills"
     : "Fit both cameras to the run's stills";
   $('calibration-new').disabled = !idle;
   $('calibration-save').hidden = !head;
   $('calibration-save').disabled = !idle || !calibration?.result || Boolean(calibration.result.error);
   // The guide's next action is the card's primary button.
-  const primary = {capture: 'calibration-capture', solve: 'calibration-solve', save: 'calibration-save',
-    new: 'calibration-new'}[next.action];
+  const primary = {
+    capture: 'calibration-capture',
+    solve: 'calibration-solve',
+    save: 'calibration-save',
+    new: 'calibration-new',
+  }[next.action];
   for (const id of ['calibration-capture', 'calibration-solve', 'calibration-save', 'calibration-new']) {
     $(id).classList.toggle('primary', id === primary);
   }
@@ -791,7 +1002,8 @@ function renderCalibration(state) {
     const thumb = $('calibration-thumb');
     thumb.hidden = !shown.thumbnail;
     const source = head ? 'head-alignment' : 'calibration';
-    if (shown.thumbnail && thumb.dataset.still !== `${source}/${shown.name}`) {  // Once per still, not every state.
+    if (shown.thumbnail && thumb.dataset.still !== `${source}/${shown.name}`) {
+      // Once per still, not every state.
       thumb.dataset.still = `${source}/${shown.name}`;
       thumb.src = `/api/helm/${source}/thumbnail?still=${encodeURIComponent(shown.name)}`;
     }
@@ -802,24 +1014,26 @@ function renderCalibration(state) {
   if (verdict) {
     const stale = !solveCurrent(calibration);
     $('cal-verdict').dataset.level = verdict.level;
-    $('cal-verdict-title').textContent = VERDICT_TITLES[verdict.level]
-      + (stale ? ' · stills were added since: Solve again' : '');
+    $('cal-verdict-title').textContent =
+      VERDICT_TITLES[verdict.level] + (stale ? ' · stills were added since: Solve again' : '');
     $('cal-verdict-reasons').replaceChildren(...listItems(verdict.reasons), ...listItems(verdict.notes || [], 'note'));
   }
   const lines = head ? headResultLines(calibration?.result) : resultLines(calibration?.result);
   $('cal-details').hidden = !lines.length;
-  $('calibration-result').replaceChildren(...lines.map(line => {
-    const item = document.createElement('li');
-    const title = document.createElement('b');
-    title.textContent = line.title;
-    item.append(title, document.createTextNode(` ${line.text}`));
-    if (line.bad) item.className = 'bad';
-    return item;
-  }));
+  $('calibration-result').replaceChildren(
+    ...lines.map((line) => {
+      const item = document.createElement('li');
+      const title = document.createElement('b');
+      title.textContent = line.title;
+      item.append(title, document.createTextNode(` ${line.text}`));
+      if (line.bad) item.className = 'bad';
+      return item;
+    }),
+  );
   $('calibration-error').hidden = !calibration?.error;
   $('calibration-error').textContent = calibration?.error || '';
 }
-const VERDICT_TITLES = {good: 'Good: ready to use', check: 'Usable: check the points below', redo: 'Not usable yet'};
+const VERDICT_TITLES = { good: 'Good: ready to use', check: 'Usable: check the points below', redo: 'Not usable yet' };
 // Each wrist camera's stills against its target, with where in its image tags have been seen; or the head's stills,
 // how far it turned and tilted, and a map of its stills' poses with the head now. Rebuilt only when it changes.
 function renderCalibrationProgress(state, head) {
@@ -829,86 +1043,150 @@ function renderCalibrationProgress(state, head) {
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   if (!head) {
-    box.replaceChildren(...progress.map(row => {
-      const item = progressRow(row.label, row.count, row.target, `${row.count} of ${row.target} with tags`
-        + (row.stills > row.count ? ` · ${row.stills - row.count} without` : ''));
-      item.classList.toggle('chosen', row.role === wristRole);
-      item.append(coverageGrid(row.grid, row.seen));
-      return item;
-    }));
+    box.replaceChildren(
+      ...progress.map((row) => {
+        const item = progressRow(
+          row.label,
+          row.count,
+          row.target,
+          `${row.count} of ${row.target} with tags` +
+            (row.stills > row.count ? ` · ${row.stills - row.count} without` : ''),
+        );
+        item.classList.toggle('chosen', row.role === wristRole);
+        item.append(coverageGrid(row.grid, row.seen));
+        return item;
+      }),
+    );
     return;
   }
   box.replaceChildren(
-    progressRow('Head', progress.count, progress.target, `${progress.count} of ${progress.target} with tags`
-      + (progress.stills > progress.count ? ` · ${progress.stills - progress.count} without` : '')),
-    progressRow('Turned', progress.turned, progress.spreadTarget,
-      `${progress.turned.toFixed(0)}° of ${progress.spreadTarget}°`),
-    progressRow('Tilted', progress.tilted, progress.spreadTarget,
-      `${progress.tilted.toFixed(0)}° of ${progress.spreadTarget}°`),
+    progressRow(
+      'Head',
+      progress.count,
+      progress.target,
+      `${progress.count} of ${progress.target} with tags` +
+        (progress.stills > progress.count ? ` · ${progress.stills - progress.count} without` : ''),
+    ),
+    progressRow(
+      'Turned',
+      progress.turned,
+      progress.spreadTarget,
+      `${progress.turned.toFixed(0)}° of ${progress.spreadTarget}°`,
+    ),
+    progressRow(
+      'Tilted',
+      progress.tilted,
+      progress.spreadTarget,
+      `${progress.tilted.toFixed(0)}° of ${progress.spreadTarget}°`,
+    ),
     headPlot(progress),
-    Object.assign(document.createElement('p'), {className: 'muted cal-plot-note', textContent: 'Each dot is a still '
-      + 'where the head pointed (green: three or more tags, amber: fewer, a ring: none); the cross is the head now, '
-      + 'the dashed box the spread to cover.'}));
+    Object.assign(document.createElement('p'), {
+      className: 'muted cal-plot-note',
+      textContent:
+        'Each dot is a still ' +
+        'where the head pointed (green: three or more tags, amber: fewer, a ring: none); the cross is the head now, ' +
+        'the dashed box the spread to cover.',
+    }),
+  );
 }
 function progressRow(label, value, target, text) {
   const row = document.createElement('div');
   row.className = 'cal-row';
   row.dataset.done = String(value >= target);
-  const name = Object.assign(document.createElement('span'), {className: 'cal-row-name', textContent: label});
-  const bar = Object.assign(document.createElement('span'), {className: 'cal-bar'});
+  const name = Object.assign(document.createElement('span'), { className: 'cal-row-name', textContent: label });
+  const bar = Object.assign(document.createElement('span'), { className: 'cal-bar' });
   const fill = document.createElement('span');
   fill.style.width = `${Math.round(100 * Math.min(1, value / target))}%`;
   bar.append(fill);
-  row.append(name, bar, Object.assign(document.createElement('span'), {className: 'cal-row-text', textContent: text}));
+  row.append(
+    name,
+    bar,
+    Object.assign(document.createElement('span'), { className: 'cal-row-text', textContent: text }),
+  );
   return row;
 }
 function coverageGrid(grid, seen) {
-  const box = Object.assign(document.createElement('span'), {className: 'cal-grid',
-    title: `Tags seen in ${seen} of 12 parts of the image`});
+  const box = Object.assign(document.createElement('span'), {
+    className: 'cal-grid',
+    title: `Tags seen in ${seen} of 12 parts of the image`,
+  });
   box.setAttribute('role', 'img');
   box.setAttribute('aria-label', box.title);
   for (const row of grid) {
-    for (const count of row) box.append(Object.assign(document.createElement('span'), {className: count ? 'seen' : ''}));
+    for (const count of row)
+      box.append(Object.assign(document.createElement('span'), { className: count ? 'seen' : '' }));
   }
   return box;
 }
 // The head's stills on a map of its turn (left to the left) and tilt (up at the top), its axes crossing at straight
 // ahead and level, the dashed box the ranges they should cover (headTarget), and a cross where the head is now.
 function headPlot(progress) {
-  const NS = 'http://www.w3.org/2000/svg', W = 240, H = 132, PAN = 40, UP = 5, DOWN = -65;
+  const NS = 'http://www.w3.org/2000/svg',
+    W = 240,
+    H = 132,
+    PAN = 40,
+    UP = 5,
+    DOWN = -65;
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
-  const x = pan => W / 2 - clamp(pan, -PAN, PAN) * (W / 2 - 14) / PAN;
-  const y = tilt => 12 + (UP - clamp(tilt, DOWN, UP)) * (H - 24) / (UP - DOWN);
+  const x = (pan) => W / 2 - (clamp(pan, -PAN, PAN) * (W / 2 - 14)) / PAN;
+  const y = (tilt) => 12 + ((UP - clamp(tilt, DOWN, UP)) * (H - 24)) / (UP - DOWN);
   const element = (name, attributes, text) => {
     const node = document.createElementNS(NS, name);
     for (const [k, v] of Object.entries(attributes)) node.setAttribute(k, String(v));
     if (text) node.textContent = text;
     return node;
   };
-  const svg = element('svg', {viewBox: `0 0 ${W} ${H}`, class: 'cal-plot', role: 'img',
-    'aria-label': `The head's stills: turned ${progress.turned.toFixed(0)}°, tilted ${progress.tilted.toFixed(0)}°`});
-  svg.append(element('rect', {x: .5, y: .5, width: W - 1, height: H - 1, class: 'frame'}),
-    element('line', {x1: x(0), y1: 4, x2: x(0), y2: H - 4, class: 'axis'}),
-    element('line', {x1: 4, y1: y(0), x2: W - 4, y2: y(0), class: 'axis'}),
-    element('text', {x: 6, y: y(0) - 4, class: 'label'}, 'left'),
-    element('text', {x: W - 6, y: y(0) - 4, class: 'label end'}, 'right'),
-    element('text', {x: x(0) + 4, y: 12, class: 'label'}, 'up'), element('text', {x: x(0) + 4, y: H - 5, class: 'label'}, 'down'));
+  const svg = element('svg', {
+    viewBox: `0 0 ${W} ${H}`,
+    class: 'cal-plot',
+    role: 'img',
+    'aria-label': `The head's stills: turned ${progress.turned.toFixed(0)}°, tilted ${progress.tilted.toFixed(0)}°`,
+  });
+  svg.append(
+    element('rect', { x: 0.5, y: 0.5, width: W - 1, height: H - 1, class: 'frame' }),
+    element('line', { x1: x(0), y1: 4, x2: x(0), y2: H - 4, class: 'axis' }),
+    element('line', { x1: 4, y1: y(0), x2: W - 4, y2: y(0), class: 'axis' }),
+    element('text', { x: 6, y: y(0) - 4, class: 'label' }, 'left'),
+    element('text', { x: W - 6, y: y(0) - 4, class: 'label end' }, 'right'),
+    element('text', { x: x(0) + 4, y: 12, class: 'label' }, 'up'),
+    element('text', { x: x(0) + 4, y: H - 5, class: 'label' }, 'down'),
+  );
   const box = progress.box;
   if (box) {
-    svg.append(element('rect', {x: x(box.pan[1]), y: y(box.tilt[1]), width: x(box.pan[0]) - x(box.pan[1]),
-      height: y(box.tilt[0]) - y(box.tilt[1]), class: 'target'}));
+    svg.append(
+      element('rect', {
+        x: x(box.pan[1]),
+        y: y(box.tilt[1]),
+        width: x(box.pan[0]) - x(box.pan[1]),
+        height: y(box.tilt[0]) - y(box.tilt[1]),
+        class: 'target',
+      }),
+    );
   }
   for (const point of progress.points) {
-    const dot = element('circle', {cx: x(point.pan), cy: y(point.tilt), r: 3.5,
-      class: point.tags >= 3 ? 'still' : point.tags ? 'still few' : 'still none'});
-    dot.append(element('title', {}, `${point.name}: ${point.tags} tag${point.tags === 1 ? '' : 's'}, turned `
-      + `${point.pan.toFixed(1)}°, tilted ${point.tilt.toFixed(1)}°`));
+    const dot = element('circle', {
+      cx: x(point.pan),
+      cy: y(point.tilt),
+      r: 3.5,
+      class: point.tags >= 3 ? 'still' : point.tags ? 'still few' : 'still none',
+    });
+    dot.append(
+      element(
+        'title',
+        {},
+        `${point.name}: ${point.tags} tag${point.tags === 1 ? '' : 's'}, turned ` +
+          `${point.pan.toFixed(1)}°, tilted ${point.tilt.toFixed(1)}°`,
+      ),
+    );
     svg.append(dot);
   }
   if (progress.now) {
-    const cx = x(progress.now.pan), cy = y(progress.now.tilt);
-    svg.append(element('path', {d: `M${cx - 7} ${cy}h14M${cx} ${cy - 7}v14`, class: 'now'}),
-      element('circle', {cx, cy, r: 5, class: 'now'}));
+    const cx = x(progress.now.pan),
+      cy = y(progress.now.tilt);
+    svg.append(
+      element('path', { d: `M${cx - 7} ${cy}h14M${cx} ${cy - 7}v14`, class: 'now' }),
+      element('circle', { cx, cy, r: 5, class: 'now' }),
+    );
   }
   return svg;
 }
@@ -916,13 +1194,16 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   if (calibrationPending) return;
   calibrationPending = true;
   if (last) renderCalibration(last);
-  const role = calibrationRole(), head = headSelected();
-  let note = null, tone = 'bad';
+  const role = calibrationRole(),
+    head = headSelected();
+  let note = null,
+    tone = 'bad';
   try {
     const path = head ? `/api/helm/head-alignment/${action}` : `/api/helm/calibration/${action}`;
     const state = await request(path, head ? {} : payload, timeoutMs);
     render(state);
-    if (action === 'capture') {  // From the reply: the page's state may keep an older poll.
+    if (action === 'capture') {
+      // From the reply: the page's state may keep an older poll.
       const still = (head ? state?.head_alignment : state?.calibration)?.last;
       [note, tone] = [stillOutcome(still, null, role), still?.tags?.length ? 'good' : 'bad'];
     }
@@ -931,8 +1212,9 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
     $('calibration-error').textContent = error.message;
     if (action === 'capture') note = stillOutcome(null, error.message, role);
   } finally {
-    if (note) {  // The card says it for NOTE_MS; the status line, until the next message.
-      stillNote = {text: note, until: performance.now() + NOTE_MS};
+    if (note) {
+      // The card says it for NOTE_MS; the status line, until the next message.
+      stillNote = { text: note, until: performance.now() + NOTE_MS };
       say(note, tone);
     }
     calibrationPending = false;
@@ -940,7 +1222,7 @@ async function calibrationAction(action, payload = {}, timeoutMs = 15000) {
   }
 }
 function captureStill() {
-  if (calibrationBlock(last) === null) calibrationAction('capture', {role: calibrationRole()});
+  if (calibrationBlock(last) === null) calibrationAction('capture', { role: calibrationRole() });
 }
 // Calibrate: the still a pause takes once the arms have held SETTLE_MS (teleop_mode.js), checked every 100 ms.
 setInterval(() => {
@@ -948,7 +1230,8 @@ setInterval(() => {
   if (pauseStill.due(last?.teleop, now, teleopView(last?.teleop).mode)) captureStill();
   if (last && !$('calibration').hidden) $('calibration-auto').textContent = stillLine(now);
 }, 100);
-for (const button of document.querySelectorAll('#cal-steps button')) button.onclick = () => chooseStep(button.dataset.step);
+for (const button of document.querySelectorAll('#cal-steps button'))
+  button.onclick = () => chooseStep(button.dataset.step);
 for (const button of document.querySelectorAll('#calibration-role button')) {
   button.onclick = () => chooseRole(button.dataset.role);
 }
@@ -958,7 +1241,7 @@ $('cal-next-go').onclick = () => {
   else if (action?.role) chooseRole(action.role);
 };
 $('calibration-capture').onclick = captureStill;
-$('calibration-undo').onclick = () => calibrationAction('undo', {role: calibrationRole()});
+$('calibration-undo').onclick = () => calibrationAction('undo', { role: calibrationRole() });
 $('calibration-solve').onclick = () => calibrationAction('solve', {}, 600000);
 $('calibration-new').onclick = () => calibrationAction('new');
 // A solve that is not usable saves only on a second press within 4 s (asked in the page: embedded browsers suppress
@@ -968,7 +1251,9 @@ $('calibration-save').onclick = () => {
   if (headVerdict(last?.head_alignment?.result)?.level === 'redo' && performance.now() > saveArmed) {
     saveArmed = performance.now() + 4000;
     $('calibration-save').textContent = 'Save anyway? It is not usable';
-    setTimeout(() => { if (performance.now() > saveArmed) $('calibration-save').textContent = 'Save alignment'; }, 4100);
+    setTimeout(() => {
+      if (performance.now() > saveArmed) $('calibration-save').textContent = 'Save alignment';
+    }, 4100);
     return;
   }
   saveArmed = 0;
@@ -986,14 +1271,16 @@ function renderTwin(state) {
   $('twin-apply').classList.toggle('primary', !$('twin-apply').disabled);
   $('twin-clear').disabled = twinPending || twin.busy || !twin.applied;
   $('twin-status').textContent = twinStatusText(twin);
-  $('twin-lines').replaceChildren(...twinLines(twin).map(line => {
-    const item = document.createElement('li');
-    const title = document.createElement('b');
-    title.textContent = line.title;
-    item.append(title, document.createTextNode(line.title ? ` ${line.text}` : line.text));
-    if (line.bad) item.className = 'bad';
-    return item;
-  }));
+  $('twin-lines').replaceChildren(
+    ...twinLines(twin).map((line) => {
+      const item = document.createElement('li');
+      const title = document.createElement('b');
+      title.textContent = line.title;
+      item.append(title, document.createTextNode(line.title ? ` ${line.text}` : line.text));
+      if (line.bad) item.className = 'bad';
+      return item;
+    }),
+  );
   $('twin-error').hidden = !twin.error;
   $('twin-error').textContent = twin.error || '';
 }
@@ -1015,9 +1302,11 @@ $('twin-apply').onclick = () => twinAction('apply');
 $('twin-clear').onclick = () => twinAction('clear');
 
 // Splat maps: a head scene capture in a live session, and the captures and maps (helm.maps).
-let mapSeconds = 30, mapsPending = false;
+let mapSeconds = 30,
+  mapsPending = false;
 function renderMaps(state) {
-  const maps = state.maps, section = $('maps');
+  const maps = state.maps,
+    section = $('maps');
   section.hidden = !maps;
   if (!maps) return;
   const blocked = mapCaptureBlock(maps, state.teleop);
@@ -1028,14 +1317,16 @@ function renderMaps(state) {
   $('maps-capture').disabled = mapsPending || Boolean(blocked);
   $('maps-capture').textContent = maps.busy ? 'Capturing…' : `Capture ${mapSeconds} s`;
   $('maps-status').textContent = mapStatusText(maps) + (blocked && !maps.busy ? ` · ${blocked}` : '');
-  $('maps-list').replaceChildren(...mapLines(maps).map(line => {
-    const item = document.createElement('li');
-    const title = document.createElement('b');
-    title.textContent = line.title;
-    item.append(title, document.createTextNode(` ${line.text}`));
-    if (line.bad) item.className = 'bad';
-    return item;
-  }));
+  $('maps-list').replaceChildren(
+    ...mapLines(maps).map((line) => {
+      const item = document.createElement('li');
+      const title = document.createElement('b');
+      title.textContent = line.title;
+      item.append(title, document.createTextNode(` ${line.text}`));
+      if (line.bad) item.className = 'bad';
+      return item;
+    }),
+  );
   $('maps-error').hidden = !maps.error;
   $('maps-error').textContent = maps.error || '';
 }
@@ -1044,7 +1335,7 @@ async function captureMap() {
   mapsPending = true;
   if (last) renderMaps(last);
   try {
-    render(await request('/api/helm/maps/capture', {seconds: mapSeconds}, (mapSeconds + 90) * 1000));
+    render(await request('/api/helm/maps/capture', { seconds: mapSeconds }, (mapSeconds + 90) * 1000));
   } catch (error) {
     $('maps-error').hidden = false;
     $('maps-error').textContent = error.message;
@@ -1054,7 +1345,10 @@ async function captureMap() {
   }
 }
 for (const button of document.querySelectorAll('#maps-seconds button')) {
-  button.onclick = () => { mapSeconds = Number(button.dataset.seconds); if (last) renderMaps(last); };
+  button.onclick = () => {
+    mapSeconds = Number(button.dataset.seconds);
+    if (last) renderMaps(last);
+  };
 }
 $('maps-capture').onclick = captureMap;
 
@@ -1074,12 +1368,16 @@ const modelViewerSource = $('model-view').getAttribute('src');
 let modelViewerPaused = false;
 
 function taskOwnsViewer(state) {
-  return state?.mode === 'simulation' && state.teleop?.task_configured === true
-    && ['starting', 'running'].includes(state.teleop?.phase);
+  return (
+    state?.mode === 'simulation' &&
+    state.teleop?.task_configured === true &&
+    ['starting', 'running'].includes(state.teleop?.phase)
+  );
 }
 
 function renderTaskViewer(state, cameras = false) {
-  const taskWindow = taskOwnsViewer(state), paused = taskWindow || cameras;
+  const taskWindow = taskOwnsViewer(state),
+    paused = taskWindow || cameras;
   if (paused !== modelViewerPaused) {
     // Unload the duplicate WebGL document; hiding it leaves its animation loop running.
     $('model-view').src = paused ? 'about:blank' : modelViewerSource;
@@ -1091,9 +1389,13 @@ function renderTaskViewer(state, cameras = false) {
 }
 
 function renderTask(state) {
-  const t = state.teleop, task = t?.task || {}, configured = !!t?.task_configured;
-  const running = ['starting', 'running'].includes(t?.phase), simulation = state.mode === 'simulation';
-  const recording = task.recording || {}, active = recording.active === true || recording.state === 'recording';
+  const t = state.teleop,
+    task = t?.task || {},
+    configured = !!t?.task_configured;
+  const running = ['starting', 'running'].includes(t?.phase),
+    simulation = state.mode === 'simulation';
+  const recording = task.recording || {},
+    active = recording.active === true || recording.state === 'recording';
   const pending = task.last_command?.state === 'pending';
   $('task-mode').textContent = simulation ? 'SIMULATED CONTACT TASK' : 'BIMANUAL ROBOT CAPTURE';
   $('task-capability').textContent = simulation
@@ -1104,35 +1406,68 @@ function renderTask(state) {
   $('task-setup').disabled = running || !t;
   $('task-setup').textContent = configured ? 'Task configured' : 'Set up task';
   $('task-reset').hidden = !simulation;
-  $('task-reset').disabled = !!t?.recording_fault || !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
-  $('task-record').disabled = !task.available || !task.capture_ready || !running || active || pending || task.failed || t?.recording_fault || !['HOLD', 'TELEOP'].includes(t?.state);
+  $('task-reset').disabled =
+    !!t?.recording_fault || !task.available || !running || active || !['DISABLED', 'IDLE'].includes(t?.state);
+  $('task-record').disabled =
+    !task.available ||
+    !task.capture_ready ||
+    !running ||
+    active ||
+    pending ||
+    task.failed ||
+    t?.recording_fault ||
+    !['HOLD', 'TELEOP'].includes(t?.state);
   $('task-stop').disabled = !!t?.recording_fault || !running || !active || pending;
   const progress = task.task || {};
-  $('task-state').textContent = t?.recording_fault || task.error ? 'Task needs attention.' : !configured ? 'Task not configured.'
-    : !running ? 'Ready to start a session. Task controls do not enable motors.'
-    : task.display_phase || progress.phase || progress.stage || (task.available ? 'Task ready.' : 'Preparing task…');
+  $('task-state').textContent =
+    t?.recording_fault || task.error
+      ? 'Task needs attention.'
+      : !configured
+        ? 'Task not configured.'
+        : !running
+          ? 'Ready to start a session. Task controls do not enable motors.'
+          : task.display_phase ||
+            progress.phase ||
+            progress.stage ||
+            (task.available ? 'Task ready.' : 'Preparing task…');
   $('task-cameras').hidden = simulation;
-  $('task-cameras').textContent = task.camera_summary || 'Camera preflight starts with the bimanual session; all configured streams are required.';
+  $('task-cameras').textContent =
+    task.camera_summary || 'Camera preflight starts with the bimanual session; all configured streams are required.';
   const summary = recording.state || (active ? 'recording' : configured ? 'idle' : 'not started');
-  $('task-recording').textContent = `Recording: ${summary}`
-    + (Number.isFinite(recording.frames) ? ` · ${recording.frames} frames` : '')
-    + (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '')
-    + (simulation ? (task.cameras?.ready ? ' · simulated cameras rendered' : '')
-      : task.cameras ? ` · cameras: ${Object.entries(task.cameras).map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`).join(', ')}` : '');
+  $('task-recording').textContent =
+    `Recording: ${summary}` +
+    (Number.isFinite(recording.frames) ? ` · ${recording.frames} frames` : '') +
+    (recording.path || recording.directory ? ` · ${recording.path || recording.directory}` : '') +
+    (simulation
+      ? task.cameras?.ready
+        ? ' · simulated cameras rendered'
+        : ''
+      : task.cameras
+        ? ` · cameras: ${Object.entries(task.cameras)
+            .map(([name, c]) => `${name} ${c.fresh ? 'fresh' : c.error || 'waiting'}`)
+            .join(', ')}`
+        : '');
   const error = t?.recording_fault || task.error || recording.error || task.last_command?.error || '';
   $('task-error').hidden = !error;
   $('task-error').textContent = error;
 }
-for (const [id, action] of [['task-setup', 'setup'], ['task-reset', 'reset'],
-                           ['task-record', 'start_record'], ['task-stop', 'stop_record']]) {
-  $(id).onclick = () => act('/api/helm/task', {action}, action === 'setup' ? 'Task configured; start the session when ready.' : null);
+for (const [id, action] of [
+  ['task-setup', 'setup'],
+  ['task-reset', 'reset'],
+  ['task-record', 'start_record'],
+  ['task-stop', 'stop_record'],
+]) {
+  $(id).onclick = () =>
+    act('/api/helm/task', { action }, action === 'setup' ? 'Task configured; start the session when ready.' : null);
 }
 
 // ---- Minerva Check -------------------------------------------------------------
-const CHECK_ICON = {pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '○', queued: '·', running: '…'};
-const VERDICT = {go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE', outdated: 'OUTDATED'};
+const CHECK_ICON = { pass: '✓', warn: '!', fail: '✕', skip: '–', pending: '○', queued: '·', running: '…' };
+const VERDICT = { go: 'GO', no_go: 'NO GO', incomplete: 'INCOMPLETE', outdated: 'OUTDATED' };
 const crows = new Map();
-let checkLayout = '', checkRunning = null, checkWasRunning = false;
+let checkLayout = '',
+  checkRunning = null,
+  checkWasRunning = false;
 
 function renderCheck(c) {
   const tab = document.querySelector('.tab[data-tab=check]');
@@ -1149,8 +1484,8 @@ function renderCheck(c) {
   run.disabled = c.running;
   run.textContent = c.running ? 'Checking…' : 'Run check';
 
-  const checks = report ? report.stages.flatMap(stage => stage.checks) : [];
-  const done = checks.filter(entry => !['queued', 'running'].includes(entry.status)).length;
+  const checks = report ? report.stages.flatMap((stage) => stage.checks) : [];
+  const done = checks.filter((entry) => !['queued', 'running'].includes(entry.status)).length;
   const verdict = $('c-verdict');
   const [title, detail] = verdict.children;
   if (c.error) {
@@ -1158,22 +1493,23 @@ function renderCheck(c) {
     [title.textContent, detail.textContent] = ['Check stopped', c.error];
   } else if (c.running || report?.state === 'running') {
     verdict.dataset.verdict = 'running';
-    const current = checks.find(entry => entry.status === 'running');
+    const current = checks.find((entry) => entry.status === 'running');
     title.textContent = `Checking… ${done}/${checks.length || '—'}`;
     detail.textContent = current ? current.title : 'Starting';
   } else if (report) {
     verdict.dataset.verdict = report.verdict;
     title.textContent = VERDICT[report.verdict] || report.verdict;
     const when = new Date(report.finished_at || report.started_at).toLocaleString();
-    detail.textContent = `${report.summary.replace(/^(NO GO|GO|INCOMPLETE):?\s*/, '')} · ${when}`
-      + (report.seconds ? ` · ${Math.round(report.seconds)} s` : '');
+    detail.textContent =
+      `${report.summary.replace(/^(NO GO|GO|INCOMPLETE):?\s*/, '')} · ${when}` +
+      (report.seconds ? ` · ${Math.round(report.seconds)} s` : '');
   } else {
     verdict.dataset.verdict = '';
     [title.textContent, detail.textContent] = ['Not run yet', 'Press Run check.'];
   }
 
   const container = $('check-stages');
-  const layout = report ? report.stages.map(stage => `${stage.id}:${stage.checks.map(e => e.id)}`).join('|') : '';
+  const layout = report ? report.stages.map((stage) => `${stage.id}:${stage.checks.map((e) => e.id)}`).join('|') : '';
   if (layout !== checkLayout) {
     container.replaceChildren();
     crows.clear();
@@ -1197,8 +1533,9 @@ function renderCheck(c) {
   // The live joint sweep: attended, from here, once the stopped checks pass (the server checks too).
   const tune = last?.tune;
   const sweeping = tune && ['running', 'starting'].includes(tune.phase);
-  const stoppedFailed = report ? report.stages.some(stage => stage.id !== 'sweep'
-    && stage.checks.some(entry => entry.status === 'fail')) : true;
+  const stoppedFailed = report
+    ? report.stages.some((stage) => stage.id !== 'sweep' && stage.checks.some((entry) => entry.status === 'fail'))
+    : true;
   for (const stage of report ? report.stages : []) {
     for (const entry of stage.checks) {
       const row = crows.get(`${stage.id}/${entry.id}`);
@@ -1206,8 +1543,12 @@ function renderCheck(c) {
       row.querySelector('.cicon').textContent = CHECK_ICON[entry.status] || '?';
       const arm = stage.id === 'sweep' && /^sweep_(left|right)$/.test(entry.id) ? entry.id.slice(6) : null;
       const live = arm && sweeping && tune.mode === 'verify' && tune.receiver_choice?.arm === arm;
-      row.querySelector('.cdetail').textContent = entry.status === 'running' ? 'Checking…'
-        : live ? `${tune.progress?.task || 'Starting'} · ${tune.message || ''}` : entry.detail;
+      row.querySelector('.cdetail').textContent =
+        entry.status === 'running'
+          ? 'Checking…'
+          : live
+            ? `${tune.progress?.task || 'Starting'} · ${tune.message || ''}`
+            : entry.detail;
       if (arm) {
         let button = row.querySelector('button.live');
         if (!button) {
@@ -1223,7 +1564,7 @@ function renderCheck(c) {
       row.querySelector('.ctime').textContent = entry.seconds == null ? '' : `${entry.seconds.toFixed(1)} s`;
       if (entry.status === 'running' && checkRunning !== row) {
         checkRunning = row;
-        row.scrollIntoView({block: 'nearest'});  // Follow the run, once per check.
+        row.scrollIntoView({ block: 'nearest' }); // Follow the run, once per check.
       }
     }
   }
@@ -1232,7 +1573,7 @@ function renderCheck(c) {
 // ---- Leaders workspace -------------------------------------------------------
 const lcards = new Map();
 let leaderState = null;
-const degrees = span => `${span.toFixed(2)} rad · ${(span * DEG).toFixed(0)}°`;
+const degrees = (span) => `${span.toFixed(2)} rad · ${(span * DEG).toFixed(0)}°`;
 
 function buildLeader(row) {
   const card = document.createElement('div');
@@ -1243,14 +1584,18 @@ function buildLeader(row) {
     <div class="joint-foot"><span class="status" role="status"></span><button class="reset">Reset</button><button class="confirm primary">Confirm</button></div>`;
   const name = `${row.leader} ${row.label.toLowerCase()}`;
   card.querySelector('.joint-name').textContent = row.label;
-  card.querySelector('.motor').textContent = `${row.leader} leader ch ${row.channel}`
-    + (row.drives ? ` → ${row.drives_label} (${row.drives})` : ' · not routed to the robot');
+  card.querySelector('.motor').textContent =
+    `${row.leader} leader ch ${row.channel}` +
+    (row.drives ? ` → ${row.drives_label} (${row.drives})` : ' · not routed to the robot');
   card.querySelector('.reset').onclick = () =>
-    act('/api/helm/leaders/range', {action: 'reset', key: row.key}, `Cleared the sweep for the ${name}.`);
+    act('/api/helm/leaders/range', { action: 'reset', key: row.key }, `Cleared the sweep for the ${name}.`);
   card.querySelector('.confirm').onclick = () => {
     const undo = ['confirmed', 'changed'].includes(card.dataset.status);
-    act('/api/helm/leaders/range', {action: undo ? 'unconfirm' : 'confirm', key: row.key},
-      undo ? `The ${name} is no longer confirmed.` : `The ${name} is confirmed. Save when you are done.`);
+    act(
+      '/api/helm/leaders/range',
+      { action: undo ? 'unconfirm' : 'confirm', key: row.key },
+      undo ? `The ${name} is no longer confirmed.` : `The ${name} is confirmed. Save when you are done.`,
+    );
   };
   return card;
 }
@@ -1258,14 +1603,19 @@ function buildLeader(row) {
 function updateLeader(card, row, live) {
   const saved = row.saved;
   const swept = row.seen_low == null ? 0 : row.seen_high - row.seen_low;
-  const untouched = !row.samples || swept < .02;
+  const untouched = !row.samples || swept < 0.02;
   const problem = untouched ? 'Not swept yet: move it to each end and hold there' : row.problem;
-  const sameAsSaved = saved && row.low != null && row.low >= saved.low - .01 && row.high <= saved.high + .01;
+  const sameAsSaved = saved && row.low != null && row.low >= saved.low - 0.01 && row.high <= saved.high + 0.01;
   let status, text;
-  if (row.confirmed && row.changed_since_confirmed) [status, text] = ['changed', 'The range grew after confirming. Confirm again.'];
+  if (row.confirmed && row.changed_since_confirmed)
+    [status, text] = ['changed', 'The range grew after confirming. Confirm again.'];
   else if (row.confirmed) [status, text] = ['confirmed', 'Confirmed. Save to keep it.'];
   else if (saved && (untouched || sameAsSaved)) [status, text] = ['saved', `Saved: ${degrees(saved.span_rad)}`];
-  else if (!row.problem) [status, text] = ['ready', saved ? 'Wider than the saved range. Confirm to replace it.' : 'Both ends held. Confirm when this one is done.'];
+  else if (!row.problem)
+    [status, text] = [
+      'ready',
+      saved ? 'Wider than the saved range. Confirm to replace it.' : 'Both ends held. Confirm when this one is done.',
+    ];
   else if (saved) [status, text] = ['saved', `Saved: ${degrees(saved.span_rad)} · new sweep: ${problem}`];
   else [status, text] = ['sweeping', problem];
   if (row.jumps) text += ` · ${row.jumps} glitch reading${row.jumps > 1 ? 's' : ''} ignored`;
@@ -1279,21 +1629,34 @@ function updateLeader(card, row, live) {
   card.querySelector('.v-seen').textContent = row.seen_low == null ? '—' : `${swept.toFixed(2)} rad`;
   card.querySelector('.v-samples').textContent = row.samples || '—';
 
-  const values = [row.current, row.seen_low, row.seen_high, saved?.low, saved?.high, row.reference].filter(Number.isFinite);
-  const [seen, held, savedBox, ref, now] = ['.seen', '.held', '.saved', '.ref', '.now'].map(s => card.querySelector(s));
+  const values = [row.current, row.seen_low, row.seen_high, saved?.low, saved?.high, row.reference].filter(
+    Number.isFinite,
+  );
+  const [seen, held, savedBox, ref, now] = ['.seen', '.held', '.saved', '.ref', '.now'].map((s) =>
+    card.querySelector(s),
+  );
   if (values.length) {
-    const lo = Math.min(...values), hi = Math.max(...values);
-    const pad = Math.max(hi - lo, .2) * .08, a = lo - pad, b = hi + pad;
-    const at = q => `${Math.max(0, Math.min(100, (q - a) / (b - a) * 100))}%`;
+    const lo = Math.min(...values),
+      hi = Math.max(...values);
+    const pad = Math.max(hi - lo, 0.2) * 0.08,
+      a = lo - pad,
+      b = hi + pad;
+    const at = (q) => `${Math.max(0, Math.min(100, ((q - a) / (b - a)) * 100))}%`;
     const span = (element, from, to) => {
       element.hidden = false;
       element.style.left = at(from);
       element.style.width = `max(calc(${at(to)} - ${at(from)}), 3px)`;
     };
-    if (row.seen_low != null) span(seen, row.seen_low, row.seen_high); else seen.hidden = true;
-    if (row.low != null) span(held, row.low, row.high); else held.hidden = true;
-    if (saved) span(savedBox, saved.low, saved.high); else savedBox.hidden = true;
-    for (const [element, value] of [[now, row.current], [ref, row.reference]]) {
+    if (row.seen_low != null) span(seen, row.seen_low, row.seen_high);
+    else seen.hidden = true;
+    if (row.low != null) span(held, row.low, row.high);
+    else held.hidden = true;
+    if (saved) span(savedBox, saved.low, saved.high);
+    else savedBox.hidden = true;
+    for (const [element, value] of [
+      [now, row.current],
+      [ref, row.reference],
+    ]) {
       element.hidden = !Number.isFinite(value);
       if (!element.hidden) element.style.left = at(value);
     }
@@ -1322,8 +1685,9 @@ function renderLeaders(l) {
   if (leaderState === 'connecting' && l.state !== 'connecting') $('leaders-status').textContent = '';
   leaderState = l.state;
   $('l-pill').className = `pill ${live ? 'live' : l.state === 'fault' ? 'bad' : connected ? 'busy' : ''}`;
-  $('l-text').textContent = live ? `Live · ${Math.round(l.age_seconds * 1000)} ms`
-    : {reading: 'Leaders stale', connecting: 'Connecting…', fault: 'Leader fault'}[l.state] || 'Not connected';
+  $('l-text').textContent = live
+    ? `Live · ${Math.round(l.age_seconds * 1000)} ms`
+    : { reading: 'Leaders stale', connecting: 'Connecting…', fault: 'Leader fault' }[l.state] || 'Not connected';
   const button = $('l-connect');
   button.textContent = connected ? 'Disconnect leaders' : 'Connect leaders';
   button.className = connected ? 'danger' : 'primary';
@@ -1331,10 +1695,14 @@ function renderLeaders(l) {
   const summary = $('l-summary');
   const file = l.path.split(/[\\/]/).pop();
   summary.className = l.saved_error || l.state === 'fault' ? 'muted bad' : 'muted';
-  summary.textContent = l.state === 'fault' ? l.message
-    : l.saved_error ? `Saved ranges were not loaded: ${l.saved_error}`
-    : l.saved_channels ? `Saved: ${l.saved_channels}/${l.total_channels} · ${new Date(l.saved_at).toLocaleString()} · ${file}`
-    : `Nothing saved yet. Ranges will be written to ${file}.`;
+  summary.textContent =
+    l.state === 'fault'
+      ? l.message
+      : l.saved_error
+        ? `Saved ranges were not loaded: ${l.saved_error}`
+        : l.saved_channels
+          ? `Saved: ${l.saved_channels}/${l.total_channels} · ${new Date(l.saved_at).toLocaleString()} · ${file}`
+          : `Nothing saved yet. Ranges will be written to ${file}.`;
   const zero = l.reference || {};
   if (zero.captured_at) summary.textContent += ` · Zero set ${new Date(zero.captured_at).toLocaleString()}.`;
   else if (!l.saved_error && l.state !== 'fault') summary.textContent += ' · No leader zero yet.';
@@ -1350,7 +1718,7 @@ function renderLeaders(l) {
       heading.className = 'arm';
       heading.textContent = title.toUpperCase();
       container.append(heading);
-      for (const row of l.rows.filter(r => r.leader === leader)) {
+      for (const row of l.rows.filter((r) => r.leader === leader)) {
         const card = buildLeader(row);
         lcards.set(row.key, card);
         container.append(card);
@@ -1364,15 +1732,20 @@ function renderLeaders(l) {
 const tcards = new Map();
 const ENGAGED = ['ENGAGING', 'TELEOP'];
 let teleopPhase = null;
-const fixed = q => (q == null || !Number.isFinite(q)) ? '—' : signed(q, 2);
+const fixed = (q) => (q == null || !Number.isFinite(q) ? '—' : signed(q, 2));
 
 const manualFields = ['kp', 'kd', 'speed', 'follow', 'travel_rad'];
 const manualCards = new Map();
-let manualState = null, manualBase = null, manualDraft = new Map(), manualPending = false, manualConflict = false;
+let manualState = null,
+  manualBase = null,
+  manualDraft = new Map(),
+  manualPending = false,
+  manualConflict = false;
 // The velocity feed-forward switch as drafted, and whether a session runs (it switches only at a session start).
-let manualFeedforward = false, manualSessionRunning = false;
+let manualFeedforward = false,
+  manualSessionRunning = false;
 const manualRetiredSessions = [];
-const manualNumber = value => Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—';
+const manualNumber = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(6))) : '—');
 
 // Top following speed in open travel (teleop.lifecycle): a command leads the joint's position, predicted to when
 // it is computed, by at most its lead, and the drive sees it about a loop later, when the joint has closed v × lag
@@ -1386,64 +1759,90 @@ function leadLimitedSpeed(following, kp, kd, feedforward) {
 
 function manualEstimate(row, draft) {
   const f = row.following;
-  if (!f || f.gripper) return {text: '', binds: ''};
-  const [kp, kd, limit] = ['kp', 'kd', 'speed'].map(field => manualValue(draft, field, row));
-  if (![kp, kd, limit].every(Number.isFinite)) return {text: '', binds: ''};
-  const vff = manualFeedforward, speed = leadLimitedSpeed(f, kp, kd, vff), lead = `${f.max_lead.toFixed(3)} rad`;
-  const lag = `${(f.command_lag_s * 1000).toFixed(0)} ms`, values = `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − `
-    + `${f.friction_nm.toFixed(2)})`;
-  const title = (vff
-    ? `(Kp × lead − friction) ÷ (Kp × ${lag}) = ${values} ÷ (${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). `
-      + 'The command\'s speed is fed forward, so Kd damps the joint about it instead of dragging it.'
-    : `(Kp × lead − friction) ÷ (Kd + Kp × ${lag}) = ${values} ÷ (${manualNumber(kd)} + ${manualNumber(kp)} × `
-      + `${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags against all motion.`)
-    + ' The drive sees each command about a loop late. Open travel only: commands slow near either end.';
+  if (!f || f.gripper) return { text: '', binds: '' };
+  const [kp, kd, limit] = ['kp', 'kd', 'speed'].map((field) => manualValue(draft, field, row));
+  if (![kp, kd, limit].every(Number.isFinite)) return { text: '', binds: '' };
+  const vff = manualFeedforward,
+    speed = leadLimitedSpeed(f, kp, kd, vff),
+    lead = `${f.max_lead.toFixed(3)} rad`;
+  const lag = `${(f.command_lag_s * 1000).toFixed(0)} ms`,
+    values = `(${manualNumber(kp)} × ${f.max_lead.toFixed(4)} − ` + `${f.friction_nm.toFixed(2)})`;
+  const title =
+    (vff
+      ? `(Kp × lead − friction) ÷ (Kp × ${lag}) = ${values} ÷ (${manualNumber(kp)} × ${f.command_lag_s.toFixed(3)}). ` +
+        "The command's speed is fed forward, so Kd damps the joint about it instead of dragging it."
+      : `(Kp × lead − friction) ÷ (Kd + Kp × ${lag}) = ${values} ÷ (${manualNumber(kd)} + ${manualNumber(kp)} × ` +
+        `${f.command_lag_s.toFixed(3)}). Position-only control sends no velocity, so Kd drags against all motion.`) +
+    ' The drive sees each command about a loop late. Open travel only: commands slow near either end.';
   // As shown (two decimals): 0.998 under a 1 rad/s limit reads as the limit, not "1.00, under your 1".
-  if (Number(speed.toFixed(2)) >= limit) return {binds: 'limit', title, text: `Top speed is your ${manualNumber(limit)} rad/s limit; `
-    + `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`};
+  if (Number(speed.toFixed(2)) >= limit)
+    return {
+      binds: 'limit',
+      title,
+      text:
+        `Top speed is your ${manualNumber(limit)} rad/s limit; ` +
+        `the ${lead} lead alone would allow ≈ ${speed.toFixed(2)} rad/s.`,
+    };
   // A drive that reports no torque leaves its sweep's friction at zero (left J1: 5e-20 Nm).
-  const friction = f.friction_nm >= .01 ? '' : ' No friction was measured for this joint, so expect less.';
-  return {binds: 'lead', title, text: speed > 0
-    ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it `
-      + `at these gains. Raise Kp to follow faster${vff ? '' : ' (lowering Kd does too, but damps less)'}.`
-      + friction
-    : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's `
-      + `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`};
+  const friction = f.friction_nm >= 0.01 ? '' : ' No friction was measured for this joint, so expect less.';
+  return {
+    binds: 'lead',
+    title,
+    text:
+      speed > 0
+        ? `Top speed ≈ ${speed.toFixed(2)} rad/s, under your ${manualNumber(limit)} rad/s limit: the ${lead} lead caps it ` +
+          `at these gains. Raise Kp to follow faster${vff ? '' : ' (lowering Kd does too, but damps less)'}.` +
+          friction
+        : `At this Kp the ${lead} lead pulls with ${(kp * f.max_lead).toFixed(2)} Nm, under the joint's ` +
+          `${f.friction_nm.toFixed(2)} Nm of friction: it may not follow.`,
+  };
 }
 // Draft text matches the Active line (9.799999999999999 shows as 9.8); text left as shown keeps the exact value.
-const manualText = value => value == null ? '' : manualNumber(value);
+const manualText = (value) => (value == null ? '' : manualNumber(value));
 
 function manualValue(draft, field, row) {
   if (field === 'follow') return draft.follow;
   const value = draft[field].trim();
-  if (row && value === manualText(row[field])) return row[field];  // Untouched: the exact applied value.
+  if (row && value === manualText(row[field])) return row[field]; // Untouched: the exact applied value.
   return value === '' ? (field === 'travel_rad' ? null : NaN) : Number(value);
 }
 
 function manualRowChanged(motor, row) {
   const draft = manualDraft.get(motor);
-  return !draft || manualFields.some(field => manualValue(draft, field, row) !== row[field]);
+  return !draft || manualFields.some((field) => manualValue(draft, field, row) !== row[field]);
 }
 
 function manualHasEdits() {
-  return !!manualBase && (manualBase.rows.some(row => manualRowChanged(row.motor, row))
-    || manualFeedforward !== (manualBase.velocity_feedforward === true)
-    || [...manualCards.values()].some(card => [...card.querySelectorAll('input')].some(input => input.validity.badInput)));
+  return (
+    !!manualBase &&
+    (manualBase.rows.some((row) => manualRowChanged(row.motor, row)) ||
+      manualFeedforward !== (manualBase.velocity_feedforward === true) ||
+      [...manualCards.values()].some((card) =>
+        [...card.querySelectorAll('input')].some((input) => input.validity.badInput),
+      ))
+  );
 }
 
 function resetManualDraft(settings) {
   manualBase = settings;
   manualFeedforward = settings.velocity_feedforward === true;
   $('manual-vff').checked = manualFeedforward;
-  manualDraft = new Map(settings.rows.map(row => [row.motor, Object.fromEntries(manualFields.map(field =>
-    [field, field === 'follow' ? row[field] : manualText(row[field])]))]));
+  manualDraft = new Map(
+    settings.rows.map((row) => [
+      row.motor,
+      Object.fromEntries(
+        manualFields.map((field) => [field, field === 'follow' ? row[field] : manualText(row[field])]),
+      ),
+    ]),
+  );
   manualConflict = false;
   for (const [motor, card] of manualCards) {
     const draft = manualDraft.get(motor);
     if (!draft) continue;
     for (const field of manualFields) {
       const input = card.querySelector(`[data-field="${field}"]`);
-      if (field === 'follow') input.checked = draft[field]; else input.value = draft[field];
+      if (field === 'follow') input.checked = draft[field];
+      else input.value = draft[field];
     }
   }
 }
@@ -1454,37 +1853,49 @@ function manualFeedback(message = '', bad = false) {
 }
 
 function manualValid() {
-  return [...manualCards.values()].every(card => [...card.querySelectorAll('input')].every(input => input.checkValidity()));
+  return [...manualCards.values()].every((card) =>
+    [...card.querySelectorAll('input')].every((input) => input.checkValidity()),
+  );
 }
 
 function updateManualActions() {
   if (!manualState?.enabled) return;
-  const edits = manualHasEdits(), valid = manualValid();
+  const edits = manualHasEdits(),
+    valid = manualValid();
   $('manual-apply').disabled = manualPending || manualConflict || !edits || !valid || !manualState.can_apply;
   $('manual-revert').disabled = manualPending || (!edits && !manualConflict);
   $('manual-save').disabled = manualPending || manualConflict || edits || !manualState.can_save;
-  $('manual-restore').disabled = manualPending || manualConflict || edits || !manualState.saved_revision || !manualState.can_apply;
+  $('manual-restore').disabled =
+    manualPending || manualConflict || edits || !manualState.saved_revision || !manualState.can_apply;
   $('manual-vff').disabled = manualPending || manualConflict || manualSessionRunning || !manualState.can_apply;
   $('manual-vff-note').textContent = manualSessionRunning
     ? `${manualState.velocity_feedforward ? 'On' : 'Off'} for this session; it switches at the next session start.`
     : manualFeedforward
-      ? "From the next session: Kd damps each joint about its command's speed instead of dragging it. None is fed "
-        + 'toward an end inside its braking zone. Expect more overshoot when a fast move stops.'
+      ? "From the next session: Kd damps each joint about its command's speed instead of dragging it. None is fed " +
+        'toward an end inside its braking zone. Expect more overshoot when a fast move stops.'
       : 'Off: position only. Kd damps and also drags against motion (the safer, slower default).';
   $('manual-mirror-left').disabled = manualPending || manualConflict || !mirrorPairs('left', 'right').length;
   $('manual-mirror-right').disabled = manualPending || manualConflict || !mirrorPairs('right', 'left').length;
-  $('manual-gate').textContent = manualPending ? 'Waiting for the receiver to acknowledge the settings…'
-    : manualConflict ? 'The session or active settings changed. Revert edits to review the current values before applying.'
-    : !valid ? 'Enter finite values within the displayed bounds. Travel may be blank.'
-    : !manualState.can_apply ? manualState.reason || 'Hold with T before applying settings.'
-    : edits ? 'Draft edits are not active. Apply to test them; Save writes only applied settings.'
-    : !manualState.can_save && manualState.dirty ? manualState.reason || 'Saving is not available in this state.' : '';
+  $('manual-gate').textContent = manualPending
+    ? 'Waiting for the receiver to acknowledge the settings…'
+    : manualConflict
+      ? 'The session or active settings changed. Revert edits to review the current values before applying.'
+      : !valid
+        ? 'Enter finite values within the displayed bounds. Travel may be blank.'
+        : !manualState.can_apply
+          ? manualState.reason || 'Hold with T before applying settings.'
+          : edits
+            ? 'Draft edits are not active. Apply to test them; Save writes only applied settings.'
+            : !manualState.can_save && manualState.dirty
+              ? manualState.reason || 'Saving is not available in this state.'
+              : '';
   for (const [motor, card] of manualCards) {
-    const row = manualState.rows.find(row => row.motor === motor);
+    const row = manualState.rows.find((row) => row.motor === motor);
     const changed = row && manualRowChanged(motor, row);
     card.dataset.edited = String(!!changed);
     card.querySelector('.manual-draft-status').textContent = changed ? 'Draft · not applied' : 'Matches active';
-    const estimate = card.querySelector('.manual-estimate'), speed = row ? manualEstimate(row, manualDraft.get(motor)) : {};
+    const estimate = card.querySelector('.manual-estimate'),
+      speed = row ? manualEstimate(row, manualDraft.get(motor)) : {};
     estimate.textContent = speed.text || '';
     estimate.hidden = !speed.text;
     estimate.title = speed.title || '';
@@ -1502,7 +1913,12 @@ function buildManualRow(row) {
     <p class="manual-estimate"></p><span class="manual-draft-status"></span>`;
   card.querySelector('.manual-label').textContent = row.label;
   card.querySelector('.motor').textContent = row.motor;
-  const fields = [['kp', 'Kp'], ['kd', 'Kd'], ['speed', 'Speed · rad/s'], ['travel_rad', 'Travel · ±rad']];
+  const fields = [
+    ['kp', 'Kp'],
+    ['kd', 'Kd'],
+    ['speed', 'Speed · rad/s'],
+    ['travel_rad', 'Travel · ±rad'],
+  ];
   for (const [field, title] of fields) {
     const label = document.createElement('label');
     label.textContent = title;
@@ -1541,9 +1957,13 @@ function renderManual(t) {
   $('settings-manual-unavailable').hidden = !!settings?.enabled;
   if (!settings?.enabled) return;
   // A late poll must not replace an acknowledged revision or a newer session.
-  if (manualRetiredSessions.includes(settings.session_id)
-      || (manualState?.session_id === settings.session_id && settings.revision < manualState.revision)) return;
-  const changed = !manualState || manualState.session_id !== settings.session_id || manualState.revision !== settings.revision;
+  if (
+    manualRetiredSessions.includes(settings.session_id) ||
+    (manualState?.session_id === settings.session_id && settings.revision < manualState.revision)
+  )
+    return;
+  const changed =
+    !manualState || manualState.session_id !== settings.session_id || manualState.revision !== settings.revision;
   if (manualState && manualState.session_id !== settings.session_id) {
     manualRetiredSessions.push(manualState.session_id);
     if (manualRetiredSessions.length > 8) manualRetiredSessions.shift();
@@ -1554,16 +1974,26 @@ function renderManual(t) {
   }
   manualState = settings;
   manualSessionRunning = t.phase === 'running';
-  const container = $('manual-rows'), layout = settings.rows.map(row => row.motor).join(',');
+  const container = $('manual-rows'),
+    layout = settings.rows.map((row) => row.motor).join(',');
   if (container.dataset.layout !== layout) {
     container.dataset.layout = layout;
     container.replaceChildren();
     manualCards.clear();
     let arm = null;
     for (const row of settings.rows) {
-      if (!manualDraft.has(row.motor)) manualDraft.set(row.motor, Object.fromEntries(manualFields.map(field =>
-        [field, field === 'follow' ? row[field] : manualText(row[field])])));
-      const nextArm = row.motor.startsWith('left_') ? 'LEFT ARM' : row.motor.startsWith('right_') ? 'RIGHT ARM' : 'JOINTS';
+      if (!manualDraft.has(row.motor))
+        manualDraft.set(
+          row.motor,
+          Object.fromEntries(
+            manualFields.map((field) => [field, field === 'follow' ? row[field] : manualText(row[field])]),
+          ),
+        );
+      const nextArm = row.motor.startsWith('left_')
+        ? 'LEFT ARM'
+        : row.motor.startsWith('right_')
+          ? 'RIGHT ARM'
+          : 'JOINTS';
       if (nextArm !== arm) {
         const heading = document.createElement('h3');
         heading.className = 'arm';
@@ -1575,21 +2005,27 @@ function renderManual(t) {
       container.append(card);
     }
   }
-    const applied = t.phase === 'running' ? 'Active in session' : 'Ready for next session';
-    $('manual-state').textContent = `${applied} · ${settings.dirty ? 'changes not saved' : settings.saved_revision ? 'matches saved settings' : 'profile defaults'}`;
-    if (t.phase === 'running' && Number.isFinite(t.observation_age_ms) && t.observation_age_ms > 500)
-      $('manual-state').textContent += ` · joint display is ${(t.observation_age_ms / 1000).toFixed(1)} s old`;
-  const following = settings.rows.filter(row => row.follow);
-  $('manual-scope').textContent = `Applied follow selection: ${following.length ? following.map(row => row.label).join(', ') : 'none; all joints hold'}.`
-    + (settings.control === 'direct-velocity-feedforward'
-      ? ' Control: velocity fed forward, so Kd damps each joint about its command\'s speed (raise it to damp wobble).'
-      : settings.control === 'direct-position-only' ? ' Control: position only, so Kd also drags against motion.' : '');
+  const applied = t.phase === 'running' ? 'Active in session' : 'Ready for next session';
+  $('manual-state').textContent =
+    `${applied} · ${settings.dirty ? 'changes not saved' : settings.saved_revision ? 'matches saved settings' : 'profile defaults'}`;
+  if (t.phase === 'running' && Number.isFinite(t.observation_age_ms) && t.observation_age_ms > 500)
+    $('manual-state').textContent += ` · joint display is ${(t.observation_age_ms / 1000).toFixed(1)} s old`;
+  const following = settings.rows.filter((row) => row.follow);
+  $('manual-scope').textContent =
+    `Applied follow selection: ${following.length ? following.map((row) => row.label).join(', ') : 'none; all joints hold'}.` +
+    (settings.control === 'direct-velocity-feedforward'
+      ? " Control: velocity fed forward, so Kd damps each joint about its command's speed (raise it to damp wobble)."
+      : settings.control === 'direct-position-only'
+        ? ' Control: position only, so Kd also drags against motion.'
+        : '');
   for (const row of settings.rows) {
     const card = manualCards.get(row.motor);
-    card.querySelector('.manual-active').textContent = `Active: Kp ${manualNumber(row.kp)} · Kd ${manualNumber(row.kd)} · `
-      + `${manualNumber(row.speed)} rad/s · ${row.travel_rad == null ? 'full usable travel' : `±${manualNumber(row.travel_rad)} rad`} · ${row.follow ? 'follows' : 'holds'}`;
+    card.querySelector('.manual-active').textContent =
+      `Active: Kp ${manualNumber(row.kp)} · Kd ${manualNumber(row.kd)} · ` +
+      `${manualNumber(row.speed)} rad/s · ${row.travel_rad == null ? 'full usable travel' : `±${manualNumber(row.travel_rad)} rad`} · ${row.follow ? 'follows' : 'holds'}`;
     for (const [field, bounds] of Object.entries(row.bounds)) {
-      const input = card.querySelector(`[data-field="${field}"]`), bound = card.querySelector(`[data-bound="${field}"]`);
+      const input = card.querySelector(`[data-field="${field}"]`),
+        bound = card.querySelector(`[data-bound="${field}"]`);
       if (!input || !bound) continue;
       [input.min, input.max] = bounds.map(String);
       bound.textContent = `${manualNumber(bounds[0])}–${manualNumber(bounds[1])}`;
@@ -1602,12 +2038,19 @@ function renderManual(t) {
 async function manualAction(action) {
   if (!manualState || manualPending || busy) return;
   const edits = manualHasEdits();
-  if (manualConflict || (action === 'apply' ? !edits || !manualValid() || !manualState.can_apply
-    : edits || (action === 'save' ? !manualState.can_save : !manualState.can_apply))) return;
-  const payload = {session_id: manualState.session_id, revision: manualState.revision};
+  if (
+    manualConflict ||
+    (action === 'apply'
+      ? !edits || !manualValid() || !manualState.can_apply
+      : edits || (action === 'save' ? !manualState.can_save : !manualState.can_apply))
+  )
+    return;
+  const payload = { session_id: manualState.session_id, revision: manualState.revision };
   if (action === 'apply') {
-    payload.joints = manualState.rows.map(row => ({motor: row.motor,
-      ...Object.fromEntries(manualFields.map(field => [field, manualValue(manualDraft.get(row.motor), field, row)]))}));
+    payload.joints = manualState.rows.map((row) => ({
+      motor: row.motor,
+      ...Object.fromEntries(manualFields.map((field) => [field, manualValue(manualDraft.get(row.motor), field, row)])),
+    }));
     payload.velocity_feedforward = manualFeedforward;
   }
   manualPending = busy = true;
@@ -1616,14 +2059,20 @@ async function manualAction(action) {
   try {
     const state = await request(`/api/helm/teleop/tuning/${action}`, payload);
     const acknowledged = state?.teleop?.tuning;
-    if (!acknowledged?.enabled) throw new Error('Settings acknowledgement is missing. Refresh the session state before retrying.');
+    if (!acknowledged?.enabled)
+      throw new Error('Settings acknowledgement is missing. Refresh the session state before retrying.');
     resetManualDraft(acknowledged);
     manualState = acknowledged;
     render(state);
-    const ready = state.teleop.phase === 'running' ? 'Engage with T when ready to test.'
-      : 'Ready for the next session. Start, Idle, Enable, then Engage to test.';
-    manualFeedback(action === 'save' ? 'Applied settings saved for future sessions.'
-      : `${action === 'restore' ? 'Saved settings restored and applied.' : 'Settings applied.'} ${ready}`);
+    const ready =
+      state.teleop.phase === 'running'
+        ? 'Engage with T when ready to test.'
+        : 'Ready for the next session. Start, Idle, Enable, then Engage to test.';
+    manualFeedback(
+      action === 'save'
+        ? 'Applied settings saved for future sessions.'
+        : `${action === 'restore' ? 'Saved settings restored and applied.' : 'Settings applied.'} ${ready}`,
+    );
   } catch (error) {
     manualFeedback(`${error.message} Your draft edits have been kept.`, true);
   } finally {
@@ -1649,10 +2098,12 @@ $('manual-revert').onclick = () => {
 // Copy one arm's Kp, Kd and speed to the same joints of the other arm, as draft edits that Apply uses. Follow
 // and travel stay per arm. A value outside the other joint's bounds is clamped to them, and the panel says so.
 const MIRRORED_FIELDS = ['kp', 'kd', 'speed'];
-function mirrorPairs(from, to) {  // [source row, same joint on the other arm], for joints both arms have.
+function mirrorPairs(from, to) {
+  // [source row, same joint on the other arm], for joints both arms have.
   const rows = manualState?.rows || [];
-  return rows.filter(row => row.motor.startsWith(`${from}_`))
-    .map(row => [row, rows.find(other => other.motor === `${to}_${row.motor.slice(from.length + 1)}`)])
+  return rows
+    .filter((row) => row.motor.startsWith(`${from}_`))
+    .map((row) => [row, rows.find((other) => other.motor === `${to}_${row.motor.slice(from.length + 1)}`)])
     .filter(([, target]) => target);
 }
 
@@ -1661,21 +2112,27 @@ function manualMirror(from, to) {
   const clamped = [];
   const pairs = mirrorPairs(from, to);
   for (const [source, target] of pairs) {
-    const draft = manualDraft.get(target.motor), card = manualCards.get(target.motor);
+    const draft = manualDraft.get(target.motor),
+      card = manualCards.get(target.motor);
     for (const field of MIRRORED_FIELDS) {
       const value = manualValue(manualDraft.get(source.motor), field, source);
-      if (!Number.isFinite(value)) continue;  // An unfinished draft entry is left for the operator.
+      if (!Number.isFinite(value)) continue; // An unfinished draft entry is left for the operator.
       const [low, high] = target.bounds[field];
       const fitted = Math.min(Math.max(value, low), high);
-      if (fitted !== value) clamped.push(`${target.label} ${field === 'speed' ? 'speed' : field === 'kp' ? 'Kp' : 'Kd'} ${manualNumber(fitted)}`);
+      if (fitted !== value)
+        clamped.push(
+          `${target.label} ${field === 'speed' ? 'speed' : field === 'kp' ? 'Kp' : 'Kd'} ${manualNumber(fitted)}`,
+        );
       draft[field] = manualText(fitted);
       const input = card?.querySelector(`[data-field="${field}"]`);
       if (input) input.value = draft[field];
     }
   }
-  manualFeedback(`Copied Kp, Kd and speed of ${pairs.length} ${from} joints to the ${to} arm as draft edits; `
-    + 'follow and travel are unchanged. Apply to use them.'
-    + (clamped.length ? ` Clamped to the ${to} arm's bounds: ${clamped.join(', ')}.` : ''));
+  manualFeedback(
+    `Copied Kp, Kd and speed of ${pairs.length} ${from} joints to the ${to} arm as draft edits; ` +
+      'follow and travel are unchanged. Apply to use them.' +
+      (clamped.length ? ` Clamped to the ${to} arm's bounds: ${clamped.join(', ')}.` : ''),
+  );
   updateManualActions();
 }
 $('manual-mirror-left').onclick = () => manualMirror('left', 'right');
@@ -1694,17 +2151,22 @@ function buildTeleop(joint) {
       <span class="m">robot<b class="v-measured"></b></span></div>`;
   card.querySelector('.joint-name').textContent = joint.label;
   const route = joint.route;
-  card.querySelector('.motor').textContent = `${joint.motor} ← ${route.leader} leader ch ${route.channel}${route.trigger ? ' (trigger)' : ''}`;
-  card.querySelector('.flip').onclick = () => act('/api/helm/teleop/route', {action: 'flip', motor: joint.motor},
-    `Reversed the ${joint.label} route. Watch the virtual arm and confirm.`);
-  card.querySelector('.accept').onclick = () => act('/api/helm/teleop/route', {action: 'accept', motor: joint.motor},
-    `${joint.label} route confirmed.`);
+  card.querySelector('.motor').textContent =
+    `${joint.motor} ← ${route.leader} leader ch ${route.channel}${route.trigger ? ' (trigger)' : ''}`;
+  card.querySelector('.flip').onclick = () =>
+    act(
+      '/api/helm/teleop/route',
+      { action: 'flip', motor: joint.motor },
+      `Reversed the ${joint.label} route. Watch the virtual arm and confirm.`,
+    );
+  card.querySelector('.accept').onclick = () =>
+    act('/api/helm/teleop/route', { action: 'accept', motor: joint.motor }, `${joint.label} route confirmed.`);
   return card;
 }
 
 function updateTeleop(card, joint, editable) {
   const [lo, hi] = joint.operational;
-  const at = q => `${Math.max(0, Math.min(100, (q - lo) / (hi - lo) * 100))}%`;
+  const at = (q) => `${Math.max(0, Math.min(100, ((q - lo) / (hi - lo)) * 100))}%`;
   const usable = card.querySelector('.usable');
   usable.style.left = at(joint.usable[0]);
   usable.style.width = `calc(${at(joint.usable[1])} - ${at(joint.usable[0])})`;
@@ -1715,14 +2177,22 @@ function updateTeleop(card, joint, editable) {
     card.querySelector(`.v-${name}`).textContent = fixed(joint[name]);
   }
   const route = joint.route;
-  card.querySelector('.gains').textContent = route.scale == null ? ''
-    : `scale ×${route.scale.toFixed(2)} · ` + (route.reach > .995 ? 'full robot range' : `reaches ${Math.round(route.reach * 100)}% of the robot range`)
-      + (route.overtravel > .05 ? ` · stops at its limit ${route.overtravel.toFixed(2)} rad before the leader's end` : '');
+  card.querySelector('.gains').textContent =
+    route.scale == null
+      ? ''
+      : `scale ×${route.scale.toFixed(2)} · ` +
+        (route.reach > 0.995 ? 'full robot range' : `reaches ${Math.round(route.reach * 100)}% of the robot range`) +
+        (route.overtravel > 0.05
+          ? ` · stops at its limit ${route.overtravel.toFixed(2)} rad before the leader's end`
+          : '');
   const chip = card.querySelector('.chip');
   chip.textContent = `${route.sign > 0 ? '+1' : '−1'} ${route.verified ? '✓' : '?'}`;
   chip.className = `chip ${route.verified ? 'ok' : 'unsure'}`;
-  chip.title = (route.trigger ? '+1: the trigger angle increasing opens the gripper'
-    : '+1: the leader and robot joint angles increase together') + (route.verified ? ' · verified' : ' · not verified yet');
+  chip.title =
+    (route.trigger
+      ? '+1: the trigger angle increasing opens the gripper'
+      : '+1: the leader and robot joint angles increase together') +
+    (route.verified ? ' · verified' : ' · not verified yet');
   card.querySelector('.flip').disabled = !editable;
   const accept = card.querySelector('.accept');
   accept.disabled = !editable;
@@ -1732,13 +2202,19 @@ function updateTeleop(card, joint, editable) {
 // The receiver's control law (guarded_config names it): its label in the status row and what it does.
 const CONTROL_LAWS = {
   'direct-position-only': ['Position only', 'No velocity is sent: Kd damps and also drags against motion.'],
-  'direct-velocity-feedforward': ['Velocity feed-forward',
-    "Each joint's command speed is fed forward, so Kd damps about it instead of dragging. None is fed toward "
-      + 'an end inside its braking zone.'],
-  'direct-feedforward': ['Ramped feed-forward',
-    'Each command ramps over the loop period with its velocity and friction fed forward.'],
-  'interpolated-feedforward': ['Interpolated feed-forward',
-    'The receiver ramps each command over the loop period with its velocity and measured friction fed forward.'],
+  'direct-velocity-feedforward': [
+    'Velocity feed-forward',
+    "Each joint's command speed is fed forward, so Kd damps about it instead of dragging. None is fed toward " +
+      'an end inside its braking zone.',
+  ],
+  'direct-feedforward': [
+    'Ramped feed-forward',
+    'Each command ramps over the loop period with its velocity and friction fed forward.',
+  ],
+  'interpolated-feedforward': [
+    'Interpolated feed-forward',
+    'The receiver ramps each command over the loop period with its velocity and measured friction fed forward.',
+  ],
 };
 
 function renderTeleop(t) {
@@ -1750,163 +2226,265 @@ function renderTeleop(t) {
     if (document.body.dataset.tab === 'teleop') showTab('limits');
     return;
   }
-  const running = t.phase === 'running', starting = t.phase === 'starting';
+  const running = t.phase === 'running',
+    starting = t.phase === 'starting';
   // The Start note is only true while starting; the panel message takes over.
   if (teleopPhase === 'starting' && !starting) $('teleop-status').textContent = '';
   teleopPhase = t.phase;
   document.body.dataset.teleopState = t.state || t.phase;
-  $('t-state').textContent = running && t.state ? t.state : {starting: 'Starting…', stopped: 'Stopped', fault: 'Fault'}[t.phase] || t.phase;
-  const choice = t.receiver_choice || {mode: 'virtual'};
+  $('t-state').textContent =
+    running && t.state ? t.state : { starting: 'Starting…', stopped: 'Stopped', fault: 'Fault' }[t.phase] || t.phase;
+  const choice = t.receiver_choice || { mode: 'virtual' };
   const live = choice.mode === 'live';
-  const tether = ['tether', 'robot'].includes(last?.robot?.connection);  // Wired: the tether, or Helm on Minerva.
-  $('t-receiver').textContent = running && t.receiver
-    ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '') : '—';
-  $('t-cycle').textContent = running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
+  const tether = ['tether', 'robot'].includes(last?.robot?.connection); // Wired: the tether, or Helm on Minerva.
+  $('t-receiver').textContent =
+    running && t.receiver
+      ? t.receiver + (t.live ? (t.live.motors_enabled ? ' · motors on' : ' · motors off') : '')
+      : '—';
+  $('t-cycle').textContent =
+    running && t.cycle_ms ? `${t.cycle_ms.p50.toFixed(1)} / ${t.cycle_ms.p99.toFixed(1)} ms` : '—';
   const c = t.collision || {};
   const direct = c.mode === 'disabled';
   const collision = $('t-collision');
   const enforced = c.mode === 'motion';
   // Two-arm bound: the margin left between the arms' stopping boxes, or why they hold.
-  const detail = c.clear == null ? '—'
-    : enforced && c.holding ? `holding · ${c.holding}`
-    : enforced ? (c.clearance_m != null && c.clearance_m < .025 ? `${Math.round(c.clearance_m * 1000)} mm margin` : 'clear')
-    : !c.clear ? `contact: ${(c.shapes || []).join(' · ')}`
-    : c.distance_m != null ? `${Math.round(c.distance_m * 1000)} mm to keep-out` : 'clear';
-  collision.textContent = direct ? 'Disabled' : running
-    ? `${c.mode === 'advisory' ? 'advisory · ' : enforced ? 'two-arm · ' : ''}${detail}` : c.mode || '—';
-  collision.className = enforced ? (c.holding ? 'near' : '') : c.clear === false ? 'bad' : c.distance_m != null ? 'near' : '';
-  collision.title = direct ? 'No collision detection. Joint, speed, freshness and receiver limits still apply.' : enforced
-    ? 'Enforced: every move is certified clear of the other arm, with each joint\'s tracking bound and stop; '
-      + 'a move that could bring the arms together is slowed, else held. The body is not checked.'
-    : c.mode !== 'advisory' ? ''
-    : live ? 'Advisory: the target pose is checked every cycle, but nothing stops the arm on a contact.'
-    : 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.';
+  const detail =
+    c.clear == null
+      ? '—'
+      : enforced && c.holding
+        ? `holding · ${c.holding}`
+        : enforced
+          ? c.clearance_m != null && c.clearance_m < 0.025
+            ? `${Math.round(c.clearance_m * 1000)} mm margin`
+            : 'clear'
+          : !c.clear
+            ? `contact: ${(c.shapes || []).join(' · ')}`
+            : c.distance_m != null
+              ? `${Math.round(c.distance_m * 1000)} mm to keep-out`
+              : 'clear';
+  collision.textContent = direct
+    ? 'Disabled'
+    : running
+      ? `${c.mode === 'advisory' ? 'advisory · ' : enforced ? 'two-arm · ' : ''}${detail}`
+      : c.mode || '—';
+  collision.className = enforced
+    ? c.holding
+      ? 'near'
+      : ''
+    : c.clear === false
+      ? 'bad'
+      : c.distance_m != null
+        ? 'near'
+        : '';
+  collision.title = direct
+    ? 'No collision detection. Joint, speed, freshness and receiver limits still apply.'
+    : enforced
+      ? "Enforced: every move is certified clear of the other arm, with each joint's tracking bound and stop; " +
+        'a move that could bring the arms together is slowed, else held. The body is not checked.'
+      : c.mode !== 'advisory'
+        ? ''
+        : live
+          ? 'Advisory: the target pose is checked every cycle, but nothing stops the arm on a contact.'
+          : 'Advisory: the target pose is checked every cycle but the virtual receiver is not blocked.';
   // A running session's law as its receiver reports it; otherwise the law the next session starts with.
-  const [lawLabel, lawTitle] = CONTROL_LAWS[t.control_law] || [], control = $('t-control');
-  const ignored = !t.control_law_next && running && t.tuning?.enabled
-    && (t.control_law === 'direct-velocity-feedforward') !== (t.tuning.velocity_feedforward === true);
+  const [lawLabel, lawTitle] = CONTROL_LAWS[t.control_law] || [],
+    control = $('t-control');
+  const ignored =
+    !t.control_law_next &&
+    running &&
+    t.tuning?.enabled &&
+    (t.control_law === 'direct-velocity-feedforward') !== (t.tuning.velocity_feedforward === true);
   control.textContent = lawLabel || '—';
   if (lawLabel && t.control_law_next)
-    control.append(Object.assign(document.createElement('small'), {textContent: 'next session'}));
+    control.append(Object.assign(document.createElement('small'), { textContent: 'next session' }));
   control.className = ignored ? 'bad' : '';
-  control.title = !lawLabel ? '' : (ignored ? "This session's receiver is not running Motor tuning's velocity "
-      + 'feed-forward setting. ' : '') + lawTitle
-    + (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
+  control.title = !lawLabel
+    ? ''
+    : (ignored ? "This session's receiver is not running Motor tuning's velocity " + 'feed-forward setting. ' : '') +
+      lawTitle +
+      (t.control_law_next && t.tuning?.enabled ? ' Switch it in Motor tuning, between sessions.' : '');
   $('t-message').textContent = t.message || '';
   // Live replay or policy mode: an episode or a policy drives the arms in place of the leaders; nothing is recorded.
   // Otherwise Teleop's mode chooses the cards: Direct records episodes, Calibrate takes stills, Policy starts one.
-  const {replaying, policyMode, headOnly, mode, cards: shown} = teleopView(t);
+  const { replaying, policyMode, headOnly, mode, cards: shown } = teleopView(t);
   const policyChosen = mode === 'policy' && !headOnly && !replaying;
   const calibrating = mode === 'calibrate' && !replaying;
-  const headsetDrives = shown.headset, by = headsetDrives ? 'the headset' : 'the leaders';
-  $('t-title').textContent = replaying ? 'Replay an episode on the arms'
-    : policyChosen ? 'Run a policy on the arms' : headOnly ? 'Steer the head with the headset'
-    : calibrating ? `Calibrate the cameras with ${by}` : `Drive the arms with ${by}`;
-  $('t-lead').textContent = replaying
-    ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment "
-      + 'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; '
-      + 'Disable (H) removes torque.'
+  const headsetDrives = shown.headset,
+    by = headsetDrives ? 'the headset' : 'the leaders';
+  $('t-title').textContent = replaying
+    ? 'Replay an episode on the arms'
     : policyChosen
-    ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the policy's first action at the "
-      + 'alignment speed, then the policy drives them. T again pauses; Shutdown (X) returns slowly to the reference; '
-      + 'Disable (H) removes torque.'
-    : headOnly
-    ? 'Idle (I), then Enable (E) to hold the head, then Engage (T) to align it to the headset and follow it. T again '
-      + 'holds; Return (X) takes it to its zero; Disable (H) removes its torque. The arms are left as they are.'
-      + (calibrating ? ' Pause (pedal B or T) where its camera sees the tags: a second later Helm takes a still.' : '')
-    : headsetDrives
-    ? 'Idle (I), then Enable (E) to hold, then Engage (T): an arm hanging at the reference rises to its ready pose '
-      + '(forearm forward, gripper level, about 30 cm ahead) at the alignment speed, any other stays where it is, '
-      + 'and the grippers go to the triggers; then a held grip drags its arm. T or B/Y holds; Shutdown (X) returns '
-      + 'slowly to the reference; Disable (H) removes torque.'
-      + (calibrating ? " Bring a camera over the table's tags and pause (B/Y, pedal B or T): a second later Helm takes "
-        + 'a still of the camera chosen below.' : '')
-    : calibrating
-    ? "Idle (I), then Enable (E) to hold, then Engage (T) to follow the leaders. Bring a camera over the table's tags "
-      + 'and pause (pedal B or T): a second later Helm takes a still of the camera chosen below. Resume for the next '
-      + 'pose; Shutdown (X) returns slowly to the reference; Disable (H) removes torque. Nothing is recorded.'
-    : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; '
-      + 'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
+      ? 'Run a policy on the arms'
+      : headOnly
+        ? 'Steer the head with the headset'
+        : calibrating
+          ? `Calibrate the cameras with ${by}`
+          : `Drive the arms with ${by}`;
+  $('t-lead').textContent = replaying
+    ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the episode's frame at the alignment " +
+      'speed, then follow its recorded commands. T again pauses; Shutdown (X) returns slowly to the reference; ' +
+      'Disable (H) removes torque.'
+    : policyChosen
+      ? "Idle (I), then Enable (E) to hold, then Engage (T): the arms align to the policy's first action at the " +
+        'alignment speed, then the policy drives them. T again pauses; Shutdown (X) returns slowly to the reference; ' +
+        'Disable (H) removes torque.'
+      : headOnly
+        ? 'Idle (I), then Enable (E) to hold the head, then Engage (T) to align it to the headset and follow it. T again ' +
+          'holds; Return (X) takes it to its zero; Disable (H) removes its torque. The arms are left as they are.' +
+          (calibrating
+            ? ' Pause (pedal B or T) where its camera sees the tags: a second later Helm takes a still.'
+            : '')
+        : headsetDrives
+          ? 'Idle (I), then Enable (E) to hold, then Engage (T): an arm hanging at the reference rises to its ready pose ' +
+            '(forearm forward, gripper level, about 30 cm ahead) at the alignment speed, any other stays where it is, ' +
+            'and the grippers go to the triggers; then a held grip drags its arm. T or B/Y holds; Shutdown (X) returns ' +
+            'slowly to the reference; Disable (H) removes torque.' +
+            (calibrating
+              ? " Bring a camera over the table's tags and pause (B/Y, pedal B or T): a second later Helm takes " +
+                'a still of the camera chosen below.'
+              : '')
+          : calibrating
+            ? "Idle (I), then Enable (E) to hold, then Engage (T) to follow the leaders. Bring a camera over the table's tags " +
+              'and pause (pedal B or T): a second later Helm takes a still of the camera chosen below. Resume for the next ' +
+              'pose; Shutdown (X) returns slowly to the reference; Disable (H) removes torque. Nothing is recorded.'
+            : 'Idle (I), then Enable (E) to hold, then Engage (T) to align with the leaders and follow them. T again holds; ' +
+              'Shutdown (X) returns slowly to the reference; Disable (H) removes torque.';
   document.querySelector('.task-workflow').hidden = !shown.task;
   // No leaders: no triggers to push.
   document.querySelector('.grip-feedback').hidden = !shown.grip;
-  replayCard?.render(replaying ? t.replay : null, {state: t.state, label: replaying ? replayView?.labelFor(t.replay.episode) : null});
+  replayCard?.render(replaying ? t.replay : null, {
+    state: t.state,
+    label: replaying ? replayView?.labelFor(t.replay.episode) : null,
+  });
   renderPolicy(t, policyMode, running || starting);
   renderHeadsetArms(t, headsetDrives);
   renderTeleopMode(t, mode);
   const where = t.target === 'jetson' ? "ON MINERVA'S JETSON" : 'ON THIS PC';
   const eyebrow = $('t-eyebrow');
-  const kind = (replaying ? 'REPLAY' : policyChosen ? 'POLICY' : calibrating ? 'CALIBRATE' : 'TELEOP')
-    + (headsetDrives ? ' · HEADSET' : '');
+  const kind =
+    (replaying ? 'REPLAY' : policyChosen ? 'POLICY' : calibrating ? 'CALIBRATE' : 'TELEOP') +
+    (headsetDrives ? ' · HEADSET' : '');
   eyebrow.textContent = live
     ? `${kind} · LIVE ${choice.arm === 'both' ? 'BOTH ARMS' : choice.arm === 'head' ? 'HEAD' : choice.arm.toUpperCase() + ' ARM'} ${where} · MOTORS MOVE · ${choice.arm === 'head' ? 'DISABLE (H) STOPS IT' : 'FOOT SWITCH IN REACH'}`
     : `${kind} · ${last?.mode === 'simulation' ? 'SIMULATED MINERVA' : 'VIRTUAL RECEIVER'}${choice.collision === 'motion' ? ' · TWO-ARM BOUND' : ''} ${where} · NO MOTORS MOVE`;
   eyebrow.className = `eyebrow ${live ? 'live' : 'warn'}`;
   for (const button of document.querySelectorAll('#t-target button')) {
     button.setAttribute('aria-pressed', String(button.dataset.target === t.target));
-    button.disabled = running || starting || (live && button.dataset.target !== 'jetson')
-      || (last?.mode === 'simulation' && button.dataset.target !== 'pc');
-    button.hidden = (last?.mode === 'simulation' && button.dataset.target !== 'pc')
-      || (last?.robot?.connection === 'robot' && button.dataset.target === 'pc');  // Helm on Minerva: never in Helm.
+    button.disabled =
+      running ||
+      starting ||
+      (live && button.dataset.target !== 'jetson') ||
+      (last?.mode === 'simulation' && button.dataset.target !== 'pc');
+    button.hidden =
+      (last?.mode === 'simulation' && button.dataset.target !== 'pc') ||
+      (last?.robot?.connection === 'robot' && button.dataset.target === 'pc'); // Helm on Minerva: never in Helm.
   }
-  $('t-target').setAttribute('data-single', String([...document.querySelectorAll('#t-target button')].filter(b => !b.hidden).length < 2));
+  $('t-target').setAttribute(
+    'data-single',
+    String([...document.querySelectorAll('#t-target button')].filter((b) => !b.hidden).length < 2),
+  );
   for (const button of document.querySelectorAll('#t-receiver-choice button')) {
     const liveButton = button.dataset.receiver === 'live';
     const choiceKey = liveButton ? button.dataset.arm : 'virtual';
-    button.hidden = (last?.mode === 'simulation' && liveButton) || (direct && !!button.dataset.collision)
-      || (Array.isArray(t.receiver_choices) && !t.receiver_choices.includes(choiceKey));
-    if (!button.dataset.collision) button.title = liveButton && button.dataset.arm === 'head'
-      ? "The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only."
-      : liveButton
-      ? `${button.dataset.arm === 'both' ? 'Both arms' : `The ${button.dataset.arm} arm`}; ${direct ? 'no collision detection' : button.dataset.arm === 'both' ? 'two-arm collision bound enforced' : 'collision checks advisory'}. Loop on Minerva's Jetson only.`
-      : `Virtual receiver; ${direct ? 'no collision detection' : 'collision checks advisory'}. No motors move.`;
-    button.setAttribute('aria-pressed', String(liveButton ? live && choice.arm === button.dataset.arm
-      : !live && (choice.collision || null) === (button.dataset.collision || null)));
-    button.disabled = running || starting || button.hidden
-      || (liveButton && (t.target !== 'jetson' || !t.live_available || !tether
-        || (t.trial && button.dataset.arm !== (t.trial.motor.startsWith('left_') ? 'left' : 'right'))));
+    button.hidden =
+      (last?.mode === 'simulation' && liveButton) ||
+      (direct && !!button.dataset.collision) ||
+      (Array.isArray(t.receiver_choices) && !t.receiver_choices.includes(choiceKey));
+    if (!button.dataset.collision)
+      button.title =
+        liveButton && button.dataset.arm === 'head'
+          ? "The head's servos alone, steered by the headset; the arms are left as they are. Loop on Minerva's Jetson only."
+          : liveButton
+            ? `${button.dataset.arm === 'both' ? 'Both arms' : `The ${button.dataset.arm} arm`}; ${direct ? 'no collision detection' : button.dataset.arm === 'both' ? 'two-arm collision bound enforced' : 'collision checks advisory'}. Loop on Minerva's Jetson only.`
+            : `Virtual receiver; ${direct ? 'no collision detection' : 'collision checks advisory'}. No motors move.`;
+    button.setAttribute(
+      'aria-pressed',
+      String(
+        liveButton
+          ? live && choice.arm === button.dataset.arm
+          : !live && (choice.collision || null) === (button.dataset.collision || null),
+      ),
+    );
+    button.disabled =
+      running ||
+      starting ||
+      button.hidden ||
+      (liveButton &&
+        (t.target !== 'jetson' ||
+          !t.live_available ||
+          !tether ||
+          (t.trial && button.dataset.arm !== (t.trial.motor.startsWith('left_') ? 'left' : 'right'))));
   }
   // Say why live is unavailable, instead of leaving the operator to guess at greyed-out buttons.
-  const note = last?.mode === 'simulation' ? 'Simulation only · physical robot operations are unavailable in this process.'
-    : running || starting ? '' : !t.live_available ? 'Live teleop needs a live block in the teleop profile.'
-    : !tether ? 'Live teleop runs over the wired tether: choose Via Tether at the top.'
-    : t.target !== 'jetson' ? "Live teleop runs its loop on Minerva's Jetson." : '';
+  const note =
+    last?.mode === 'simulation'
+      ? 'Simulation only · physical robot operations are unavailable in this process.'
+      : running || starting
+        ? ''
+        : !t.live_available
+          ? 'Live teleop needs a live block in the teleop profile.'
+          : !tether
+            ? 'Live teleop runs over the wired tether: choose Via Tether at the top.'
+            : t.target !== 'jetson'
+              ? "Live teleop runs its loop on Minerva's Jetson."
+              : '';
   $('t-choice-note').textContent = note;
   $('t-choice-note').hidden = !note;
-  if (pendingConfirm && (pendingConfirm.kind === 'start'
-      ? running || starting || !live || choice.arm !== pendingConfirm.arm : !running && !starting)) closeConfirm();
+  if (
+    pendingConfirm &&
+    (pendingConfirm.kind === 'start'
+      ? running || starting || !live || choice.arm !== pendingConfirm.arm
+      : !running && !starting)
+  )
+    closeConfirm();
   const session = $('teleop-session');
   // Policy mode starts a policy session: the policy chosen in its card drives the arms.
-  const policyStart = policyChosen && !running && !starting, unchosen = policyStart && !$('t-policy-choice').value;
-  session.textContent = running || starting ? 'Stop session'
-    : policyStart ? (live ? 'Start LIVE policy session' : 'Start policy session')
-    : live ? 'Start LIVE session' : 'Start session';
+  const policyStart = policyChosen && !running && !starting,
+    unchosen = policyStart && !$('t-policy-choice').value;
+  session.textContent =
+    running || starting
+      ? 'Stop session'
+      : policyStart
+        ? live
+          ? 'Start LIVE policy session'
+          : 'Start policy session'
+        : live
+          ? 'Start LIVE session'
+          : 'Start session';
   session.className = running || starting || live ? 'danger' : 'primary';
   session.disabled = starting || unchosen;
   session.title = unchosen ? 'Choose a policy first' : '';
   for (const button of document.querySelectorAll('.lifecycle button'))
-    button.disabled = !running || (!!t.fault && button.dataset.key !== 'H')
-      || (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
-  if (replaying || policyMode || (running && t.headset)) $('t-zero').disabled = true;  // No leaders to zero.
+    button.disabled =
+      !running ||
+      (!!t.fault && button.dataset.key !== 'H') ||
+      (!!t.recording_fault && !['H', 'X'].includes(button.dataset.key));
+  if (replaying || policyMode || (running && t.headset)) $('t-zero').disabled = true; // No leaders to zero.
   $('t-engage').innerHTML = ENGAGED.includes(t.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
   renderManual(t);
-  $('t-tuning-summary').textContent=t.tuning?.enabled
-    ? `${t.tuning.rows.filter(row=>row.follow).length} joints following · revision ${t.tuning.revision} · edit in Hold, Apply, then Engage.`
+  $('t-tuning-summary').textContent = t.tuning?.enabled
+    ? `${t.tuning.rows.filter((row) => row.follow).length} joints following · revision ${t.tuning.revision} · edit in Hold, Apply, then Engage.`
     : 'Inspect session speeds and receiver limits in Settings.';
 
   const container = $('teleop-joints');
   if (!t.joints.length) {
-    if (tcards.size) { container.replaceChildren(); tcards.clear(); }
+    if (tcards.size) {
+      container.replaceChildren();
+      tcards.clear();
+    }
     return;
   }
   if (!tcards.size) {
-    for (const [arm, title] of [['left', 'LEFT ARM'], ['right', 'RIGHT ARM']]) {
-      if (!t.joints.some(j => j.motor.startsWith(arm))) continue;  // A live session drives one arm.
+    for (const [arm, title] of [
+      ['left', 'LEFT ARM'],
+      ['right', 'RIGHT ARM'],
+    ]) {
+      if (!t.joints.some((j) => j.motor.startsWith(arm))) continue; // A live session drives one arm.
       const heading = document.createElement('div');
       heading.className = 'arm';
       heading.textContent = title;
       container.append(heading);
-      for (const joint of t.joints.filter(j => j.motor.startsWith(arm))) {
+      for (const joint of t.joints.filter((j) => j.motor.startsWith(arm))) {
         const card = buildTeleop(joint);
         tcards.set(joint.motor, card);
         container.append(card);
@@ -1922,24 +2500,33 @@ function renderTeleop(t) {
 
 // What Teleop shows: the chosen mode (teleop_mode.js), unless a replay or a policy session runs.
 function teleopView(t) {
-  const active = ['running', 'starting'].includes(t?.phase), choice = t?.receiver_choice || {mode: 'virtual'};
-  const replaying = !!t?.replay && active, policyMode = !!t?.policy && active;
-  const headOnly = choice.mode === 'live' && choice.arm === 'head';  // The head alone (helm/head_only.py).
-  const mode = sessionMode(teleopMode, {policyMode}), input = sessionInput(teleopInput, t);
-  return {replaying, policyMode, headOnly, mode, input,
-    cards: modeCards(mode, {replaying, policyMode, headOnly, input})};
+  const active = ['running', 'starting'].includes(t?.phase),
+    choice = t?.receiver_choice || { mode: 'virtual' };
+  const replaying = !!t?.replay && active,
+    policyMode = !!t?.policy && active;
+  const headOnly = choice.mode === 'live' && choice.arm === 'head'; // The head alone (helm/head_only.py).
+  const mode = sessionMode(teleopMode, { policyMode }),
+    input = sessionInput(teleopInput, t);
+  return {
+    replaying,
+    policyMode,
+    headOnly,
+    mode,
+    input,
+    cards: modeCards(mode, { replaying, policyMode, headOnly, input }),
+  };
 }
 function renderTeleopMode(t, mode) {
   for (const button of document.querySelectorAll('#t-mode button')) {
-    const {allowed, reason} = modeChoice(button.dataset.mode, t, teleopMode);
+    const { allowed, reason } = modeChoice(button.dataset.mode, t, teleopMode);
     button.dataset.title ??= button.title;
     button.title = reason || button.dataset.title;
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
     button.disabled = !allowed;
   }
-  const {headOnly, input} = teleopView(t);
+  const { headOnly, input } = teleopView(t);
   for (const button of document.querySelectorAll('#t-input button')) {
-    const {allowed, reason} = inputChoice(button.dataset.input, t, mode, {headOnly});
+    const { allowed, reason } = inputChoice(button.dataset.input, t, mode, { headOnly });
     button.dataset.title ??= button.title;
     button.title = reason || button.dataset.title;
     button.setAttribute('aria-pressed', String(button.dataset.input === input));
@@ -1952,31 +2539,43 @@ function renderHeadsetArms(t, shown) {
   if (!shown) return;
   const view = ['running', 'starting'].includes(t.phase) ? t.headset : null;
   for (const arm of ['left', 'right']) {
-    const row = $(`t-headset-${arm}`), driven = !view || view.loading || !!view.arms?.[arm];
-    const {state, detail, tone} = !view || view.loading ? {state: '—', detail: '', tone: ''}
-      : driven ? headsetArm(view.arms[arm], {raising: (view.raised || []).includes(arm),
-        stage: t.state === 'TELEOP' ? 'following' : t.state === 'ENGAGING' ? 'aligning' : 'held'})
-      : {state: 'Not in this session', detail: '', tone: ''};
+    const row = $(`t-headset-${arm}`),
+      driven = !view || view.loading || !!view.arms?.[arm];
+    const { state, detail, tone } =
+      !view || view.loading
+        ? { state: '—', detail: '', tone: '' }
+        : driven
+          ? headsetArm(view.arms[arm], {
+              raising: (view.raised || []).includes(arm),
+              stage: t.state === 'TELEOP' ? 'following' : t.state === 'ENGAGING' ? 'aligning' : 'held',
+            })
+          : { state: 'Not in this session', detail: '', tone: '' };
     row.querySelector('b').textContent = state;
     row.querySelector('small').textContent = detail;
     row.dataset.tone = tone;
   }
-  $('t-headset-status').textContent = !view ? 'Start session, then enter VR on the Quest.'
-    : view.loading ? "Starting the headset's grab and drag." : view.error ? `Headset: ${view.error}`
-    : view.compute_ms == null ? 'No answer from the headset yet: enter VR on the Quest.'
-    : `IK ${view.compute_ms.toFixed(1)} ms · answer ${Math.round((view.answer_age_s ?? 0) * 1000)} ms old`
-      + (view.stale_cycles ? ` · ${view.stale_cycles} late` : '');
+  $('t-headset-status').textContent = !view
+    ? 'Start session, then enter VR on the Quest.'
+    : view.loading
+      ? "Starting the headset's grab and drag."
+      : view.error
+        ? `Headset: ${view.error}`
+        : view.compute_ms == null
+          ? 'No answer from the headset yet: enter VR on the Quest.'
+          : `IK ${view.compute_ms.toFixed(1)} ms · answer ${Math.round((view.answer_age_s ?? 0) * 1000)} ms old` +
+            (view.stale_cycles ? ` · ${view.stale_cycles} late` : '');
 }
 
 async function sendKey(key) {
-  if (key === 'T' && last?.teleop?.state === 'HOLD' && stillBusy()) {  // The arms hold until the still is saved.
+  if (key === 'T' && last?.teleop?.state === 'HOLD' && stillBusy()) {
+    // The arms hold until the still is saved.
     say(STILL_PENDING, 'bad');
     return;
   }
-  if (key === 'T') pauseStill.keyPause(last?.teleop, performance.now());  // Calibrate: T while following pauses.
+  if (key === 'T') pauseStill.keyPause(last?.teleop, performance.now()); // Calibrate: T while following pauses.
   // Never dropped behind another pending action: H and X must always get through.
   try {
-    render(await request('/api/helm/teleop/key', {key}));
+    render(await request('/api/helm/teleop/key', { key }));
   } catch (error) {
     say(error.message, 'bad');
   }
@@ -1986,8 +2585,10 @@ function onKey(event) {
   pedalControls.keydown(event);
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   const stopKey = ['H', 'X'].includes(event.key.toUpperCase());
-  const numericInput = event.target?.tagName === 'INPUT' && ['number','checkbox'].includes(event.target.type)
-    && event.target.closest('#panel-settings');
+  const numericInput =
+    event.target?.tagName === 'INPUT' &&
+    ['number', 'checkbox'].includes(event.target.type) &&
+    event.target.closest('#panel-settings');
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName) && !(numericInput && stopKey)) return;
   // X and H reach a running sweep from the Check tab too, where Minerva Check's live sweep is started.
   const sweeping = ['running', 'starting'].includes(last?.tune?.phase);
@@ -2003,8 +2604,8 @@ function onKey(event) {
     }
     return;
   }
-  if (!['teleop','settings'].includes(document.body.dataset.tab) && !stopKey) return;
-  if (!['running','starting'].includes(last?.teleop?.phase)) return;
+  if (!['teleop', 'settings'].includes(document.body.dataset.tab) && !stopKey) return;
+  if (!['running', 'starting'].includes(last?.teleop?.phase)) return;
   const key = event.key.length === 1 ? event.key.toUpperCase() : '';
   if (key === 'H') {
     event.preventDefault();
@@ -2013,10 +2614,12 @@ function onKey(event) {
     event.preventDefault();
     closeDisable();
     sendKey(key);
-  } else if (key === 'O' && last?.teleop?.policy?.takeover) {  // Take over from the policy, or hand back.
+  } else if (key === 'O' && last?.teleop?.policy?.takeover) {
+    // Take over from the policy, or hand back.
     event.preventDefault();
     sendKey(key);
-  } else if (key === 'P' && !$('calibration').hidden) {  // Calibrate shows the card.
+  } else if (key === 'P' && !$('calibration').hidden) {
+    // Calibrate shows the card.
     event.preventDefault();
     captureStill();
   } else if (key === 'Z') {
@@ -2025,24 +2628,28 @@ function onKey(event) {
   }
 }
 document.addEventListener('keydown', onKey);
-document.addEventListener('keyup', event => pedalControls.keyup(event));
+document.addEventListener('keyup', (event) => pedalControls.keyup(event));
 // The 3D view is same-origin: keys pressed while it has focus still count.
 $('model-view').addEventListener('load', () => {
   try {
-    const doc=$('model-view').contentWindow.document;
+    const doc = $('model-view').contentWindow.document;
     doc.addEventListener('keydown', onKey);
-    doc.addEventListener('keyup', event => pedalControls.keyup(event));
-  } catch { /* not ready */ }
+    doc.addEventListener('keyup', (event) => pedalControls.keyup(event));
+  } catch {
+    /* not ready */
+  }
 });
 for (const button of document.querySelectorAll('.lifecycle button[data-key]')) {
-  button.onclick = () => button.dataset.key === 'H' ? requestDisable() : sendKey(button.dataset.key);
+  button.onclick = () => (button.dataset.key === 'H' ? requestDisable() : sendKey(button.dataset.key));
 }
 // Disable takes the torque off at once and the arms drop. While they hold under torque (a session past Idle, or a
 // sweep) it asks first: H again or the dialog's button disables, Esc cancels, and T or X still hold or shut down.
 function underTorque(state) {
   if (['running', 'starting'].includes(state?.tune?.phase)) return true;
   const lifecycle = state?.teleop?.state;
-  return ['running', 'starting'].includes(state?.teleop?.phase) && !!lifecycle && !['DISABLED', 'IDLE'].includes(lifecycle);
+  return (
+    ['running', 'starting'].includes(state?.teleop?.phase) && !!lifecycle && !['DISABLED', 'IDLE'].includes(lifecycle)
+  );
 }
 function closeDisable() {
   if ($('disable-confirm').open) $('disable-confirm').close();
@@ -2069,32 +2676,51 @@ async function setZero() {
 }
 $('t-zero').onclick = setZero;
 for (const button of document.querySelectorAll('#t-target button')) {
-  button.onclick = () => act('/api/helm/teleop/target', {target: button.dataset.target},
-    `The loop will run on ${button.textContent}.`);
+  button.onclick = () =>
+    act('/api/helm/teleop/target', { target: button.dataset.target }, `The loop will run on ${button.textContent}.`);
 }
 for (const button of document.querySelectorAll('#via button')) {
-  button.onclick = () => act('/api/helm/connection', {connection: button.dataset.connection},
-    button.dataset.connection === 'tether' ? 'Helm reaches Minerva over the USB Ethernet tether.'
-      : "Helm reaches Minerva over Wi-Fi: stopped reads and virtual teleop only.");
+  button.onclick = () =>
+    act(
+      '/api/helm/connection',
+      { connection: button.dataset.connection },
+      button.dataset.connection === 'tether'
+        ? 'Helm reaches Minerva over the USB Ethernet tether.'
+        : 'Helm reaches Minerva over Wi-Fi: stopped reads and virtual teleop only.',
+    );
 }
 for (const button of document.querySelectorAll('#t-receiver-choice button')) {
-  const arm = button.dataset.arm, collision = button.dataset.collision;
-  button.onclick = () => act('/api/helm/teleop/receiver',
-    arm ? {mode: 'live', arm} : collision ? {mode: 'virtual', collision} : {mode: 'virtual'},
-    arm === 'both' ? 'Live on both arms: their motors are powered once the session reaches Idle.'
-      : arm === 'head' ? "Live on the head alone: its servos are powered once the session reaches Idle; the arms are left as they are."
-      : arm ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.`
-      : collision ? 'Virtual receiver with the two-arm bound enforced: no motors move.' : 'Virtual receiver: no motors move.');
+  const arm = button.dataset.arm,
+    collision = button.dataset.collision;
+  button.onclick = () =>
+    act(
+      '/api/helm/teleop/receiver',
+      arm ? { mode: 'live', arm } : collision ? { mode: 'virtual', collision } : { mode: 'virtual' },
+      arm === 'both'
+        ? 'Live on both arms: their motors are powered once the session reaches Idle.'
+        : arm === 'head'
+          ? 'Live on the head alone: its servos are powered once the session reaches Idle; the arms are left as they are.'
+          : arm
+            ? `Live on the ${arm} arm: its motors are powered once the session reaches Idle.`
+            : collision
+              ? 'Virtual receiver with the two-arm bound enforced: no motors move.'
+              : 'Virtual receiver: no motors move.',
+    );
 }
 // Asked in the page, not with window.confirm: embedded browsers (such as an IDE or
 // assistant preview pane) suppress native dialogs, and confirm() then returns false.
 function askConfirm(kind, arm, title, items, action, onConfirm) {
-  pendingConfirm = {kind, arm};
+  pendingConfirm = { kind, arm };
   $('t-confirm-title').textContent = title;
-  $('t-confirm-list').replaceChildren(...items.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  $('t-confirm-list').replaceChildren(
+    ...items.map((text) => Object.assign(document.createElement('li'), { textContent: text })),
+  );
   const go = $('t-confirm-go');
   go.textContent = action;
-  go.onclick = () => { closeConfirm(); onConfirm(); };
+  go.onclick = () => {
+    closeConfirm();
+    onConfirm();
+  };
   $('t-confirm').hidden = false;
   $('t-confirm-cancel').focus();
 }
@@ -2116,67 +2742,120 @@ $('teleop-session').onclick = () => {
     }
     const head = t.live.arm === 'head';
     const arms = t.live.arm === 'both' ? 'Both arms are' : head ? 'The head is' : `The ${t.live.arm} arm is`;
-    askConfirm('stop', t.live.arm, `${arms} powered (${t.state}). Stop the session?`, head
-      ? ['Returned to its zero first (as Return X does), then disabled.',
-         'Disable (H) instead removes its torque at once: the head goes limp where it is.']
-      : ['Lowered slowly to the reference first (as Shutdown X does), then disabled.',
-         'Disable (H) instead removes torque at once: the arms go limp where they are.'], 'Stop', stop);
+    askConfirm(
+      'stop',
+      t.live.arm,
+      `${arms} powered (${t.state}). Stop the session?`,
+      head
+        ? [
+            'Returned to its zero first (as Return X does), then disabled.',
+            'Disable (H) instead removes its torque at once: the head goes limp where it is.',
+          ]
+        : [
+            'Lowered slowly to the reference first (as Shutdown X does), then disabled.',
+            'Disable (H) instead removes torque at once: the arms go limp where they are.',
+          ],
+      'Stop',
+      stop,
+    );
     return;
   }
   if (teleopView(t).mode === 'policy') {
     startPolicy($('t-policy-choice').value);
     return;
   }
-  const choice = t?.receiver_choice || {mode: 'virtual'};
-  const headsetDrives = teleopView(t).cards.headset, input = headsetDrives ? {headset: true} : {};
+  const choice = t?.receiver_choice || { mode: 'virtual' };
+  const headsetDrives = teleopView(t).cards.headset,
+    input = headsetDrives ? { headset: true } : {};
   if (choice.mode !== 'live') {
-    act('/api/helm/teleop/start', input, headsetDrives
-      ? "Starting: loading the collision model and the headset's grab and drag."
-      : 'Starting: loading the collision model and opening the leaders.');
+    act(
+      '/api/helm/teleop/start',
+      input,
+      headsetDrives
+        ? "Starting: loading the collision model and the headset's grab and drag."
+        : 'Starting: loading the collision model and opening the leaders.',
+    );
     return;
   }
-  const arm = choice.arm, other = arm === 'left' ? 'right' : 'left';
+  const arm = choice.arm,
+    other = arm === 'left' ? 'right' : 'left';
   const direct = t?.collision?.mode === 'disabled';
   // The Headset input: the controllers drive the arms in the leaders' place.
-  const headsetLine = 'The headset drives the arms. Engage (T) raises each hanging arm to its ready pose at the '
-    + 'alignment speed: the forearm swings forward, then up, and the gripper ends level about 28 cm ahead and 24 cm '
-    + 'higher. Keep the space in front of the hands clear. Then a held grip drags its arm as the hand moves, at 1:1; '
-    + 'letting go holds it. B or Y holds.';
+  const headsetLine =
+    'The headset drives the arms. Engage (T) raises each hanging arm to its ready pose at the ' +
+    'alignment speed: the forearm swings forward, then up, and the gripper ends level about 28 cm ahead and 24 cm ' +
+    'higher. Keep the space in front of the hands clear. Then a held grip drags its arm as the hand moves, at 1:1; ' +
+    'letting go holds it. B or Y holds.';
   if (arm === 'head') {
-    askConfirm('start', arm, 'Start LIVE on the head?', [
-      "The head's servos are powered when you press Idle (I); Enable (E) holds it where it rests, Engage (T) "
-        + 'raises it slowly toward the headset and follows it.',
-      'Return (X) takes it back to straight ahead, then down to where it rested, before its torque goes.',
-      "Nothing is in the head's way and its cables are clear through its whole range.",
-      "Disable (H) removes its torque at once: the foot switch does not cut the head's power.",
-      'The arms are left as they are: this session powers none of their motors.',
-    ], 'Start LIVE on the head', () => act('/api/helm/teleop/start', {confirm: true},
-      'Starting LIVE on the head: its receiver, the servos limp until Idle.'));
+    askConfirm(
+      'start',
+      arm,
+      'Start LIVE on the head?',
+      [
+        "The head's servos are powered when you press Idle (I); Enable (E) holds it where it rests, Engage (T) " +
+          'raises it slowly toward the headset and follows it.',
+        'Return (X) takes it back to straight ahead, then down to where it rested, before its torque goes.',
+        "Nothing is in the head's way and its cables are clear through its whole range.",
+        "Disable (H) removes its torque at once: the foot switch does not cut the head's power.",
+        'The arms are left as they are: this session powers none of their motors.',
+      ],
+      'Start LIVE on the head',
+      () =>
+        act(
+          '/api/helm/teleop/start',
+          { confirm: true },
+          'Starting LIVE on the head: its receiver, the servos limp until Idle.',
+        ),
+    );
     return;
   }
   if (arm === 'both') {
-    askConfirm('start', arm, 'Start LIVE teleop on both arms?', [
-      'Both arms\' motors are powered when you press Idle (I).',
-      'The foot switch (e-stop) is in reach.',
-      'Both arms hang straight down in their reference pose, grippers closed, untouched until Idle.',
-      direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
-      : 'Collision checks of one arm against the other are enforced: a move that could bring them together is '
-        + 'slowed, else held. The hands stop about 30 cm apart. Nothing checks the arms against the body.',
-      ...(headsetDrives ? [headsetLine] : []),
-    ], 'Start LIVE on both arms', () => act('/api/helm/teleop/start', {confirm: true, ...input},
-      'Starting LIVE on both arms: checking that they are still and in their reference pose, then the receiver.'));
+    askConfirm(
+      'start',
+      arm,
+      'Start LIVE teleop on both arms?',
+      [
+        "Both arms' motors are powered when you press Idle (I).",
+        'The foot switch (e-stop) is in reach.',
+        'Both arms hang straight down in their reference pose, grippers closed, untouched until Idle.',
+        direct
+          ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+          : 'Collision checks of one arm against the other are enforced: a move that could bring them together is ' +
+            'slowed, else held. The hands stop about 30 cm apart. Nothing checks the arms against the body.',
+        ...(headsetDrives ? [headsetLine] : []),
+      ],
+      'Start LIVE on both arms',
+      () =>
+        act(
+          '/api/helm/teleop/start',
+          { confirm: true, ...input },
+          'Starting LIVE on both arms: checking that they are still and in their reference pose, then the receiver.',
+        ),
+    );
     return;
   }
-  askConfirm('start', arm, `Start LIVE teleop on the ${arm} arm?`, [
-    'Its motors are powered when you press Idle (I).',
-    'The foot switch (e-stop) is in reach.',
-    `The ${arm} arm hangs straight down in its reference pose, gripper closed, untouched until Idle.`,
-    `The ${other} arm stays disabled.`,
-    direct ? 'Collision detection is disabled. Nothing checks the arm against the body or the other arm.'
-      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
-    ...(headsetDrives ? [headsetLine] : []),
-  ], `Start LIVE on the ${arm} arm`, () => act('/api/helm/teleop/start', {confirm: true, ...input},
-    `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`));
+  askConfirm(
+    'start',
+    arm,
+    `Start LIVE teleop on the ${arm} arm?`,
+    [
+      'Its motors are powered when you press Idle (I).',
+      'The foot switch (e-stop) is in reach.',
+      `The ${arm} arm hangs straight down in its reference pose, gripper closed, untouched until Idle.`,
+      `The ${other} arm stays disabled.`,
+      direct
+        ? 'Collision detection is disabled. Nothing checks the arm against the body or the other arm.'
+        : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+      ...(headsetDrives ? [headsetLine] : []),
+    ],
+    `Start LIVE on the ${arm} arm`,
+    () =>
+      act(
+        '/api/helm/teleop/start',
+        { confirm: true, ...input },
+        `Starting LIVE on the ${arm} arm: checking that it is still and in its reference pose, then the receiver.`,
+      ),
+  );
 };
 
 // Replay on Minerva (the Replay tab): the episode drives the arms in a teleop session, started as Start session
@@ -2186,29 +2865,43 @@ function startReplay(episode, speed, label) {
   if (!t || ['running', 'starting'].includes(t.phase)) return;
   pedalControls.setTest(false);
   showTab('teleop');
-  const replay = {episode, speed};
-  const choice = t.receiver_choice || {mode: 'virtual'};
+  const replay = { episode, speed };
+  const choice = t.receiver_choice || { mode: 'virtual' };
   if (choice.mode !== 'live') {
-    act('/api/helm/teleop/start', {replay}, `Starting the replay of ${label} at ${speed}×: no motors move.`);
+    act('/api/helm/teleop/start', { replay }, `Starting the replay of ${label} at ${speed}×: no motors move.`);
     return;
   }
   if (choice.arm === 'head') {
     say('A replay drives the arms: choose Left, Right or Both first.', 'bad');
     return;
   }
-  const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
+  const arm = choice.arm,
+    arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
   const direct = t.collision?.mode === 'disabled';
-  askConfirm('start', arm, `Replay ${label} LIVE on ${arms} at ${speed}×?`, [
-    `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
-    'The foot switch (e-stop) is in reach.',
-    `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
-    "Engage (T) first moves the arms to the episode's first frame at the alignment speed; then they repeat the "
-      + "demonstration's motion, grippers included. Set the workspace up as it was recorded and stand clear.",
-    direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
-      : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
-      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
-  ], `Replay LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, replay},
-    `Starting the replay LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
+  askConfirm(
+    'start',
+    arm,
+    `Replay ${label} LIVE on ${arms} at ${speed}×?`,
+    [
+      `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
+      'The foot switch (e-stop) is in reach.',
+      `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
+      "Engage (T) first moves the arms to the episode's first frame at the alignment speed; then they repeat the " +
+        "demonstration's motion, grippers included. Set the workspace up as it was recorded and stand clear.",
+      direct
+        ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+        : arm === 'both'
+          ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
+          : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+    ],
+    `Replay LIVE on ${arms}`,
+    () =>
+      act(
+        '/api/helm/teleop/start',
+        { confirm: true, replay },
+        `Starting the replay LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`,
+      ),
+  );
 }
 
 // Policy mode (Teleop's box): a policy drives the arms in a teleop session, started as Start session starts one,
@@ -2217,17 +2910,27 @@ async function refreshPolicies(explicit = false) {
   policyListedAt = performance.now();
   try {
     policyListing = await request('/api/helm/policies');
-    $('t-policy-status').textContent = policyListing.error || policyListing.busy
-      || (explicit ? `${policyListing.policies.length} policies on Minerva.` : '');
+    $('t-policy-status').textContent =
+      policyListing.error ||
+      policyListing.busy ||
+      (explicit ? `${policyListing.policies.length} policies on Minerva.` : '');
   } catch (error) {
     policyListing = null;
     $('t-policy-status').textContent = `hold_still only: ${error.message}`;
   }
-  const select = $('t-policy-choice'), chosen = select.value;
-  select.replaceChildren(...policyOptions(policyListing).map(option => Object.assign(
-    document.createElement('option'), {value: option.value, textContent: option.label, disabled: option.disabled,
-      title: option.title || ''})));
-  if ([...select.options].some(option => option.value === chosen && !option.disabled)) select.value = chosen;
+  const select = $('t-policy-choice'),
+    chosen = select.value;
+  select.replaceChildren(
+    ...policyOptions(policyListing).map((option) =>
+      Object.assign(document.createElement('option'), {
+        value: option.value,
+        textContent: option.label,
+        disabled: option.disabled,
+        title: option.title || '',
+      }),
+    ),
+  );
+  if ([...select.options].some((option) => option.value === chosen && !option.disabled)) select.value = chosen;
 }
 
 function renderPolicy(t, policyMode, active) {
@@ -2235,7 +2938,8 @@ function renderPolicy(t, policyMode, active) {
   $('t-policy-start').hidden = active || !teleopView(t).cards.policyStart;
   $('t-policy').hidden = !policyMode;
   if (!policyMode) return;
-  const policy = t.policy, label = switchLabel(t.state, policy);
+  const policy = t.policy,
+    label = switchLabel(t.state, policy);
   $('t-policy-title').textContent = policy.policy || policyLabel(policy.spec);
   $('t-policy-stats').textContent = policyStats(policy);
   // Policy corrections: who drives, and O as a button (pedal B does it while the arms follow).
@@ -2253,44 +2957,65 @@ function startPolicy(spec) {
   const t = last?.teleop;
   if (!t || !spec || ['running', 'starting'].includes(t.phase)) return;
   pedalControls.setTest(false);
-  const label = policyLabel(spec), policy = {policy: spec, takeover: true};  // Policy corrections: leaders connected.
-  const choice = t.receiver_choice || {mode: 'virtual'};
+  const label = policyLabel(spec),
+    policy = { policy: spec, takeover: true }; // Policy corrections: leaders connected.
+  const choice = t.receiver_choice || { mode: 'virtual' };
   if (choice.mode !== 'live') {
-    act('/api/helm/teleop/start', {policy}, `Starting the policy ${label}: no motors move.`);
+    act('/api/helm/teleop/start', { policy }, `Starting the policy ${label}: no motors move.`);
     return;
   }
   if (choice.arm === 'head') {
     say('A policy drives the arms: choose Left, Right or Both first.', 'bad');
     return;
   }
-  const arm = choice.arm, arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
+  const arm = choice.arm,
+    arms = arm === 'both' ? 'both arms' : `the ${arm} arm`;
   const direct = t.collision?.mode === 'disabled';
-  askConfirm('start', arm, `Run the policy ${label} LIVE on ${arms}?`, [
-    `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
-    'The foot switch (e-stop) is in reach.',
-    `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
-    spec === HOLD_STILL
-      ? 'hold_still plans the reference pose: Engage aligns the arms to it and they hold there.'
-      : "Enable (E) shows the policy's first action; Engage (T) moves the arms to it at the alignment speed, then the "
-        + 'policy drives the arms and grippers from the live cameras, anywhere its training went. Clear the workspace '
-        + 'but for the task objects and stand clear.',
-    'Hold (T) pauses; Shutdown (X) lowers the arms; Disable (H) removes torque at once. If the policy stops '
-      + 'answering, the arms hold.',
-    'Your leaders stay connected: Take over (pedal B or O) holds the arms, then Resume aligns them to the leaders at '
-      + 'the alignment speed, so line the leaders up with the arms first.',
-    direct ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
-      : arm === 'both' ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
-      : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
-  ], `Run LIVE on ${arms}`, () => act('/api/helm/teleop/start', {confirm: true, policy},
-    `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`));
+  askConfirm(
+    'start',
+    arm,
+    `Run the policy ${label} LIVE on ${arms}?`,
+    [
+      `${arm === 'both' ? "Both arms'" : `The ${arm} arm's`} motors are powered when you press Idle (I).`,
+      'The foot switch (e-stop) is in reach.',
+      `${arm === 'both' ? 'Both arms hang' : `The ${arm} arm hangs`} straight down in the reference pose, untouched until Idle.`,
+      spec === HOLD_STILL
+        ? 'hold_still plans the reference pose: Engage aligns the arms to it and they hold there.'
+        : "Enable (E) shows the policy's first action; Engage (T) moves the arms to it at the alignment speed, then the " +
+          'policy drives the arms and grippers from the live cameras, anywhere its training went. Clear the workspace ' +
+          'but for the task objects and stand clear.',
+      'Hold (T) pauses; Shutdown (X) lowers the arms; Disable (H) removes torque at once. If the policy stops ' +
+        'answering, the arms hold.',
+      'Your leaders stay connected: Take over (pedal B or O) holds the arms, then Resume aligns them to the leaders at ' +
+        'the alignment speed, so line the leaders up with the arms first.',
+      direct
+        ? 'Collision detection is disabled. Nothing checks the arms against each other or the body.'
+        : arm === 'both'
+          ? 'The two-arm collision bound is enforced as in teleop. Nothing checks the arms against the body.'
+          : 'Collision checks are advisory: nothing stops the arm from reaching the body or the other arm.',
+    ],
+    `Run LIVE on ${arms}`,
+    () =>
+      act(
+        '/api/helm/teleop/start',
+        { confirm: true, policy },
+        `Starting the policy ${label} LIVE on ${arms}: checking that ${arm === 'both' ? 'they are' : 'it is'} still and in the reference pose, then the receiver.`,
+      ),
+  );
 }
 $('t-policy-refresh').onclick = () => refreshPolicies(true);
 $('t-policy-switch').onclick = () => sendKey('O');
-$('t-policy-choice').onchange = () => { if (last) renderTeleop(last.teleop); };  // Start session needs a choice.
+$('t-policy-choice').onchange = () => {
+  if (last) renderTeleop(last.teleop);
+}; // Start session needs a choice.
 for (const button of document.querySelectorAll('#t-mode button')) {
   button.onclick = () => {
     teleopMode = knownMode(button.dataset.mode);
-    try { localStorage.setItem('helm-teleop-mode', teleopMode); } catch { /* storage unavailable */ }
+    try {
+      localStorage.setItem('helm-teleop-mode', teleopMode);
+    } catch {
+      /* storage unavailable */
+    }
     if (teleopMode === 'policy' && !policyListing) refreshPolicies();
     if (last) render(last);
   };
@@ -2298,24 +3023,28 @@ for (const button of document.querySelectorAll('#t-mode button')) {
 for (const button of document.querySelectorAll('#t-input button')) {
   button.onclick = () => {
     teleopInput = knownInput(button.dataset.input);
-    try { localStorage.setItem('helm-teleop-input', teleopInput); } catch { /* storage unavailable */ }
+    try {
+      localStorage.setItem('helm-teleop-input', teleopInput);
+    } catch {
+      /* storage unavailable */
+    }
     if (last) render(last);
   };
 }
 
 // -- Tune: the servo sweep ------------------------------------------------------------------
 
-let tuneJoints = null;  // The joints chosen to sweep; null = every joint of the arm.
-let tuneSaving = new Set();  // Result cards checked for saving.
+let tuneJoints = null; // The joints chosen to sweep; null = every joint of the arm.
+let tuneSaving = new Set(); // Result cards checked for saving.
 let tuneConfirm = null;
 const ucards = new Map();
-const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
+const fmt = (value, digits = 2) => (value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits));
 
 function tuneMotors(state, arm) {
   // The head's servos come with the sweep's state.
   if (arm === 'head') return state?.tune?.head?.motors || [];
   // Grippers are not swept (they squeeze what they hold): Minerva Check's live sweep opens and closes them.
-  return (state?.limits?.rows || []).filter(row => row.arm === arm && !row.name.endsWith('_gripper'));
+  return (state?.limits?.rows || []).filter((row) => row.arm === arm && !row.name.endsWith('_gripper'));
 }
 
 function closeTuneConfirm() {
@@ -2326,10 +3055,15 @@ function closeTuneConfirm() {
 function askTune(title, items, action, onConfirm) {
   tuneConfirm = true;
   $('u-confirm-title').textContent = title;
-  $('u-confirm-list').replaceChildren(...items.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  $('u-confirm-list').replaceChildren(
+    ...items.map((text) => Object.assign(document.createElement('li'), { textContent: text })),
+  );
   const go = $('u-confirm-go');
   go.textContent = action;
-  go.onclick = () => { closeTuneConfirm(); onConfirm(); };
+  go.onclick = () => {
+    closeTuneConfirm();
+    onConfirm();
+  };
   $('u-confirm').hidden = false;
   $('u-confirm-cancel').focus();
 }
@@ -2337,7 +3071,7 @@ $('u-confirm-cancel').onclick = closeTuneConfirm;
 
 async function tuneKey(key) {
   try {
-    render(await request('/api/helm/tune/key', {key}));
+    render(await request('/api/helm/tune/key', { key }));
     say(key === 'H' ? 'Disabled.' : 'Finishing: back to the reference, then disabled.', 'good');
   } catch (error) {
     say(error.message, 'bad');
@@ -2351,8 +3085,9 @@ function tuneCard(motor, result) {
     <div class="grid"></div><div class="measured"></div>
     <details><summary>How it was chosen</summary><ul class="notes"></ul></details>
     <label hidden><input type="checkbox" class="pick"> Save this joint</label>`;
-  card.querySelector('.pick').onchange = event => {
-    if (event.target.checked) tuneSaving.add(motor); else tuneSaving.delete(motor);
+  card.querySelector('.pick').onchange = (event) => {
+    if (event.target.checked) tuneSaving.add(motor);
+    else tuneSaving.delete(motor);
     $('u-save').disabled = !tuneSaving.size;
   };
   return card;
@@ -2361,10 +3096,17 @@ function tuneCard(motor, result) {
 function updateTuneCard(card, motor, result, current) {
   card.dataset.state = result.status;
   card.querySelector('b').textContent = result.label || motor;
-  const r = result.recommendation, v = result.verification, t = result.torque;
-  card.querySelector('.state').textContent = current ? 'measuring now'
-    : {pending: 'waiting', running: 'measuring', done: v?.passed ? 'done · verified' : 'done · not verified',
-       stopped: 'stopped'}[result.status] || result.status;
+  const r = result.recommendation,
+    v = result.verification,
+    t = result.torque;
+  card.querySelector('.state').textContent = current
+    ? 'measuring now'
+    : {
+        pending: 'waiting',
+        running: 'measuring',
+        done: v?.passed ? 'done · verified' : 'done · not verified',
+        stopped: 'stopped',
+      }[result.status] || result.status;
   const now = result.current || {};
   const cells = [
     ['Stiffness', r ? `${fmt(r.hold_kp, 1)}` : '—', now.hold_kp],
@@ -2373,16 +3115,25 @@ function updateTuneCard(card, motor, result, current) {
     ['Braking', r?.stop_acceleration ? `${fmt(r.stop_acceleration, 0)} rad/s²` : '—', now.stop_acceleration],
     ['Tracking', r?.max_tracking_error ? `${fmt(r.max_tracking_error, 3)} rad` : '—', now.max_tracking_error],
   ];
-  card.querySelector('.grid').innerHTML = cells.map(([name, value, before]) =>
-    `<span>${name}<b>${value}</b>${before != null ? `<small>now ${fmt(before, before < 1 ? 3 : 1)}</small>` : ''}</span>`).join('');
+  card.querySelector('.grid').innerHTML = cells
+    .map(
+      ([name, value, before]) =>
+        `<span>${name}<b>${value}</b>${before != null ? `<small>now ${fmt(before, before < 1 ? 3 : 1)}</small>` : ''}</span>`,
+    )
+    .join('');
   card.querySelector('.measured').textContent = t
-    ? `Gravity up to ${fmt(t.gravity_max)} Nm, friction ${fmt(t.friction)} Nm · verified ${fmt(result.verified.down)} down, `
-      + `${fmt(result.verified.up)} up rad` + (v?.max_lag != null ? ` · worst lag ${fmt(v.max_lag, 3)} rad` : '')
-      + (result.usable ? ` · usable ${fmt(result.usable.recommended)} of ${fmt(result.usable.swept)} rad swept `
-        + `at these settings (now ${fmt(result.usable.today)})` : '')
+    ? `Gravity up to ${fmt(t.gravity_max)} Nm, friction ${fmt(t.friction)} Nm · verified ${fmt(result.verified.down)} down, ` +
+      `${fmt(result.verified.up)} up rad` +
+      (v?.max_lag != null ? ` · worst lag ${fmt(v.max_lag, 3)} rad` : '') +
+      (result.usable
+        ? ` · usable ${fmt(result.usable.recommended)} of ${fmt(result.usable.swept)} rad swept ` +
+          `at these settings (now ${fmt(result.usable.today)})`
+        : '')
     : 'Not measured yet.';
-  const notes = [...(r?.notes || []), ...(result.events || []).map(e => `Guard: ${e.text}`)];
-  card.querySelector('.notes').replaceChildren(...notes.map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  const notes = [...(r?.notes || []), ...(result.events || []).map((e) => `Guard: ${e.text}`)];
+  card
+    .querySelector('.notes')
+    .replaceChildren(...notes.map((text) => Object.assign(document.createElement('li'), { textContent: text })));
   const savable = r?.gains_met && v?.passed;
   const pick = card.querySelector('label');
   pick.hidden = !savable;
@@ -2397,10 +3148,16 @@ function renderTune(u, state) {
     return;
   }
   const running = ['running', 'starting'].includes(u.phase);
-  const choice = u.receiver_choice || {mode: 'live', arm: 'right'};
+  const choice = u.receiver_choice || { mode: 'live', arm: 'right' };
   const live = choice.mode === 'live';
-  const what = u.mode === 'verify' ? 'MINERVA CHECK LIVE JOINT SWEEP' : u.mode === 'return' ? 'RETURN TO REFERENCE'
-    : choice.arm === 'head' ? 'JOG' : 'SERVO SWEEP';
+  const what =
+    u.mode === 'verify'
+      ? 'MINERVA CHECK LIVE JOINT SWEEP'
+      : u.mode === 'return'
+        ? 'RETURN TO REFERENCE'
+        : choice.arm === 'head'
+          ? 'JOG'
+          : 'SERVO SWEEP';
   const part = choice.arm === 'head' ? 'HEAD' : `${choice.arm.toUpperCase()} ARM`;
   $('u-eyebrow').textContent = live
     ? `${what} · LIVE ${part} · MOTORS MOVE ON THEIR OWN · ${choice.arm === 'head' ? 'H IN REACH' : 'FOOT SWITCH IN REACH'}`
@@ -2411,17 +3168,17 @@ function renderTune(u, state) {
     button.disabled = running;
   }
   const motors = tuneMotors(state, choice.arm);
-  const chosen = new Set(u.joints_choice || motors.map(row => row.name));
+  const chosen = new Set(u.joints_choice || motors.map((row) => row.name));
   const joints = $('u-joints');
-  const layout = motors.map(row => row.name).join(',');
+  const layout = motors.map((row) => row.name).join(',');
   if (joints.dataset.layout !== layout) {
     joints.dataset.layout = layout;
-    joints.querySelectorAll('button').forEach(b => b.remove());
+    joints.querySelectorAll('button').forEach((b) => b.remove());
     const everyJoint = document.createElement('button');
     everyJoint.dataset.all = '1';
     everyJoint.textContent = 'All';
     everyJoint.title = 'Sweep every joint of the arm';
-    everyJoint.onclick = () => act('/api/helm/tune/configure', {arm: choice.arm, joints: null});
+    everyJoint.onclick = () => act('/api/helm/tune/configure', { arm: choice.arm, joints: null });
     joints.append(everyJoint);
     for (const row of motors) {
       const button = document.createElement('button');
@@ -2429,18 +3186,19 @@ function renderTune(u, state) {
       button.textContent = row.label.replace(/^(Left|Right) /, '');
       button.title = row.label;
       button.onclick = () => {
-        const names = motors.map(r => r.name);
+        const names = motors.map((r) => r.name);
         const now = last?.tune?.joints_choice;
         let list;
         if (!now) {
-          list = [row.name];  // From every joint, a click picks just this one.
+          list = [row.name]; // From every joint, a click picks just this one.
         } else {
           const current = new Set(now);
-          if (current.has(row.name)) current.delete(row.name); else current.add(row.name);
-          list = names.filter(name => current.has(name));
-          if (!list.length) return;  // At least one joint; All brings the rest back.
+          if (current.has(row.name)) current.delete(row.name);
+          else current.add(row.name);
+          list = names.filter((name) => current.has(name));
+          if (!list.length) return; // At least one joint; All brings the rest back.
         }
-        act('/api/helm/tune/configure', {arm: choice.arm, joints: list.length === names.length ? null : list});
+        act('/api/helm/tune/configure', { arm: choice.arm, joints: list.length === names.length ? null : list });
       };
       joints.append(button);
     }
@@ -2453,20 +3211,23 @@ function renderTune(u, state) {
     button.disabled = running;
   }
   const progress = u.progress;
-  $('u-phase').textContent = running ? (u.stage || u.phase) : {stopped: 'Stopped', fault: 'Fault'}[u.phase] || u.phase;
+  $('u-phase').textContent = running ? u.stage || u.phase : { stopped: 'Stopped', fault: 'Fault' }[u.phase] || u.phase;
   $('u-done').textContent = progress ? `${progress.joints_done}/${progress.joints}` : '—';
   $('u-cycle').textContent = u.cycle_ms ? `${u.cycle_ms.p50.toFixed(1)} / ${u.cycle_ms.p99.toFixed(1)} ms` : '—';
   // From the receiver's own status, running or not: after a fault it reads off once the receiver has disabled.
   $('u-motors').textContent = u.motors_enabled == null ? '—' : u.motors_enabled ? 'on' : 'off';
   $('u-message').textContent = (u.fault ? `${u.fault} · ` : '') + (u.message || '');
-  $('u-events').replaceChildren(...(progress?.events || []).map(e =>
-    Object.assign(document.createElement('li'), {textContent: `${e.task}: ${e.text}`})));
+  $('u-events').replaceChildren(
+    ...(progress?.events || []).map((e) =>
+      Object.assign(document.createElement('li'), { textContent: `${e.task}: ${e.text}` }),
+    ),
+  );
   $('u-finish').disabled = !running;
   $('u-disable').disabled = !running;
   const session = $('u-session');
   session.textContent = running ? 'Stop session' : live ? 'Start LIVE sweep' : 'Start sweep';
   session.disabled = u.phase === 'starting';
-  $('u-return').disabled = running || !live || choice.arm === 'head';  // The head has no return yet.
+  $('u-return').disabled = running || !live || choice.arm === 'head'; // The head has no return yet.
   if (tuneConfirm && running) closeTuneConfirm();
 
   const container = $('tune-results');
@@ -2482,7 +3243,8 @@ function renderTune(u, state) {
       container.append(card);
     }
   }
-  for (const motor of order) updateTuneCard(ucards.get(motor), motor, results[motor], progress?.motor === motor && running);
+  for (const motor of order)
+    updateTuneCard(ucards.get(motor), motor, results[motor], progress?.motor === motor && running);
   for (const motor of [...tuneSaving]) {
     if (!results[motor]?.recommendation?.gains_met || !results[motor]?.verification?.passed) tuneSaving.delete(motor);
   }
@@ -2490,78 +3252,121 @@ function renderTune(u, state) {
 }
 
 for (const button of document.querySelectorAll('#u-arm button')) {
-  button.onclick = () => act('/api/helm/tune/configure', {arm: button.dataset.arm},
-    button.dataset.arm === 'head' ? 'The head is jogged: each joint alone, slowly, to its ends and back.'
-      : `The sweep will run on the ${button.dataset.arm} arm.`);
+  button.onclick = () =>
+    act(
+      '/api/helm/tune/configure',
+      { arm: button.dataset.arm },
+      button.dataset.arm === 'head'
+        ? 'The head is jogged: each joint alone, slowly, to its ends and back.'
+        : `The sweep will run on the ${button.dataset.arm} arm.`,
+    );
 }
 $('u-finish').onclick = () => tuneKey('X');
 $('u-disable').onclick = () => tuneKey('H');
 $('u-save').onclick = () => {
   const motors = [...tuneSaving];
-  act('/api/helm/tune/save', {motors}, `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session. Deploy before the next Minerva Check: the release carries config/devices.`);
+  act(
+    '/api/helm/tune/save',
+    { motors },
+    `Saved ${motors.length} joint${motors.length > 1 ? 's' : ''} to the servo calibration; live teleop uses it from its next session. Deploy before the next Minerva Check: the release carries config/devices.`,
+  );
 };
 $('u-return').onclick = () => {
-  const arm = (last?.tune?.receiver_choice || {arm: 'right'}).arm;
-  act('/api/helm/tune/return', {arm}, () => {
+  const arm = (last?.tune?.receiver_choice || { arm: 'right' }).arm;
+  act('/api/helm/tune/return', { arm }, () => {
     const offer = last?.tune?.return_offer;
-    const moving = (offer?.joints || []).filter(joint => joint.moves);
+    const moving = (offer?.joints || []).filter((joint) => joint.moves);
     if (!moving.length) return `The ${arm} arm is already at its reference.`;
     const other = arm === 'left' ? 'right' : 'left';
-    const offsets = moving.map(joint => `${joint.label} ${joint.offset >= 0 ? '+' : ''}${joint.offset.toFixed(2)} rad`);
-    askTune(`Return the ${arm} arm to its reference?`, [
-      'The 3D view shows the arm as its drives read it now. Compare it with the real arm: they must match.',
-      `Off its reference: ${offsets.join(', ')}.`,
-      `The whole arm returns together along one line, the joint farthest out at ${offer.speed} rad/s: about ` +
-        `${Math.ceil(offer.seconds)} s. Then the arm is disabled, hanging.`,
-      "The foot switch (e-stop) is in your hand throughout, and the arm's path is clear.",
-      `The ${other} arm stays disabled. Helm disconnects from the motors to start.`,
-    ], `Return the ${arm} arm`, () => act('/api/helm/tune/return', {arm, confirm: true},
-      `Returning the ${arm} arm: checking it is still where you confirmed it.`));
+    const offsets = moving.map(
+      (joint) => `${joint.label} ${joint.offset >= 0 ? '+' : ''}${joint.offset.toFixed(2)} rad`,
+    );
+    askTune(
+      `Return the ${arm} arm to its reference?`,
+      [
+        'The 3D view shows the arm as its drives read it now. Compare it with the real arm: they must match.',
+        `Off its reference: ${offsets.join(', ')}.`,
+        `The whole arm returns together along one line, the joint farthest out at ${offer.speed} rad/s: about ` +
+          `${Math.ceil(offer.seconds)} s. Then the arm is disabled, hanging.`,
+        "The foot switch (e-stop) is in your hand throughout, and the arm's path is clear.",
+        `The ${other} arm stays disabled. Helm disconnects from the motors to start.`,
+      ],
+      `Return the ${arm} arm`,
+      () =>
+        act(
+          '/api/helm/tune/return',
+          { arm, confirm: true },
+          `Returning the ${arm} arm: checking it is still where you confirmed it.`,
+        ),
+    );
     return 'Compare the 3D view with the arm, then confirm.';
   });
 };
 $('u-session').onclick = () => {
   const u = last?.tune;
   if (['running', 'starting'].includes(u?.phase)) {
-    askTune('Stop the sweep session?', [
-      'The arm is lowered slowly to the reference first, then disabled; the joint under test is not finished.',
-      'Disable (H) instead removes torque at once: the arm goes limp where it is.'], 'Stop',
-      () => act('/api/helm/tune/stop', {}, 'Sweep stopped: the arm was lowered and disabled.'));
+    askTune(
+      'Stop the sweep session?',
+      [
+        'The arm is lowered slowly to the reference first, then disabled; the joint under test is not finished.',
+        'Disable (H) instead removes torque at once: the arm goes limp where it is.',
+      ],
+      'Stop',
+      () => act('/api/helm/tune/stop', {}, 'Sweep stopped: the arm was lowered and disabled.'),
+    );
     return;
   }
-  const choice = u?.receiver_choice || {mode: 'live', arm: 'right'};
+  const choice = u?.receiver_choice || { mode: 'live', arm: 'right' };
   if (choice.mode !== 'live') {
     act('/api/helm/tune/start', {}, 'Starting the sweep on the virtual receiver.');
     return;
   }
   const other = choice.arm === 'left' ? 'right' : 'left';
   const motors = tuneMotors(last, choice.arm);
-  const picked = u?.joints_choice ? motors.filter(row => u.joints_choice.includes(row.name)) : motors;
-  const names = picked.map(row => row.label.replace(/^(Left|Right) /, '')).join(', ');
+  const picked = u?.joints_choice ? motors.filter((row) => u.joints_choice.includes(row.name)) : motors;
+  const names = picked.map((row) => row.label.replace(/^(Left|Right) /, '')).join(', ');
   if (choice.arm === 'head') {
     // Never a sweep: turned and tilted down together, the head reaches its shoulder (the user, 2026-10-29).
-    askTune('Start the LIVE jog on the head?', [
-      u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}, one after the other.`,
-      "Each joint alone goes slowly from the head's reference to one end of its range, back, to the other end and "
-        + 'back; the other joint stays at its reference. Nothing is measured to save.',
-      "The head rests limp where it is: the jog first raises it slowly to its reference (straight ahead, level) "
-        + 'and ends by lowering it back to where it rested. Nothing is within its reach.',
-      'Both arms hang in their reference pose and stay disabled.',
-      "H disables the head at once (its servos go limp): the foot switch does not cut the head's power.",
-      'Guards stop it on lag, effort or heat.',
-    ], 'Start LIVE jog on the head', () => act('/api/helm/tune/start', {confirm: true},
-      "Starting the head's jog: its receiver checks each servo and that the head is still where it rests."));
+    askTune(
+      'Start the LIVE jog on the head?',
+      [
+        u?.joints_choice ? `Joints: ${names} only.` : `Joints: both: ${names}, one after the other.`,
+        "Each joint alone goes slowly from the head's reference to one end of its range, back, to the other end and " +
+          'back; the other joint stays at its reference. Nothing is measured to save.',
+        'The head rests limp where it is: the jog first raises it slowly to its reference (straight ahead, level) ' +
+          'and ends by lowering it back to where it rested. Nothing is within its reach.',
+        'Both arms hang in their reference pose and stay disabled.',
+        "H disables the head at once (its servos go limp): the foot switch does not cut the head's power.",
+        'Guards stop it on lag, effort or heat.',
+      ],
+      'Start LIVE jog on the head',
+      () =>
+        act(
+          '/api/helm/tune/start',
+          { confirm: true },
+          "Starting the head's jog: its receiver checks each servo and that the head is still where it rests.",
+        ),
+    );
     return;
   }
-  askTune(`Start the LIVE servo sweep on the ${choice.arm} arm?`, [
-    u?.joints_choice ? `Joints: ${names} only.` : `Joints: all ${motors.length}: ${names}.`,
-    `The motors move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
-    'The foot switch (e-stop) is in your hand throughout.',
-    `The ${choice.arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
-    `The ${other} arm stays disabled.`,
-    'Each move is checked against the collision model first; guards stop a task on lag, effort or heat.',
-  ], `Start LIVE sweep on the ${choice.arm} arm`, () => act('/api/helm/tune/start', {confirm: true},
-    `Starting the sweep on the ${choice.arm} arm: checking it is still and in its reference pose.`));
+  askTune(
+    `Start the LIVE servo sweep on the ${choice.arm} arm?`,
+    [
+      u?.joints_choice ? `Joints: ${names} only.` : `Joints: all ${motors.length}: ${names}.`,
+      `The motors move on their own, joint by joint, about 5 to 7 minutes per joint (${picked.length} joint${picked.length === 1 ? '' : 's'}).`,
+      'The foot switch (e-stop) is in your hand throughout.',
+      `The ${choice.arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
+      `The ${other} arm stays disabled.`,
+      'Each move is checked against the collision model first; guards stop a task on lag, effort or heat.',
+    ],
+    `Start LIVE sweep on the ${choice.arm} arm`,
+    () =>
+      act(
+        '/api/helm/tune/start',
+        { confirm: true },
+        `Starting the sweep on the ${choice.arm} arm: checking it is still and in its reference pose.`,
+      ),
+  );
 };
 
 function closeCheckConfirm() {
@@ -2572,18 +3377,20 @@ $('c-confirm-cancel').onclick = closeCheckConfirm;
 function askCheck(arm) {
   const other = arm === 'left' ? 'right' : 'left';
   $('c-confirm-title').textContent = `Run the live joint sweep on the ${arm} arm?`;
-  $('c-confirm-list').replaceChildren(...[
-    'The motors move on their own: each joint out and back, then across its range at its settings; the gripper opens fully and closes.',
-    'The foot switch (e-stop) is in your hand throughout.',
-    `The ${arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
-    `The ${other} arm stays disabled.`,
-  ].map(text => Object.assign(document.createElement('li'), {textContent: text})));
+  $('c-confirm-list').replaceChildren(
+    ...[
+      'The motors move on their own: each joint out and back, then across its range at its settings; the gripper opens fully and closes.',
+      'The foot switch (e-stop) is in your hand throughout.',
+      `The ${arm} arm hangs straight down in its reference pose, gripper closed, and its path is clear.`,
+      `The ${other} arm stays disabled.`,
+    ].map((text) => Object.assign(document.createElement('li'), { textContent: text })),
+  );
   const go = $('c-confirm-go');
   go.textContent = `Sweep the ${arm} arm`;
   go.onclick = () => {
     closeCheckConfirm();
-    act('/api/helm/check/live', {arm, confirm: true}, () => {
-      showTab('tune');  // Its progress, Finish (X) and Disable (H) are there.
+    act('/api/helm/check/live', { arm, confirm: true }, () => {
+      showTab('tune'); // Its progress, Finish (X) and Disable (H) are there.
       return `Live joint sweep of the ${arm} arm starting: checking it is still and in its reference pose.`;
     });
   };
@@ -2596,14 +3403,20 @@ function showTab(name) {
   if (!chosen || chosen.disabled) name = 'check';
   document.body.dataset.tab = name;
   for (const tab of document.querySelectorAll('.tab[data-tab]')) {
-    if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+    if (tab.dataset.tab === name) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
   }
-  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'replay', 'tune', 'settings']) $(`panel-${panel}`).hidden = name !== panel;
+  for (const panel of ['check', 'limits', 'leaders', 'teleop', 'replay', 'tune', 'settings'])
+    $(`panel-${panel}`).hidden = name !== panel;
   $('replay-stage').hidden = name !== 'replay';
   replayView?.setActive(name === 'replay');
   if (name === 'teleop' && performance.now() - policyListedAt > 30000) refreshPolicies();
-  if(name==='settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
-  try { localStorage.setItem('helm-tab', name); } catch { /* storage unavailable */ }
+  if (name === 'settings' && typeof settingsPanel !== 'undefined') settingsPanel.refresh();
+  try {
+    localStorage.setItem('helm-tab', name);
+  } catch {
+    /* storage unavailable */
+  }
   updateCameraView();
   renderPedals();
 }
@@ -2612,155 +3425,271 @@ function pedalTestShown() {
   return document.body.dataset.tab === 'settings' && !$('settings-pedals').hidden;
 }
 function renderPedals() {
-  const view=presentation(pedalControls.state,pedalControls.fresh());
-  document.body.dataset.touchPhase=view.tone;
-  document.body.dataset.sessionActive=String(['starting','running'].includes(pedalControls.state?.teleop?.phase));
-  $('pedal-phase').dataset.tone=view.tone;
+  const view = presentation(pedalControls.state, pedalControls.fresh());
+  document.body.dataset.touchPhase = view.tone;
+  document.body.dataset.sessionActive = String(['starting', 'running'].includes(pedalControls.state?.teleop?.phase));
+  $('pedal-phase').dataset.tone = view.tone;
   // The older detail row must expire with the prominent phase bar, too.
-  if(view.label==='State unavailable') {
-    document.body.dataset.teleopState='STALE';
-    $('t-state').textContent='State unavailable';
-  } else if(view.tone==='fault') {
-    document.body.dataset.teleopState='FAULT';
-    $('t-state').textContent=(pedalControls.state?.teleop?.state || 'Fault')+' · fault';
+  if (view.label === 'State unavailable') {
+    document.body.dataset.teleopState = 'STALE';
+    $('t-state').textContent = 'State unavailable';
+  } else if (view.tone === 'fault') {
+    document.body.dataset.teleopState = 'FAULT';
+    $('t-state').textContent = (pedalControls.state?.teleop?.state || 'Fault') + ' · fault';
   }
-  if(['starting','running'].includes(pedalControls.state?.teleop?.phase) && !['starting','running'].includes(pedalControls.state?.tune?.phase))
-    $('global-session-state').textContent=(pedalControls.state?.teleop?.replay?'Replay · ':pedalControls.state?.teleop?.policy?'Policy · ':'Teleop · ')+view.label;
-  $('pedal-phase-label').textContent=view.label;
-  $('pedal-phase-detail').textContent=view.detail;
-  for(const node of document.querySelectorAll('[data-phase-stage]')) {
-    const current=node.dataset.phaseStage===view.stage;
-    node.dataset.current=String(current);
-    if(current)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');
+  if (
+    ['starting', 'running'].includes(pedalControls.state?.teleop?.phase) &&
+    !['starting', 'running'].includes(pedalControls.state?.tune?.phase)
+  )
+    $('global-session-state').textContent =
+      (pedalControls.state?.teleop?.replay
+        ? 'Replay · '
+        : pedalControls.state?.teleop?.policy
+          ? 'Policy · '
+          : 'Teleop · ') + view.label;
+  $('pedal-phase-label').textContent = view.label;
+  $('pedal-phase-detail').textContent = view.detail;
+  for (const node of document.querySelectorAll('[data-phase-stage]')) {
+    const current = node.dataset.phaseStage === view.stage;
+    node.dataset.current = String(current);
+    if (current) node.setAttribute('aria-current', 'step');
+    else node.removeAttribute('aria-current');
   }
-  const pendingA=pedalControls.pending.get('a');
-  $('pedal-recording').textContent=pendingA ? (pendingA.action==='stop_record'?'Requesting finish…':'Requesting recording…')
+  const pendingA = pedalControls.pending.get('a');
+  $('pedal-recording').textContent = pendingA
+    ? pendingA.action === 'stop_record'
+      ? 'Requesting finish…'
+      : 'Requesting recording…'
     : recordingLabel(pedalControls.state?.teleop?.task);
-  for(const button of document.querySelectorAll('[data-pedal]')) {
-    const offer=pedalControls.offer(button.dataset.pedal);
-    button.disabled=!offer.enabled;
-    button.querySelector('span').textContent=offer.label || {a:'Record',b:'Pause / resume',c:'Next stage'}[button.dataset.pedal];
-    button.title=offer.reason || offer.warning || (button.dataset.pedal==='b'?'Pause holds position; motors stay enabled.':'');
-    button.dataset.tested=String(pedalControls.testMode && pedalControls.testLast===button.dataset.pedal);
-    button.querySelector('small').textContent=pedalControls.testMode ? String(pedalControls.testCounts[button.dataset.pedal]) : '';
+  for (const button of document.querySelectorAll('[data-pedal]')) {
+    const offer = pedalControls.offer(button.dataset.pedal);
+    button.disabled = !offer.enabled;
+    button.querySelector('span').textContent =
+      offer.label || { a: 'Record', b: 'Pause / resume', c: 'Next stage' }[button.dataset.pedal];
+    button.title =
+      offer.reason ||
+      offer.warning ||
+      (button.dataset.pedal === 'b' ? 'Pause holds position; motors stay enabled.' : '');
+    button.dataset.tested = String(pedalControls.testMode && pedalControls.testLast === button.dataset.pedal);
+    button.querySelector('small').textContent = pedalControls.testMode
+      ? String(pedalControls.testCounts[button.dataset.pedal])
+      : '';
   }
-  if(pedalControls.testMode && !pedalTestShown())pedalControls.setTest(false);  // Leaving the page ends the test.
-  $('pedal-test').disabled=!pedalControls.canTest() || !pedalControls.fresh();
-  $('pedal-test').textContent=pedalControls.testMode?'End pedal test':'Test pedals';
-  $('pedal-test').setAttribute('aria-pressed',String(pedalControls.testMode));
-  $('pedal-test-status').hidden=!pedalControls.testMode;
-  $('pedal-test-status').textContent=pedalControls.testMode
-    ? 'Test only · no commands sent. '+(pedalControls.testLast ? 'Last: '+pedalControls.testLast.toUpperCase() : 'Press A, B or C.'):'';
-  $('pedal-test-counts').hidden=!pedalControls.testMode;
-  for(const chip of document.querySelectorAll('[data-test-pedal]')) {
-    chip.querySelector('b').textContent=String(pedalControls.testCounts[chip.dataset.testPedal]);
-    chip.dataset.last=String(pedalControls.testMode && pedalControls.testLast===chip.dataset.testPedal);
+  if (pedalControls.testMode && !pedalTestShown()) pedalControls.setTest(false); // Leaving the page ends the test.
+  $('pedal-test').disabled = !pedalControls.canTest() || !pedalControls.fresh();
+  $('pedal-test').textContent = pedalControls.testMode ? 'End pedal test' : 'Test pedals';
+  $('pedal-test').setAttribute('aria-pressed', String(pedalControls.testMode));
+  $('pedal-test-status').hidden = !pedalControls.testMode;
+  $('pedal-test-status').textContent = pedalControls.testMode
+    ? 'Test only · no commands sent. ' +
+      (pedalControls.testLast ? 'Last: ' + pedalControls.testLast.toUpperCase() : 'Press A, B or C.')
+    : '';
+  $('pedal-test-counts').hidden = !pedalControls.testMode;
+  for (const chip of document.querySelectorAll('[data-test-pedal]')) {
+    chip.querySelector('b').textContent = String(pedalControls.testCounts[chip.dataset.testPedal]);
+    chip.dataset.last = String(pedalControls.testMode && pedalControls.testLast === chip.dataset.testPedal);
   }
-  $('pedal-test-note').textContent=pedalControls.canTest()
+  $('pedal-test-note').textContent = pedalControls.canTest()
     ? 'The test sends nothing to Minerva. It works only while no session runs, and ends when you leave this page.'
     : 'Stop the session to test the pedals: during a session they act.';
-  const warning=pedalControls.state?.teleop?.pedals?.actions?.c?.warning;
-  $('pedal-warning').hidden=!warning;$('pedal-warning').textContent=warning || '';
+  const warning = pedalControls.state?.teleop?.pedals?.actions?.c?.warning;
+  $('pedal-warning').hidden = !warning;
+  $('pedal-warning').textContent = warning || '';
 }
-const pedalControls=new PedalControls({
-  request,onState:render,onError:message=>say(message,'bad'),onChange:renderPedals,
-  context:()=>({tab:document.body.dataset.tab,hidden:document.hidden,
-    confirming:!!pendingConfirm || $('disable-confirm').open,pedalTest:pedalTestShown(),
-    noRecording:teleopView(last?.teleop).mode==='calibrate'?NO_RECORDING:'',stillPending:stillBusy()?STILL_PENDING:''}),
+const pedalControls = new PedalControls({
+  request,
+  onState: render,
+  onError: (message) => say(message, 'bad'),
+  onChange: renderPedals,
+  context: () => ({
+    tab: document.body.dataset.tab,
+    hidden: document.hidden,
+    confirming: !!pendingConfirm || $('disable-confirm').open,
+    pedalTest: pedalTestShown(),
+    noRecording: teleopView(last?.teleop).mode === 'calibrate' ? NO_RECORDING : '',
+    stillPending: stillBusy() ? STILL_PENDING : '',
+  }),
 });
-for(const button of document.querySelectorAll('[data-pedal]'))button.onclick=()=>pedalControls.press(button.dataset.pedal);
-$('pedal-test').onclick=()=>pedalControls.setTest(!pedalControls.testMode);
-setInterval(renderPedals,100);
-document.addEventListener('visibilitychange',renderPedals);
-const cameraView = new LiveCameraView({onView: showing => renderTaskViewer(last, showing)});
+for (const button of document.querySelectorAll('[data-pedal]'))
+  button.onclick = () => pedalControls.press(button.dataset.pedal);
+$('pedal-test').onclick = () => pedalControls.setTest(!pedalControls.testMode);
+setInterval(renderPedals, 100);
+document.addEventListener('visibilitychange', renderPedals);
+const cameraView = new LiveCameraView({ onView: (showing) => renderTaskViewer(last, showing) });
 function updateCameraView() {
   const tab = document.body.dataset.tab;
-  const scope = tab === 'teleop' ? 'teleop' : tab === 'settings' && !$('settings-cameras').hidden ? 'settings-cameras' : '';
+  const scope =
+    tab === 'teleop' ? 'teleop' : tab === 'settings' && !$('settings-cameras').hidden ? 'settings-cameras' : '';
   cameraView.updateContext(last, scope);
 }
-const settingsPanel = new SettingsPanel({request,navigate:showTab,onDisplay:publishTelemetry,onCameraView:updateCameraView});
-$('open-motor-settings').onclick=()=>{showTab('settings');settingsPanel.show('motors');};
-$('open-display').onclick=()=>{showTab('settings');settingsPanel.show('display');};
+const settingsPanel = new SettingsPanel({
+  request,
+  navigate: showTab,
+  onDisplay: publishTelemetry,
+  onCameraView: updateCameraView,
+});
+$('open-motor-settings').onclick = () => {
+  showTab('settings');
+  settingsPanel.show('motors');
+};
+$('open-display').onclick = () => {
+  showTab('settings');
+  settingsPanel.show('display');
+};
 // Replay poses the model from the episode at the playhead; every other tab shows the live joints.
-let replayPose=null, replaySequence=0, replayBadge='REPLAY', viewerHeld=false;
+let replayPose = null,
+  replaySequence = 0,
+  replayBadge = 'REPLAY',
+  viewerHeld = false;
 function publishTelemetry() {
-  const frame=$('model-view').contentWindow;
-  const replaying=document.body.dataset.tab==='replay' && !!replayPose;
-  const telemetry=replaying ? replayPose : last?.telemetry;
-  if(frame && !modelViewerPaused) {
-    frame.postMessage({type:'helm-viewer-overlay',version:1,settings:settingsPanel.display,telemetry},location.origin);
+  const frame = $('model-view').contentWindow;
+  const replaying = document.body.dataset.tab === 'replay' && !!replayPose;
+  const telemetry = replaying ? replayPose : last?.telemetry;
+  if (frame && !modelViewerPaused) {
+    frame.postMessage(
+      { type: 'helm-viewer-overlay', version: 1, settings: settingsPanel.display, telemetry },
+      location.origin,
+    );
     // The pose itself: Replay holds the model at the playhead; leaving Replay releases it to the live guide.
-    if(replaying) frame.postMessage({type:'helm-viewer-pose',badge:replayBadge,
-      positions:Object.fromEntries(replayPose.rows.map(row=>[row.joint,row.position]))},location.origin);
-    else if(viewerHeld) frame.postMessage({type:'helm-viewer-pose',positions:null},location.origin);
-    viewerHeld=replaying;
+    if (replaying)
+      frame.postMessage(
+        {
+          type: 'helm-viewer-pose',
+          badge: replayBadge,
+          positions: Object.fromEntries(replayPose.rows.map((row) => [row.joint, row.position])),
+        },
+        location.origin,
+      );
+    else if (viewerHeld) frame.postMessage({ type: 'helm-viewer-pose', positions: null }, location.origin);
+    viewerHeld = replaying;
   }
-  const reading=(telemetry?.rows||[]).filter(row=>Number.isFinite(row.position));
-  $('model-source').textContent=replaying ? 'Episode replay · recorded joints at the playhead' : reading.length
-    ? `${reading[0].source==='simulated'?'Virtual feedback':'Measured feedback'} · ${telemetry.stale?'stale':Number.isFinite(telemetry.age_seconds)?Math.round(telemetry.age_seconds*1000)+' ms old':'age unavailable'}`
-    : 'No joint readings · reference pose';
+  const reading = (telemetry?.rows || []).filter((row) => Number.isFinite(row.position));
+  $('model-source').textContent = replaying
+    ? 'Episode replay · recorded joints at the playhead'
+    : reading.length
+      ? `${reading[0].source === 'simulated' ? 'Virtual feedback' : 'Measured feedback'} · ${telemetry.stale ? 'stale' : Number.isFinite(telemetry.age_seconds) ? Math.round(telemetry.age_seconds * 1000) + ' ms old' : 'age unavailable'}`
+      : 'No joint readings · reference pose';
 }
-$('model-view').addEventListener('load',()=>publishTelemetry());
-window.addEventListener('message',event=>{
-  if(event.origin!==location.origin||event.source!==$('model-view').contentWindow) return;
-  if(event.data?.type==='helm-viewer-selection'&&event.data.version===1
-    && (event.data.motor===''||(last?.limits?.rows||[]).some(row=>row.name===event.data.motor)))
-    settingsPanel.selectMotor(event.data.motor);  // '' is no joint selected.
+$('model-view').addEventListener('load', () => publishTelemetry());
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin || event.source !== $('model-view').contentWindow) return;
+  if (
+    event.data?.type === 'helm-viewer-selection' &&
+    event.data.version === 1 &&
+    (event.data.motor === '' || (last?.limits?.rows || []).some((row) => row.name === event.data.motor))
+  )
+    settingsPanel.selectMotor(event.data.motor); // '' is no joint selected.
 });
 function renderGlobalControls(state) {
-  const sweeping=['running','starting'].includes(state.tune?.phase);
-  const running=['running','starting'].includes(state.teleop?.phase);
-  const visible=sweeping||running;
-  $('global-controls').hidden=!visible;document.body.classList.toggle('has-controls',visible);
-  $('global-session-state').textContent=sweeping?`Servo task · ${state.tune.phase}`:`${state.teleop?.replay?'Replay':state.teleop?.policy?'Policy':'Teleop'} · ${state.teleop?.state||state.teleop?.phase||'stopped'}`;
-  $('global-hold').hidden=sweeping;
-  $('global-hold').disabled=!running||!!state.teleop?.fault||!!state.teleop?.recording_fault||!['HOLD','ENGAGING','TELEOP'].includes(state.teleop?.state);
-  $('global-hold').innerHTML=ENGAGED.includes(state.teleop?.state)?'Hold <kbd>T</kbd>':'Engage <kbd>T</kbd>';
-  $('global-shutdown').disabled=!sweeping&&(!running||!!state.teleop?.fault);
-  $('global-disable').disabled=!visible;
+  const sweeping = ['running', 'starting'].includes(state.tune?.phase);
+  const running = ['running', 'starting'].includes(state.teleop?.phase);
+  const visible = sweeping || running;
+  $('global-controls').hidden = !visible;
+  document.body.classList.toggle('has-controls', visible);
+  $('global-session-state').textContent = sweeping
+    ? `Servo task · ${state.tune.phase}`
+    : `${state.teleop?.replay ? 'Replay' : state.teleop?.policy ? 'Policy' : 'Teleop'} · ${state.teleop?.state || state.teleop?.phase || 'stopped'}`;
+  $('global-hold').hidden = sweeping;
+  $('global-hold').disabled =
+    !running ||
+    !!state.teleop?.fault ||
+    !!state.teleop?.recording_fault ||
+    !['HOLD', 'ENGAGING', 'TELEOP'].includes(state.teleop?.state);
+  $('global-hold').innerHTML = ENGAGED.includes(state.teleop?.state) ? 'Hold <kbd>T</kbd>' : 'Engage <kbd>T</kbd>';
+  $('global-shutdown').disabled = !sweeping && (!running || !!state.teleop?.fault);
+  $('global-disable').disabled = !visible;
 }
-$('global-hold').onclick=()=>sendKey('T');
-$('global-disable').onclick=requestDisable;
-$('global-shutdown').onclick=()=>['running','starting'].includes(last?.tune?.phase)?tuneKey('X'):sendKey('X');
-document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key===','){event.preventDefault();showTab('settings');}});
-replayView = new ReplayView({request, elements: {
-  list: $('replay-list'), listStatus: $('replay-list-status'), refresh: $('replay-refresh'), details: $('replay-details'),
-  title: $('replay-title'), status: $('replay-status'), cameras: $('replay-cameras'), play: $('replay-play'),
-  back: $('replay-back'), forward: $('replay-forward'), scrub: $('replay-scrub'), time: $('replay-time'),
-  speed: $('replay-speed'), timeline: $('replay-timeline'),
-  filter: $('replay-filter'), review: $('replay-review'), verdict: $('replay-verdict'), note: $('replay-note'),
-  keep: $('replay-keep'), discard: $('replay-discard'), clear: $('replay-clear'), reviewStatus: $('replay-review-status'),
-  live: $('replay-live'), liveReceiver: $('replay-live-receiver'), liveSpeed: $('replay-live-speed'),
-  liveStart: $('replay-live-start'), liveStatus: $('replay-live-status'),
-}, onLive: startReplay});
-replayView.subscribe(view => {
+$('global-hold').onclick = () => sendKey('T');
+$('global-disable').onclick = requestDisable;
+$('global-shutdown').onclick = () =>
+  ['running', 'starting'].includes(last?.tune?.phase) ? tuneKey('X') : sendKey('X');
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+    event.preventDefault();
+    showTab('settings');
+  }
+});
+replayView = new ReplayView({
+  request,
+  elements: {
+    list: $('replay-list'),
+    listStatus: $('replay-list-status'),
+    refresh: $('replay-refresh'),
+    details: $('replay-details'),
+    title: $('replay-title'),
+    status: $('replay-status'),
+    cameras: $('replay-cameras'),
+    play: $('replay-play'),
+    back: $('replay-back'),
+    forward: $('replay-forward'),
+    scrub: $('replay-scrub'),
+    time: $('replay-time'),
+    speed: $('replay-speed'),
+    timeline: $('replay-timeline'),
+    filter: $('replay-filter'),
+    review: $('replay-review'),
+    verdict: $('replay-verdict'),
+    note: $('replay-note'),
+    keep: $('replay-keep'),
+    discard: $('replay-discard'),
+    clear: $('replay-clear'),
+    reviewStatus: $('replay-review-status'),
+    live: $('replay-live'),
+    liveReceiver: $('replay-live-receiver'),
+    liveSpeed: $('replay-live-speed'),
+    liveStart: $('replay-live-start'),
+    liveStatus: $('replay-live-status'),
+  },
+  onLive: startReplay,
+});
+replayView.subscribe((view) => {
   replayPose = replayTelemetry(view, last?.telemetry, ++replaySequence);
   replayBadge = `REPLAY · frame ${view.index + 1} of ${view.series?.t?.length || '?'} · recorded joints`;
   publishTelemetry();
 });
-replayCard = new LiveReplayCard({elements: {
-  card: $('t-replay'), title: $('t-replay-title'), time: $('t-replay-time'), track: document.querySelector('.live-replay-track'),
-  fill: $('t-replay-fill'), frames: $('t-replay-frames'), note: $('t-replay-note'),
-}});
+replayCard = new LiveReplayCard({
+  elements: {
+    card: $('t-replay'),
+    title: $('t-replay-title'),
+    time: $('t-replay-time'),
+    track: document.querySelector('.live-replay-track'),
+    fill: $('t-replay-fill'),
+    frames: $('t-replay-frames'),
+    note: $('t-replay-note'),
+  },
+});
 for (const tab of document.querySelectorAll('.tab[data-tab]')) tab.onclick = () => showTab(tab.dataset.tab);
-try { showTab(localStorage.getItem('helm-tab') || 'check'); } catch { showTab('check'); }
+try {
+  showTab(localStorage.getItem('helm-tab') || 'check');
+} catch {
+  showTab('check');
+}
 
 $('connect').onclick = () => {
   const viewing = last?.live_view ? last.live_view.enabled : last?.link?.running;
-  act(viewing ? '/api/helm/disconnect' : '/api/helm/connect', {},
-    viewing ? 'Disconnected. CAN links are down; the live view stays off until Connect.'
-      : 'Connecting. Motors stay disabled.');
+  act(
+    viewing ? '/api/helm/disconnect' : '/api/helm/connect',
+    {},
+    viewing
+      ? 'Disconnected. CAN links are down; the live view stays off until Connect.'
+      : 'Connecting. Motors stay disabled.',
+  );
 };
 $('save').onclick = () => act('/api/helm/limits/save', {}, () => `Saved to ${last.limits.path}.`);
 $('c-run').onclick = () => act('/api/helm/check/run', {}, 'Minerva Check started. Motors stay disabled.');
 $('l-connect').onclick = () => {
   const connected = ['reading', 'connecting'].includes(last?.leaders?.state);
-  act(connected ? '/api/helm/leaders/disconnect' : '/api/helm/leaders/connect', {},
-    connected ? 'Leaders disconnected.' : 'Connecting the leaders (read-only).');
+  act(
+    connected ? '/api/helm/leaders/disconnect' : '/api/helm/leaders/connect',
+    {},
+    connected ? 'Leaders disconnected.' : 'Connecting the leaders (read-only).',
+  );
 };
 $('l-capture').onclick = () => act('/api/helm/leaders/reference', {}, 'Leader zero set and saved.');
 $('l-save').onclick = () => act('/api/helm/leaders/save', {}, () => `Saved to ${last.leaders.path}.`);
-setTimeout(() => { lockNoticeShown = true; }, 15000);
+setTimeout(() => {
+  lockNoticeShown = true;
+}, 15000);
 
 async function poll() {
   try {

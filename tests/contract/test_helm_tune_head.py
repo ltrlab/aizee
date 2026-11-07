@@ -2,6 +2,7 @@
 the user 2026-10-29), on the arms' sweep engine and Tune loop over the head's receiver, under the direct policy. Each
 joint alone goes slowly from its reference to each end and back. The receiver the live jog opens is the native
 harness, so the roster, the enable, every direct update and the evidence run for real without servos."""
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,16 +14,25 @@ from robot_platform.neck import head
 from robot_platform.simulation.control_harness import NativeControlHarness, default_binary
 
 ROOT = Path(__file__).resolve().parents[2]
-SHORT = {'amplitudes': [.1, .3], 'kp_ladder': [1., .5], 'damping': [1., .6], 'speeds': [.4, .8],
-         'decelerations': [4.], 'hold_s': .2, 'rest_s': .1}
+SHORT = {
+    'amplitudes': [0.1, 0.3],
+    'kp_ladder': [1.0, 0.5],
+    'damping': [1.0, 0.6],
+    'speeds': [0.4, 0.8],
+    'decelerations': [4.0],
+    'hold_s': 0.2,
+    'rest_s': 0.1,
+}
 
-pytestmark = [pytest.mark.integration, pytest.mark.skipif(not default_binary().is_file(),
-                                                          reason='Build control_harness first')]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not default_binary().is_file(), reason='Build control_harness first'),
+]
 
 
 class Clock:
     def __init__(self):
-        self.now = 100.
+        self.now = 100.0
 
     def __call__(self):
         return self.now
@@ -33,7 +43,7 @@ class Receiver:
 
     def __init__(self, config, reference, clock, start=None):
         roster = {m['name']: m['raw_reference_rad'] for m in reference['motors']}
-        start = start or {name: q + .02 for name, q in roster.items()}
+        start = start or {name: q + 0.02 for name, q in roster.items()}
         self.harness = NativeControlHarness(config, [start[joint['name']] for joint in config['joints']])
         self.harness.step(0)
         self.clock, self.epoch, self.config, self.requests = clock, clock(), config, []
@@ -59,14 +69,25 @@ class Receiver:
 def bundle(tmp_path):
     profile = json.loads((ROOT / 'config/devices/minerva-head.json').read_text(encoding='utf-8'))
     profile['sweep']['defaults'] = SHORT
-    profile['bus'] = {'device': '/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A46083062-if00',
-                      'usb_serial': '5A46083062', 'baud': 1000000}
+    profile['bus'] = {
+        'device': '/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A46083062-if00',
+        'usb_serial': '5A46083062',
+        'baud': 1000000,
+    }
     path = tmp_path / 'head.json'
     path.write_text(json.dumps(profile))
     reference = head.virtual_reference(profile)
-    return {'kind': 'tune', 'mode': 'jog', 'teleop_profile': str(path), 'arm': 'head',
-            'receiver': {'mode': 'live', 'arm': 'head'}, 'joints': None, 'head_reference': reference,
-            'limits': head.virtual_limits(reference, span_rad=.8), 'servo': None}
+    return {
+        'kind': 'tune',
+        'mode': 'jog',
+        'teleop_profile': str(path),
+        'arm': 'head',
+        'receiver': {'mode': 'live', 'arm': 'head'},
+        'joints': None,
+        'head_reference': reference,
+        'limits': head.virtual_limits(reference, span_rad=0.8),
+        'servo': None,
+    }
 
 
 def test_the_head_jog_takes_each_joint_alone_slowly_to_its_ends_and_back(bundle, tmp_path):
@@ -76,6 +97,7 @@ def test_the_head_jog_takes_each_joint_alone_slowly_to_its_ends_and_back(bundle,
     def open_receiver(config, device, reference):
         receivers.append(Receiver(config, reference, clock))
         return receivers[-1]
+
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     receiver, engine = receivers[0], core.engine
@@ -90,7 +112,7 @@ def test_the_head_jog_takes_each_joint_alone_slowly_to_its_ends_and_back(bundle,
         assert core.fault is None, core.fault
         targets = dict(engine.targets)
         # Never both joints off their reference at once: one joint alone never reaches the shoulder.
-        assert sum(abs(targets[name] - engine.home[name]) > .03 for name in targets) <= 1, targets
+        assert sum(abs(targets[name] - engine.home[name]) > 0.03 for name in targets) <= 1, targets
         if engine.task != 'starting':  # Starting, the plan takes up where the head rests: not a move.
             jumps = {name: abs(targets[name] - before[name]) for name in targets}
             assert max(jumps.values()) <= speed * core.period_s + 1e-9, (engine.task, jumps)
@@ -105,9 +127,11 @@ def test_the_head_jog_takes_each_joint_alone_slowly_to_its_ends_and_back(bundle,
         result = engine.summary()[name]
         assert result['status'] == 'done' and result['recommendation'] is None
         jog = result['jog']
-        assert jog['reached'] == {'lower': pytest.approx(jog['lower'], abs=.03),
-                                  'upper': pytest.approx(jog['upper'], abs=.03)}
-        assert jog['lower'] < -.5 and jog['upper'] > .5 and jog['speed'] == speed
+        assert jog['reached'] == {
+            'lower': pytest.approx(jog['lower'], abs=0.03),
+            'upper': pytest.approx(jog['upper'], abs=0.03),
+        }
+        assert jog['lower'] < -0.5 and jog['upper'] > 0.5 and jog['speed'] == speed
     core.close()
     assert core.evidence.name.startswith('jog-head-')
     assert json.loads((core.evidence / 'results.json').read_text())['task'] == 'finished'
@@ -116,7 +140,7 @@ def test_the_head_jog_takes_each_joint_alone_slowly_to_its_ends_and_back(bundle,
 def test_the_head_is_jogged_never_swept_and_only_the_head_is_jogged(bundle):
     for mode in ('tune', 'verify', 'return'):
         with pytest.raises(ValueError, match='jogged, never swept'):
-            TuneCore(dict(bundle, mode=mode, start_pose={'head_pan': 3.}))
+            TuneCore(dict(bundle, mode=mode, start_pose={'head_pan': 3.0}))
     arms = dict(bundle, teleop_profile=str(ROOT / 'config/devices/minerva-teleop.json'))
     with pytest.raises(ValueError, match='head profile'):
         TuneCore(arms)
@@ -126,8 +150,12 @@ def test_the_head_is_jogged_never_swept_and_only_the_head_is_jogged(bundle):
 
 def session(tmp_path):
     from robot_platform.helm.tune import TuneSession
-    helm = SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', asset_id='minerva-test',
-                           operator_files=tmp_path / 'operator')
+
+    helm = SimpleNamespace(
+        profile_path=ROOT / 'config/devices/minerva-joint-calibration.json',
+        asset_id='minerva-test',
+        operator_files=tmp_path / 'operator',
+    )
     (tmp_path / 'operator').mkdir(exist_ok=True)
     return TuneSession(helm, ROOT / 'config/devices/minerva-teleop.json')
 
@@ -161,12 +189,13 @@ def test_the_head_jog_raises_the_head_from_where_it_rests_and_lowers_it_back_the
     # to its reference first, and ends back where it rested, so it is never dropped from straight ahead.
     clock = Clock()
     centre = {m['name']: m['raw_reference_rad'] for m in bundle['head_reference']['motors']}
-    rest = {'head_pan': centre['head_pan'] + .02, 'head_tilt': centre['head_tilt'] - .6}
+    rest = {'head_pan': centre['head_pan'] + 0.02, 'head_tilt': centre['head_tilt'] - 0.6}
     receivers = []
 
     def open_receiver(config, device, reference):
         receivers.append(Receiver(config, reference, clock, start=rest))
         return receivers[-1]
+
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     core.build()
     engine = core.engine
@@ -188,6 +217,6 @@ def test_the_head_jog_raises_the_head_from_where_it_rests_and_lowers_it_back_the
     assert engine.rest == pytest.approx(rest)
     assert tasks[0] == 'to the reference pose' and 'down to where it rested' in tasks
     assert engine.targets == pytest.approx(rest)  # Back where it rested, then disabled there.
-    assert receivers[0].last['feedback'][1]['position'] == pytest.approx(rest['head_tilt'], abs=.02)
+    assert receivers[0].last['feedback'][1]['position'] == pytest.approx(rest['head_tilt'], abs=0.02)
     assert not receivers[0].last['hardware_enabled'] and 'back where it rested' in core.message
     core.close()

@@ -20,6 +20,7 @@ does what Helm asks:
 It answers Helm's beats and ends a connection that goes silent, stopping what it served; then it connects again.
 Nothing here commands the robot: the loop on the Jetson decides what every sample may do.
 """
+
 import argparse
 import logging
 import socket
@@ -30,14 +31,14 @@ import traceback
 
 from robot_platform.helm.bridge import BEAT_S, RELAY_COMMAND, SILENCE_S, VERSION
 
-RECONNECT_S = (1., 2., 5., 10.)
+RECONNECT_S = (1.0, 2.0, 5.0, 10.0)
 # main's --log: the bridge task's log file. Windows PowerShell turns each redirected stderr line into an error record,
 # so the task writes its own file instead.
 LOG_FILE = None
 
 
 def log(message):
-    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n"
+    line = f'{time.strftime("%Y-%m-%d %H:%M:%S")} {message}\n'
     if sys.stderr is not None:
         sys.stderr.write(line)
         sys.stderr.flush()
@@ -48,15 +49,21 @@ def log(message):
 
 def sample_row(sample, now):
     """One leader's sample for the wire: its age on this PC instead of this PC's clock."""
-    return {'positions_rad': [float(q) for q in sample.positions_rad],
-            'raw_positions': [int(v) for v in sample.raw_positions], 'sequence': int(sample.sequence),
-            'age_s': max(0., now - sample.sampled_at), 'joystick': [int(v) for v in sample.joystick],
-            'board_sample_ms': int(sample.board_sample_ms), 'board_reply_ms': int(sample.board_reply_ms)}
+    return {
+        'positions_rad': [float(q) for q in sample.positions_rad],
+        'raw_positions': [int(v) for v in sample.raw_positions],
+        'sequence': int(sample.sequence),
+        'age_s': max(0.0, now - sample.sampled_at),
+        'joystick': [int(v) for v in sample.joystick],
+        'board_sample_ms': int(sample.board_sample_ms),
+        'board_reply_ms': int(sample.board_reply_ms),
+    }
 
 
 def open_usb_leaders(profile, rate_hz):
     from .leader_bridge import LatestLeaderInputs
     from .openrb import OpenRBInputs
+
     leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=rate_hz)
     leaders.connect()
     return leaders
@@ -65,10 +72,23 @@ def open_usb_leaders(profile, rate_hz):
 class BridgeSession:
     """One connection: Helm's frames in, their work done, the answers out."""
 
-    def __init__(self, reader, writer, *, machine_id, serve_link=None, open_leaders=None, route=None,
-                 synthetic=False, clock=time.perf_counter, host=None, hangup=None):
+    def __init__(
+        self,
+        reader,
+        writer,
+        *,
+        machine_id,
+        serve_link=None,
+        open_leaders=None,
+        route=None,
+        synthetic=False,
+        clock=time.perf_counter,
+        host=None,
+        hangup=None,
+    ):
         from .leader_link import serve_link as usb_serve_link
         from robot_platform.ops.ssh import route_source
+
         self.reader, self.writer, self.machine_id = reader, writer, machine_id
         self.serve_link = serve_link or usb_serve_link
         self.open_leaders = open_leaders or open_usb_leaders
@@ -85,23 +105,25 @@ class BridgeSession:
 
     def send(self, message):
         from robot_platform.helm.edge import write_frame
+
         with self._lock:
             write_frame(self.writer, list(message))
 
     def run(self):
         """Serve until the connection ends or Helm goes silent; everything served stops with it."""
         from robot_platform.helm.edge import read_frame
+
         try:
             self.send(['hello', {'version': VERSION, 'host': self.host, 'synthetic': self.synthetic}])
             welcome = read_frame(self.reader)
             if not (isinstance(welcome, list) and welcome[:1] == ['welcome'] and isinstance(welcome[1], dict)):
                 raise RuntimeError(f'Unexpected first answer from Helm: {welcome!r:.200}')
             if welcome[1].get('version') != VERSION:
-                raise RuntimeError(f"Helm speaks bridge version {welcome[1].get('version')}, this bridge {VERSION}")
+                raise RuntimeError(f'Helm speaks bridge version {welcome[1].get("version")}, this bridge {VERSION}')
             if welcome[1].get('machine_id') != self.machine_id:
                 raise RuntimeError('Wrong robot computer: its machine id differs from the device profile')
             self.addresses = [a for a in welcome[1].get('addresses') or [] if isinstance(a, str)][:8]
-            log(f"connected to Helm on {welcome[1].get('host')}")
+            log(f'connected to Helm on {welcome[1].get("host")}')
             threading.Thread(target=self._beat, daemon=True, name='bridge-beat').start()
             while not self._ended.is_set():
                 message = read_frame(self.reader)
@@ -141,8 +163,9 @@ class BridgeSession:
         if kind == 'beat':
             return
         if kind in ('link', 'link_stop', 'leaders_open', 'leaders_close') and len(message) >= 2:
-            threading.Thread(target=getattr(self, '_' + kind), args=tuple(message[1:]), daemon=True,
-                             name=f'bridge-{kind}').start()
+            threading.Thread(
+                target=getattr(self, '_' + kind), args=tuple(message[1:]), daemon=True, name=f'bridge-{kind}'
+            ).start()
 
     def _fail(self, request, exc):
         log(f'request {request} failed: {exc}')
@@ -159,8 +182,13 @@ class BridgeSession:
                 raise RuntimeError('The leaders are open for the Leaders tab; disconnect them there first')
             robot = (str(args['robot'][0]), int(args['robot'][1]))
             local = (self.route(robot[0]) or '0.0.0.0', 0)
-            link = self.serve_link(args['profile'], bytes.fromhex(args['key']), robot, local=local,
-                                   real=bool(args.get('real', True)) and not self.synthetic)
+            link = self.serve_link(
+                args['profile'],
+                bytes.fromhex(args['key']),
+                robot,
+                local=local,
+                real=bool(args.get('real', True)) and not self.synthetic,
+            )
             self._links[request] = link
             log(f'serving the leader link to {robot[0]}:{robot[1]} from {local[0]}')
             self.send(['link_up', request])
@@ -180,23 +208,25 @@ class BridgeSession:
 
     def _leaders_open(self, request, args):
         from .leader_link import SyntheticLeaders
+
         try:
             if self._links:
                 raise RuntimeError('A teleop session is using the leaders')
-            rate = min(max(float(args.get('rate_hz', 50.)), 1.), 100.)
-            leaders = (SyntheticLeaders(args['profile']) if self.synthetic
-                       else self.open_leaders(args['profile'], 100.))
+            rate = min(max(float(args.get('rate_hz', 50.0)), 1.0), 100.0)
+            leaders = SyntheticLeaders(args['profile']) if self.synthetic else self.open_leaders(args['profile'], 100.0)
         except Exception as exc:  # noqa: BLE001
             self._fail(request, exc)
             return
         stop = threading.Event()
         self._streams[request] = (leaders, stop)
         self.send(['leaders_up', request])
-        threading.Thread(target=self._stream, args=(request, leaders, stop, 1. / rate), daemon=True,
-                         name='bridge-leaders').start()
+        threading.Thread(
+            target=self._stream, args=(request, leaders, stop, 1.0 / rate), daemon=True, name='bridge-leaders'
+        ).start()
 
     def _stream(self, request, leaders, stop, period):
         from .openrb import LeaderSampleSkipped
+
         try:
             while not stop.wait(period) and not self._ended.is_set():
                 try:
@@ -228,7 +258,8 @@ class BridgeSession:
 def ssh_relay(profile, robot, key):
     """(reader, writer, close) of the relay on the Jetson: the bridge key's only command."""
     from robot_platform.ops.ssh import pinned
-    client = pinned(profile, address=robot, key=key, timeout=8.)
+
+    client = pinned(profile, address=robot, key=key, timeout=8.0)
     try:
         transport = client.get_transport()
         transport.set_keepalive(2)
@@ -245,12 +276,13 @@ def candidates(profile, robot='auto', remembered=()):
     reported last time (the wired first), the robot's name on the network (mDNS), then the profile's address.
     Otherwise the addresses given, comma-separated."""
     from robot_platform.ops.ssh import TETHER, robot_identity
+
     if robot not in (None, '', 'auto'):
         return [address.strip() for address in str(robot).split(',') if address.strip()]
     device = robot_identity(profile)[0]
     found = [TETHER, *remembered]
     if device.get('hostname'):
-        found.append(f"{device['hostname']}.local")
+        found.append(f'{device["hostname"]}.local')
     if device.get('address'):
         found.append(device['address'])
     return list(dict.fromkeys(found))
@@ -274,11 +306,22 @@ def ipv4(address):
         return None
 
 
-def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None, session_options=None,
-        probe=reachable, resolve=ipv4):
+def run(
+    *,
+    profile,
+    robot='auto',
+    key,
+    synthetic=False,
+    connect=None,
+    stop=None,
+    session_options=None,
+    probe=reachable,
+    resolve=ipv4,
+):
     """Connect to the first of Minerva's addresses (candidates) that answers and proves to be Minerva, serve, and
     connect again after a pause, until `stop` is set."""
     from robot_platform.ops.ssh import robot_identity
+
     machine_id = robot_identity(profile)[0]['machine_id']
     stop = stop or threading.Event()
     connect = connect or (lambda address: ssh_relay(profile, address, key))
@@ -296,8 +339,9 @@ def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None,
                 log(f'cannot reach Helm on {name}: {exc or type(exc).__name__}')
                 continue
             log(f'reached Minerva at {name}' + (f' ({address})' if address != name else ''))
-            session = BridgeSession(reader, writer, machine_id=machine_id, synthetic=synthetic, hangup=close,
-                                    **(session_options or {}))
+            session = BridgeSession(
+                reader, writer, machine_id=machine_id, synthetic=synthetic, hangup=close, **(session_options or {})
+            )
             try:
                 session.run()
             finally:
@@ -305,19 +349,26 @@ def run(*, profile, robot='auto', key, synthetic=False, connect=None, stop=None,
             remembered = session.addresses or remembered
             break
         else:
-            log(f"cannot reach Minerva at {', '.join(tried)}")
-        attempt = 0 if time.monotonic() - started > 30. else attempt + 1
+            log(f'cannot reach Minerva at {", ".join(tried)}')
+        attempt = 0 if time.monotonic() - started > 30.0 else attempt + 1
         stop.wait(RECONNECT_S[min(attempt, len(RECONNECT_S) - 1)])
 
 
 def main(argv=None):
     from robot_platform.ops.ssh import DEFAULT_PROFILE
-    parser = argparse.ArgumentParser(prog='python -m robot_platform.teleop.gello_bridge', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser = argparse.ArgumentParser(
+        prog='python -m robot_platform.teleop.gello_bridge',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('--key', required=True, help="The bridge's private key, authorized on the Jetson for the relay")
-    parser.add_argument('--robot', default='auto',
-                        help="Minerva's address, or several comma-separated (default auto: the tether or access "
-                             'point, then its network addresses)')
+    parser.add_argument(
+        '--robot',
+        default='auto',
+        help="Minerva's address, or several comma-separated (default auto: the tether or access "
+        'point, then its network addresses)',
+    )
     parser.add_argument('--profile', default=str(DEFAULT_PROFILE), help='The calibration profile (robot identity)')
     parser.add_argument('--synthetic', action='store_true', help='Serve synthetic leaders instead of the USB arms')
     parser.add_argument('--log', help='Also append the log, and library warnings, to this file (the bridge task does)')

@@ -17,6 +17,7 @@ uses that checkpoint's dataset_stats instead of computing them from the new epis
 the training episodes and does not restore them on --resume), so the inputs and outputs stay on the old scale; the
 validation set and every saved checkpoint carry the same stats.
 """
+
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,9 @@ import socket
 import sys
 import time
 
-ROOT = Path(os.environ.get('AIZEE_TRAIN_SRC', Path(os.environ.get('AIZEE_SIM', Path.home() / 'aizee-sim')) / 'train-0a4d8ef'))
+ROOT = Path(
+    os.environ.get('AIZEE_TRAIN_SRC', Path(os.environ.get('AIZEE_SIM', Path.home() / 'aizee-sim')) / 'train-0a4d8ef')
+)
 sys.path.insert(0, str(ROOT))
 
 import python.training.train_minerva as train  # noqa: E402
@@ -35,6 +38,7 @@ STATS_FROM = os.environ.get('SIM_TRAIN_STATS_FROM') or None
 STATS = None
 if STATS_FROM:
     import numpy as np
+
     _stats = torch.load(STATS_FROM, map_location='cpu', weights_only=False, mmap=True)['dataset_stats']
     STATS = {k: (np.asarray(v, dtype=np.float32) if isinstance(v, (list, tuple)) else v) for k, v in _stats.items()}
     del _stats
@@ -74,7 +78,7 @@ class _Timed:
 
     def __init__(self, loader, label):
         self.loader, self.label = loader, label
-        self.steps, self.wait, self.work, self.wall = 0, 0., 0., 0.
+        self.steps, self.wait, self.work, self.wall = 0, 0.0, 0.0, 0.0
 
     def __len__(self):
         return len(self.loader)
@@ -90,16 +94,21 @@ class _Timed:
             self.work += mark - got
             self.steps += 1
             if LOG_EVERY and (self.steps % LOG_EVERY == 0 or self.steps == total):
-                print(f'  [{self.label}] step {self.steps}/{total}: {(mark - started) / self.steps:.3f} s/step '
-                      f'(data wait {self.wait / self.steps:.3f} s){self._memory()}', flush=True)
+                print(
+                    f'  [{self.label}] step {self.steps}/{total}: {(mark - started) / self.steps:.3f} s/step '
+                    f'(data wait {self.wait / self.steps:.3f} s){self._memory()}',
+                    flush=True,
+                )
         self.wall = time.perf_counter() - started
 
     @staticmethod
     def _memory():
         if not torch.cuda.is_available():
             return ''
-        return (f', GPU max allocated {_gib(torch.cuda.max_memory_allocated())} GiB, '
-                f'reserved {_gib(torch.cuda.max_memory_reserved())} GiB')
+        return (
+            f', GPU max allocated {_gib(torch.cuda.max_memory_allocated())} GiB, '
+            f'reserved {_gib(torch.cuda.max_memory_reserved())} GiB'
+        )
 
 
 _run_epoch = train.run_epoch
@@ -112,13 +121,19 @@ def _timed_run_epoch(policy, loader, device, has_lang, **kwargs):
         _epoch['n'] += 1
     timed = _Timed(loader, label)
     result = _run_epoch(policy, timed, device, has_lang, **kwargs)
-    line = {'epoch': _epoch['n'], 'phase': label, 'steps': timed.steps, 'wall_s': round(timed.wall, 2),
-            's_per_step': round(timed.wall / max(timed.steps, 1), 4),
-            'data_wait_s_per_step': round(timed.wait / max(timed.steps, 1), 4), 'loss': result,
-            'gpu_max_allocated_gib': _gib(torch.cuda.max_memory_allocated()) if torch.cuda.is_available() else None,
-            'gpu_max_reserved_gib': _gib(torch.cuda.max_memory_reserved()) if torch.cuda.is_available() else None,
-            'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
-    print(f"  [{label}] epoch {_epoch['n']}: {timed.steps} steps in {timed.wall:.1f} s", flush=True)
+    line = {
+        'epoch': _epoch['n'],
+        'phase': label,
+        'steps': timed.steps,
+        'wall_s': round(timed.wall, 2),
+        's_per_step': round(timed.wall / max(timed.steps, 1), 4),
+        'data_wait_s_per_step': round(timed.wait / max(timed.steps, 1), 4),
+        'loss': result,
+        'gpu_max_allocated_gib': _gib(torch.cuda.max_memory_allocated()) if torch.cuda.is_available() else None,
+        'gpu_max_reserved_gib': _gib(torch.cuda.max_memory_reserved()) if torch.cuda.is_available() else None,
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+    }
+    print(f'  [{label}] epoch {_epoch["n"]}: {timed.steps} steps in {timed.wall:.1f} s', flush=True)
     if _epoch['out'] is not None:
         with open(_epoch['out'] / 'timing.jsonl', 'a', encoding='utf-8') as f:
             f.write(json.dumps(line) + '\n')
@@ -137,17 +152,31 @@ def _sidecar(argv):
     out.mkdir(parents=True, exist_ok=True)
     _epoch['out'] = out
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
-    (out / 'sim_training.json').write_text(json.dumps({
-        'purpose': 'sim-only pipeline proof; not promoted, never for the robot',
-        'data_dir': str(data), 'episodes': len(list(data.glob('task_episode_*.hdf5'))),
-        'manifest': str(manifest) if manifest.exists() else None,
-        'allowed_authorities': ['policy'],
-        'source_commit': json.loads(source.read_text(encoding='utf-8')).get('commit') if source.exists() else None,
-        'source': json.loads(source.read_text(encoding='utf-8')) if source.exists() else None,
-        'host': socket.gethostname(), 'gpu': gpu, 'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
-        'torch': torch.__version__, 'argv': argv, 'resume': args.resume,
-        'dataset_stats_from': STATS_FROM,
-    }, indent=1) + '\n', encoding='utf-8')
+    (out / 'sim_training.json').write_text(
+        json.dumps(
+            {
+                'purpose': 'sim-only pipeline proof; not promoted, never for the robot',
+                'data_dir': str(data),
+                'episodes': len(list(data.glob('task_episode_*.hdf5'))),
+                'manifest': str(manifest) if manifest.exists() else None,
+                'allowed_authorities': ['policy'],
+                'source_commit': json.loads(source.read_text(encoding='utf-8')).get('commit')
+                if source.exists()
+                else None,
+                'source': json.loads(source.read_text(encoding='utf-8')) if source.exists() else None,
+                'host': socket.gethostname(),
+                'gpu': gpu,
+                'cuda_visible_devices': os.environ.get('CUDA_VISIBLE_DEVICES'),
+                'torch': torch.__version__,
+                'argv': argv,
+                'resume': args.resume,
+                'dataset_stats_from': STATS_FROM,
+            },
+            indent=1,
+        )
+        + '\n',
+        encoding='utf-8',
+    )
 
 
 if __name__ == '__main__':

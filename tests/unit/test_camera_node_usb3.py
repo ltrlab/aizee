@@ -2,6 +2,7 @@
 streamed (on Minerva the USB 2 side is the CAN adapters' hub), with backoff while resets do not hold and none while a
 live receiver runs; a camera that is gone never holds up the exit; systemd starts the node again. No SDK or device:
 a fake SDK and clock (Minerva's D435 dropped its USB 3 link six times on 2026-10-24/25)."""
+
 import configparser
 import importlib.util
 import json
@@ -31,7 +32,7 @@ class Camera:
 class Bus:
     """What the SDK enumerates; a reset detaches the camera, which re-attaches at `reattach_usb` after `delay_s`."""
 
-    def __init__(self, clock, reattach_usb='3.2', delay_s=2.):
+    def __init__(self, clock, reattach_usb='3.2', delay_s=2.0):
         self.clock, self.reattach_usb, self.delay_s = clock, reattach_usb, delay_s
         self.cameras, self.pending = [], None
 
@@ -47,7 +48,7 @@ class Bus:
 
 class Clock:
     def __init__(self):
-        self.now, self.slept = 1000., 0.
+        self.now, self.slept = 1000.0, 0.0
 
     def __call__(self):
         return self.now
@@ -60,6 +61,7 @@ class Clock:
 def load_node(monkeypatch, bus):
     # The SDK is stubbed before loading the publisher: nothing here opens a device, service or socket.
     import sys
+
     monkeypatch.setitem(sys.modules, 'pyrealsense2', SimpleNamespace())
     monkeypatch.syspath_prepend(str(ROOT / 'python'))
     spec = importlib.util.spec_from_file_location('camera_usb3_under_test', ROOT / 'python/nodes/camera_node.py')
@@ -67,8 +69,10 @@ def load_node(monkeypatch, bus):
     spec.loader.exec_module(module)
     pipelines = []
     module.rs = SimpleNamespace(
-        context=lambda: SimpleNamespace(query_devices=bus.query), camera_info=INFO,
-        pipeline=lambda: pipelines.append(1) or pytest.fail('a camera at USB 2 was streamed'))
+        context=lambda: SimpleNamespace(query_devices=bus.query),
+        camera_info=INFO,
+        pipeline=lambda: pipelines.append(1) or pytest.fail('a camera at USB 2 was streamed'),
+    )
     return module
 
 
@@ -80,9 +84,11 @@ def rig(monkeypatch, tmp_path):
     live = []
 
     def node(**kwargs):
-        keeper = module.Usb3Keeper(tmp_path / 'usb3.json', clock=clock, sleep=clock.sleep,
-                                   live=lambda: bool(live) and live.pop(0))
+        keeper = module.Usb3Keeper(
+            tmp_path / 'usb3.json', clock=clock, sleep=clock.sleep, live=lambda: bool(live) and live.pop(0)
+        )
         return module.CameraNode(camera_id='scene_cam', usb3_keeper=keeper, **kwargs)
+
     return SimpleNamespace(module=module, clock=clock, bus=bus, node=node, live=live, state=tmp_path / 'usb3.json')
 
 
@@ -99,6 +105,7 @@ def test_a_camera_that_cannot_report_its_link_still_streams(rig):
         if key == 'usb':
             raise RuntimeError('usb_type_descriptor is not supported')
         return camera.serial
+
     camera.get_info = get_info
     rig.bus.cameras = [camera]
     assert rig.node().ensure_usb3() is True and camera.resets == 0
@@ -113,7 +120,7 @@ def test_a_camera_at_usb2_is_reset_never_streamed_and_comes_back_at_usb3(rig):
     # The next process finds the camera re-attaching, waits for it, and streams from it at USB 3.
     again = rig.node()
     assert again.ensure_usb3() is True and again.device_serial == '919122072056'
-    assert rig.clock.slept == pytest.approx(2., abs=rig.module.POLL_S)
+    assert rig.clock.slept == pytest.approx(2.0, abs=rig.module.POLL_S)
     assert '"failures": 0' in rig.state.read_text()  # The reset held.
 
 
@@ -131,9 +138,9 @@ def test_resets_that_do_not_hold_back_off(rig):
 def test_a_camera_replugged_at_usb3_during_the_backoff_streams_at_once(rig):
     # 12 resets on the old cable left a 10-minute backoff; the head camera went onto a new cable 30 s into it and
     # stayed dark until the backoff ran out (2026-10-29).
-    rig.state.write_text(json.dumps({'failures': 12, 'last_reset': rig.clock.now - 11.}))
+    rig.state.write_text(json.dumps({'failures': 12, 'last_reset': rig.clock.now - 11.0}))
     rig.bus.cameras = [old := Camera(rig.bus, '2.1')]
-    replugged = rig.clock.now + 30.
+    replugged = rig.clock.now + 30.0
     rig.bus.pending = (replugged, Camera(rig.bus, '3.2'))
     node = rig.node()
     assert node.ensure_usb3() is True and old.resets == 0
@@ -142,10 +149,10 @@ def test_a_camera_replugged_at_usb3_during_the_backoff_streams_at_once(rig):
 
 
 def test_a_camera_unplugged_during_the_backoff_is_looked_for_again_never_reset(rig):
-    rig.state.write_text(json.dumps({'failures': 3, 'last_reset': rig.clock.now - 11.}))
+    rig.state.write_text(json.dumps({'failures': 3, 'last_reset': rig.clock.now - 11.0}))
     old, new = Camera(rig.bus, '2.1'), Camera(rig.bus, '3.2')
     start = rig.clock.now
-    timeline = ((start + 20., []), (start + 50., [new]))
+    timeline = ((start + 20.0, []), (start + 50.0, [new]))
 
     def query():
         cameras = [old]
@@ -153,16 +160,17 @@ def test_a_camera_unplugged_during_the_backoff_is_looked_for_again_never_reset(r
             if rig.clock.now >= at:
                 cameras = present
         return list(cameras)
+
     rig.bus.query = query
     node = rig.node()
     assert node.ensure_usb3() is True and old.resets == 0 and node.device_serial == '919122072056'
-    assert rig.clock.now - (start + 50.) <= rig.module.POLL_S
+    assert rig.clock.now - (start + 50.0) <= rig.module.POLL_S
 
 
 def test_a_camera_back_at_usb3_while_a_live_receiver_runs_is_not_reset(rig):
     rig.bus.cameras = [old := Camera(rig.bus, '2.1')]
     rig.live.extend([True] * 10)
-    rig.bus.pending = (rig.clock.now + 7., Camera(rig.bus, '3.2'))
+    rig.bus.pending = (rig.clock.now + 7.0, Camera(rig.bus, '3.2'))
     assert rig.node().ensure_usb3() is True and old.resets == 0
 
 
@@ -180,8 +188,7 @@ def test_with_no_camera_the_node_waits_then_fails_for_systemd_to_retry(rig):
 
 def test_the_live_receiver_check_reads_process_names(tmp_path, monkeypatch):
     module = load_node(monkeypatch, Bus(Clock()))
-    for pid, argv0 in ((12, b'/usr/bin/python3'), (34, b'/home/ltr/minerva/current/bin/guarded_controller'),
-                       (56, b'')):
+    for pid, argv0 in ((12, b'/usr/bin/python3'), (34, b'/home/ltr/minerva/current/bin/guarded_controller'), (56, b'')):
         (tmp_path / str(pid)).mkdir()
         (tmp_path / str(pid) / 'cmdline').write_bytes(argv0 + b'\0--config\0x')
     (tmp_path / 'self').mkdir()
@@ -193,19 +200,20 @@ def test_the_live_receiver_check_reads_process_names(tmp_path, monkeypatch):
 
 def test_a_camera_gone_mid_stream_cannot_hold_up_the_exit(rig, monkeypatch):
     rig.bus.cameras = [Camera(rig.bus, '3.2')]
-    monkeypatch.setattr(rig.module, 'STOP_TIMEOUT_S', .2)
+    monkeypatch.setattr(rig.module, 'STOP_TIMEOUT_S', 0.2)
     hung = threading.Event()
     node = rig.node()
     node.ensure_usb3()
 
     def lost(**_kwargs):
         raise RuntimeError("Frame didn't arrive within 5000")
+
     node.pipeline = SimpleNamespace(wait_for_frames=lost, stop=lambda: hung.wait(30))
     node.initialize_camera = node.initialize_zmq = lambda: None
     monkeypatch.setattr(rig.module.time, 'sleep', lambda _s: None)
     started = time.monotonic()
     assert node.run() == 1  # A capture error: systemd starts a fresh process.
-    assert time.monotonic() - started < 2.
+    assert time.monotonic() - started < 2.0
     hung.set()
 
 

@@ -11,6 +11,7 @@ the board's place in Minerva's frame, helm.head_alignment), else Minerva's own f
 board's world is fixed while her base stands; a moving base will give it here from odometry, and nothing else
 changes: captures record it with every frame, the headset places a map by it. Nothing here moves a motor.
 """
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
@@ -32,8 +33,8 @@ from .head_alignment import check_live_head
 from .scene_capture import CAPTURE_ROOT, MAX_SECONDS
 
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
-LISTING_S = 5.  # The folders are listed again at most this often for the page's state.
-FPS = 3.  # Frames a second a capture keeps at most.
+LISTING_S = 5.0  # The folders are listed again at most this often for the page's state.
+FPS = 3.0  # Frames a second a capture keeps at most.
 
 
 def column_major(matrix):
@@ -43,8 +44,13 @@ def column_major(matrix):
 
 def _rigid(matrix):
     m = np.asarray(matrix, float)
-    return (m.shape == (4, 4) and np.isfinite(m).all() and np.allclose(m[3], (0., 0., 0., 1.))
-            and np.allclose(m[:3, :3] @ m[:3, :3].T, np.eye(3), atol=1e-5) and np.linalg.det(m[:3, :3]) > 0)
+    return (
+        m.shape == (4, 4)
+        and np.isfinite(m).all()
+        and np.allclose(m[3], (0.0, 0.0, 0.0, 1.0))
+        and np.allclose(m[:3, :3] @ m[:3, :3].T, np.eye(3), atol=1e-5)
+        and np.linalg.det(m[:3, :3]) > 0
+    )
 
 
 class MapLibrary:
@@ -56,8 +62,9 @@ class MapLibrary:
         self.teleop, self.files = teleop, files
         self.correction = correction
         self.root = Path(os.path.expanduser(str(root)))
-        self.remote = remote or (lambda request, timeout_s: run_helper(request, timeout_s=timeout_s,
-                                                                         script='scene_capture.py'))
+        self.remote = remote or (
+            lambda request, timeout_s: run_helper(request, timeout_s=timeout_s, script='scene_capture.py')
+        )
         self.clock = clock
         self._lock = threading.Lock()
         self.busy, self.error, self.last = False, None, None
@@ -98,10 +105,18 @@ class MapLibrary:
                 report = json.loads((folder / 'map.json').read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 report = {}
-            maps.append(dict(name=folder.name, world=report.get('world', 'robot'), gaussians=report.get('gaussians'),
-                             frames=report.get('frames'), psnr=report.get('psnr_held_out'),
-                             capture=report.get('capture'), bytes=splat.stat().st_size,
-                             trained_at=datetime.fromtimestamp(splat.stat().st_mtime, timezone.utc).isoformat()))
+            maps.append(
+                dict(
+                    name=folder.name,
+                    world=report.get('world', 'robot'),
+                    gaussians=report.get('gaussians'),
+                    frames=report.get('frames'),
+                    psnr=report.get('psnr_held_out'),
+                    capture=report.get('capture'),
+                    bytes=splat.stat().st_size,
+                    trained_at=datetime.fromtimestamp(splat.stat().st_mtime, timezone.utc).isoformat(),
+                )
+            )
         return maps
 
     def _captures(self):
@@ -112,9 +127,15 @@ class MapLibrary:
                 scene = json.loads((folder / 'scene.json').read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 continue
-            captures.append(dict(name=folder.name, frames=len(scene.get('frames', [])), world=scene.get('world'),
-                                 captured_at=scene.get('captured_at'),
-                                 trained=(self.root / 'maps' / folder.name / 'map.splat').is_file()))
+            captures.append(
+                dict(
+                    name=folder.name,
+                    frames=len(scene.get('frames', [])),
+                    world=scene.get('world'),
+                    captured_at=scene.get('captured_at'),
+                    trained=(self.root / 'maps' / folder.name / 'map.splat').is_file(),
+                )
+            )
         return captures
 
     def listing(self, fresh=True):
@@ -122,10 +143,12 @@ class MapLibrary:
         the captures."""
         if fresh or self._listing is None or self.clock() - self._listed > LISTING_S:
             poses = self.worlds()
-            self._listing = dict(maps=self._maps(), captures=self._captures(),
-                                 robot_in_world={world: None if pose is None else column_major(pose)
-                                                 for world, pose in poses.items()},
-                                 world='board' if poses['board'] is not None else 'robot')
+            self._listing = dict(
+                maps=self._maps(),
+                captures=self._captures(),
+                robot_in_world={world: None if pose is None else column_major(pose) for world, pose in poses.items()},
+                world='board' if poses['board'] is not None else 'robot',
+            )
             self._listed = self.clock()
         return self._listing
 
@@ -160,10 +183,17 @@ class MapLibrary:
                 poses = self.worlds()
                 world = 'board' if poses['board'] is not None else 'robot'
                 stamp = datetime.fromtimestamp(self.clock(), timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-                reply = self.remote({'operation': 'scene', 'seconds': seconds, 'fps': FPS, 'world': world,
-                                     'folder': f'{CAPTURE_ROOT}/{stamp}',
-                                     'robot_in_world': pose7(poses[world]) if world == 'board' else None},
-                                    seconds + 60.)
+                reply = self.remote(
+                    {
+                        'operation': 'scene',
+                        'seconds': seconds,
+                        'fps': FPS,
+                        'world': world,
+                        'folder': f'{CAPTURE_ROOT}/{stamp}',
+                        'robot_in_world': pose7(poses[world]) if world == 'board' else None,
+                    },
+                    seconds + 60.0,
+                )
                 self.last = reply
                 self._listing = None
             except Exception as exc:
@@ -175,5 +205,11 @@ class MapLibrary:
 
     def snapshot(self):
         listing = self.listing(fresh=False)
-        return dict(busy=self.busy, error=self.error, last=self.last, world=listing['world'],
-                    maps=listing['maps'][:8], captures=listing['captures'][:8])
+        return dict(
+            busy=self.busy,
+            error=self.error,
+            last=self.last,
+            world=listing['world'],
+            maps=listing['maps'][:8],
+            captures=listing['captures'][:8],
+        )

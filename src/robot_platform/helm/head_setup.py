@@ -15,6 +15,7 @@ again). The files go beside the arms' servo calibration (neck.head.files), where
 replaced is kept in this setup's evidence folder. A new reference makes saved limits stale (they name their
 reference): sweep again. The reader never enables torque, and stops for any session that needs the head.
 """
+
 from copy import deepcopy
 from datetime import datetime, timezone
 import math
@@ -29,10 +30,10 @@ from robot_platform.neck.feetech import RESOLUTION, FeetechError, alarms_of
 
 from .limits import LimitRecorder
 
-PERIOD_S = .1  # The reader polls both servos' positions at 10 Hz,
+PERIOD_S = 0.1  # The reader polls both servos' positions at 10 Hz,
 HEALTH_EVERY = 10  # and their torque, voltage, temperature and alarms once a second.
-FRESH_S = .5  # An older reading is not fresh: no reference, confirm or save from it.
-MARGIN_RAD = .05  # The servos' own limits sit this far outside the swept range, so Helm's limits trip first.
+FRESH_S = 0.5  # An older reading is not fresh: no reference, confirm or save from it.
+MARGIN_RAD = 0.05  # The servos' own limits sit this far outside the swept range, so Helm's limits trip first.
 RAD_PER_STEP = head.RAD_PER_STEP
 
 
@@ -47,6 +48,7 @@ class HeadSetup:
     def __init__(self, directory, asset_id, evidence, *, profile=None, open_bus=None, clock=time.monotonic):
         if profile is None:
             from robot_platform.ops.release import ROOT
+
             profile = head.load_profile(ROOT / head.PROFILE)
         self.profile, self.asset_id, self.clock = profile, asset_id, clock
         self.motors = profile['motors']
@@ -69,13 +71,14 @@ class HeadSetup:
         if not self.device:
             raise ValueError("The head's bus is not pinned in its profile")
         from robot_platform.neck.probe import open_bus
+
         return open_bus(self.device, self.profile['bus']['baud'])
 
     def _recorder(self):
         """The limits sweep, in radians from the reference (so 0 is straight ahead and level): none before one."""
         if self.reference is None:
             return None
-        return LimitRecorder([{'name': m['name'], 'raw_reference_rad': 0.} for m in self.motors])
+        return LimitRecorder([{'name': m['name'], 'raw_reference_rad': 0.0} for m in self.motors])
 
     # -- the reader ---------------------------------------------------------------------------
 
@@ -86,7 +89,7 @@ class HeadSetup:
             self.bus = self.open_bus()
             self.reading, self.error = True, None
             self.stream = uuid.uuid4().hex[:8]  # The recorder never pairs readings across two runs.
-            self.message = "Reading the head: its servos stay limp."
+            self.message = 'Reading the head: its servos stay limp.'
             self.thread = threading.Thread(target=self._run, name='helm-head-setup', daemon=True)
             self.thread.start()
 
@@ -127,15 +130,23 @@ class HeadSetup:
         if count % HEALTH_EVERY == 0:
             for m in self.motors:
                 h = self.bus.read_many(m['id'], ['Torque_Enable', 'Present_Voltage', 'Present_Temperature', 'Status'])
-                self.health[m['name']] = {'torque': bool(h['Torque_Enable']), 'voltage_v': h['Present_Voltage'] / 10,
-                                          'temperature_c': h['Present_Temperature'], 'alarms': alarms_of(h['Status'])}
+                self.health[m['name']] = {
+                    'torque': bool(h['Torque_Enable']),
+                    'voltage_v': h['Present_Voltage'] / 10,
+                    'temperature_c': h['Present_Temperature'],
+                    'alarms': alarms_of(h['Status']),
+                }
         if self.recorder is not None:
             self.recorder.observe(self._relative(), sequence=self.sequence, stream=self.stream)
 
     def fresh(self):
         with self.lock:
-            return (self.reading and self.received is not None and len(self.raw) == len(self.motors)
-                    and self.clock() - self.received <= FRESH_S)
+            return (
+                self.reading
+                and self.received is not None
+                and len(self.raw) == len(self.motors)
+                and self.clock() - self.received <= FRESH_S
+            )
 
     def _need_fresh(self, what):
         if not self.fresh():
@@ -166,8 +177,14 @@ class HeadSetup:
             try:
                 for m in self.motors:
                     setup.centre(self.bus, m['id'])
-                document = setup.reference_document(self.bus, self.profile, asset_id=self.asset_id,
-                                                    usb_serial=self.usb_serial, device=self.device, now=_now())
+                document = setup.reference_document(
+                    self.bus,
+                    self.profile,
+                    asset_id=self.asset_id,
+                    usb_serial=self.usb_serial,
+                    device=self.device,
+                    now=_now(),
+                )
             except BaseException:
                 for servo_id, offset in previous.items():
                     try:
@@ -186,7 +203,8 @@ class HeadSetup:
             self.recorder = self._recorder()  # A new sweep, from the new reference.
             self.corners = []  # Corners read against the old reference: recorded again after the sweep.
             self.message = 'Reference set: both servos read mid-turn with the head straight ahead and level.' + (
-                '' if self.limits is not None else ' Now check the directions and sweep the limits.')
+                '' if self.limits is not None else ' Now check the directions and sweep the limits.'
+            )
             return document
 
     def direction(self, action, name):
@@ -235,8 +253,10 @@ class HeadSetup:
             seen = {}
             for m in self.motors:
                 swept, home = self.recorder.confirmed[m['name']], reference[m['name']]['raw_reference_steps']
-                seen[m['id']] = (round(home + swept['min_rad'] / RAD_PER_STEP),
-                                 round(home + swept['max_rad'] / RAD_PER_STEP))
+                seen[m['id']] = (
+                    round(home + swept['min_rad'] / RAD_PER_STEP),
+                    round(home + swept['max_rad'] / RAD_PER_STEP),
+                )
             document = setup.limits_document(seen, self.profile, self.reference, now=_now())
             margin = math.ceil(MARGIN_RAD / RAD_PER_STEP)
             for m in self.motors:
@@ -245,8 +265,9 @@ class HeadSetup:
             self._replace(self.paths['limits'], document)
             self.limits = document
             self.recorder.confirmed.clear()
-            self.message = ("Head limits saved, and each servo's own limits set just outside them. Now record the "
-                            'shoulder corners.')
+            self.message = (
+                "Head limits saved, and each servo's own limits set just outside them. Now record the shoulder corners."
+            )
             return {'path': str(self.paths['limits'])}
 
     def _matching_limits(self):
@@ -273,18 +294,21 @@ class HeadSetup:
         with self.lock:
             if not self._matching_limits():
                 raise ValueError("Save the head's limits first: its corners are saved with them")
-            document = dict(deepcopy(self.limits), clearance=dict(clearance.section(self.corners),
-                                                                  created_at=_now().isoformat()))
+            document = dict(
+                deepcopy(self.limits), clearance=dict(clearance.section(self.corners), created_at=_now().isoformat())
+            )
             clearance.from_limits(document, self.reference)  # The floor they make, checked before it is saved.
             self._replace(self.paths['limits'], document)
             self.limits, self.corners = document, []
-            self.message = ('Shoulder clearance saved: the head keeps above its corners in the next session, and live '
-                            'sessions take the head.')
+            self.message = (
+                'Shoulder clearance saved: the head keeps above its corners in the next session, and live '
+                'sessions take the head.'
+            )
             return {'path': str(self.paths['limits']), 'corners': len(document['clearance']['corners'])}
 
     def _replace(self, path, document):
         if self.evidence is None:
-            self.evidence = self.evidence_root / f"head-setup-{_now().strftime('%Y%m%dT%H%M%SZ')}"
+            self.evidence = self.evidence_root / f'head-setup-{_now().strftime("%Y%m%dT%H%M%SZ")}'
             self.evidence.mkdir(parents=True, exist_ok=True)
         tag = uuid.uuid4().hex[:8]
         if path.is_file():
@@ -304,34 +328,73 @@ class HeadSetup:
             servos, cards = [], []
             for m in self.motors:
                 measured, steps = by_motor.get(m['name']), self.raw.get(m['name'])
-                relative = None if measured is None or steps is None else \
-                    (steps - measured['raw_reference_steps']) * RAD_PER_STEP
-                servos.append({'name': m['name'], 'label': m['label'], 'joint': m['joint'], 'id': m['id'],
-                               'steps': steps, 'relative_rad': relative, **self.health.get(m['name'], {})})
+                relative = (
+                    None
+                    if measured is None or steps is None
+                    else (steps - measured['raw_reference_steps']) * RAD_PER_STEP
+                )
+                servos.append(
+                    {
+                        'name': m['name'],
+                        'label': m['label'],
+                        'joint': m['joint'],
+                        'id': m['id'],
+                        'steps': steps,
+                        'relative_rad': relative,
+                        **self.health.get(m['name'], {}),
+                    }
+                )
                 if measured is None:
                     continue
                 saved = limits['joints'].get(m['name']) if matches else None
-                cards.append(dict(rows[m['name']], label=m['label'], arm='head',
-                                  saved=None if saved is None else {
-                                      'min_rad': saved['min_rad'] - measured['raw_reference_rad'],
-                                      'max_rad': saved['max_rad'] - measured['raw_reference_rad']},
-                                  direction={'joint': m['name'], 'sign': measured['sign'],
-                                             'verified': measured['direction_verified'], 'editable': True}))
+                cards.append(
+                    dict(
+                        rows[m['name']],
+                        label=m['label'],
+                        arm='head',
+                        saved=None
+                        if saved is None
+                        else {
+                            'min_rad': saved['min_rad'] - measured['raw_reference_rad'],
+                            'max_rad': saved['max_rad'] - measured['raw_reference_rad'],
+                        },
+                        direction={
+                            'joint': m['name'],
+                            'sign': measured['sign'],
+                            'verified': measured['direction_verified'],
+                            'editable': True,
+                        },
+                    )
+                )
             return {
-                'available': True, 'device': self.device, 'reading': self.reading, 'fresh': fresh,
-                'error': self.error, 'message': self.message, 'servos': servos,
-                'reference': None if reference is None else {
-                    'id': reference['id'], 'created_at': reference['created_at'],
-                    'directions_verified': all(m['direction_verified'] for m in reference['motors'])},
-                'limits': None if limits is None else {
-                    'created_at': limits.get('created_at'), 'matches_reference': matches},
+                'available': True,
+                'device': self.device,
+                'reading': self.reading,
+                'fresh': fresh,
+                'error': self.error,
+                'message': self.message,
+                'servos': servos,
+                'reference': None
+                if reference is None
+                else {
+                    'id': reference['id'],
+                    'created_at': reference['created_at'],
+                    'directions_verified': all(m['direction_verified'] for m in reference['motors']),
+                },
+                'limits': None
+                if limits is None
+                else {'created_at': limits.get('created_at'), 'matches_reference': matches},
                 # The shoulder corners recorded, and the clearance saved with the limits for this reference.
                 'corners': [dict(c) for c in self.corners],
-                'clearance': None if not (matches and limits.get('clearance')) else {
+                'clearance': None
+                if not (matches and limits.get('clearance'))
+                else {
                     'created_at': limits['clearance'].get('created_at'),
                     'corners': [dict(c) for c in limits['clearance']['corners']],
-                    'margin_rad': limits['clearance']['margin_rad']},
-                'rows': cards, 'pending': len(self.recorder.confirmed) if self.recorder else 0,
+                    'margin_rad': limits['clearance']['margin_rad'],
+                },
+                'rows': cards,
+                'pending': len(self.recorder.confirmed) if self.recorder else 0,
                 'files': {kind: str(path) for kind, path in self.paths.items() if kind in ('reference', 'limits')},
             }
 

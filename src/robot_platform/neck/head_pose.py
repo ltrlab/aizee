@@ -13,6 +13,7 @@ readings (position, velocity, effort, command). Helm's camera relay (helm.camera
 frame with the sample nearest its capture, and the task capture (helm.task_capture) records the head's axes and
 camera pose with every episode frame: both clocks are the Jetson's.
 """
+
 import hashlib
 import json
 import math
@@ -22,9 +23,9 @@ import numpy as np
 from robot_platform.vision.geometry import rotation, rotvec, rpy_matrix, transform
 
 ENDPOINT = 'tcp://127.0.0.1:5596'
-UP = np.array([0., 0., 1.])
+UP = np.array([0.0, 0.0, 1.0])
 ALIGNMENT_KIND = 'head_camera_alignment'
-MAX_MOUNT_M = .5  # A mount farther than this from its link's origin is not the head camera's.
+MAX_MOUNT_M = 0.5  # A mount farther than this from its link's origin is not the head camera's.
 
 
 def cad_mount(link_at_zero, front_direction, origin_m):
@@ -50,14 +51,19 @@ def aligned_mount(document, link, reference):
     if not isinstance(document, dict) or document.get('kind') != ALIGNMENT_KIND or document.get('schema') != 1:
         raise ValueError('not a head camera alignment')
     if document.get('link') != link:
-        raise ValueError(f"the alignment is for the camera on {document.get('link')}, not {link}")
+        raise ValueError(f'the alignment is for the camera on {document.get("link")}, not {link}')
     if document.get('reference_sha256') != reference_digest(reference):
-        raise ValueError("the alignment was made through another head reference: align the head camera again")
+        raise ValueError('the alignment was made through another head reference: align the head camera again')
     mount = np.asarray((document.get('mount') or {}).get('matrix'), dtype=float)
-    if (mount.shape != (4, 4) or not np.isfinite(mount).all() or not np.allclose(mount[3], (0., 0., 0., 1.))
-            or not np.allclose(mount[:3, :3] @ mount[:3, :3].T, np.eye(3), atol=1e-6)
-            or np.linalg.det(mount[:3, :3]) < 0 or np.linalg.norm(mount[:3, 3]) > MAX_MOUNT_M):
-        raise ValueError('the alignment\'s mount is not a rigid transform near its link')
+    if (
+        mount.shape != (4, 4)
+        or not np.isfinite(mount).all()
+        or not np.allclose(mount[3], (0.0, 0.0, 0.0, 1.0))
+        or not np.allclose(mount[:3, :3] @ mount[:3, :3].T, np.eye(3), atol=1e-6)
+        or np.linalg.det(mount[:3, :3]) < 0
+        or np.linalg.norm(mount[:3, 3]) > MAX_MOUNT_M
+    ):
+        raise ValueError("the alignment's mount is not a rigid transform near its link")
     return mount
 
 
@@ -81,8 +87,14 @@ class CameraPose:
         chain, link = [], camera['link']
         while link != model.root:
             joint = by_child[link]
-            chain.append((joint['name'], transform(rpy_matrix(*joint['origin']['rpy']), joint['origin']['xyz']),
-                          joint['axis'], joint['type']))
+            chain.append(
+                (
+                    joint['name'],
+                    transform(rpy_matrix(*joint['origin']['rpy']), joint['origin']['xyz']),
+                    joint['axis'],
+                    joint['type'],
+                )
+            )
             link = joint['parent']
         self.chain = chain[::-1]
         self.joints = [name for name, _origin, _axis, kind in self.chain if kind in ('revolute', 'continuous')]
@@ -96,12 +108,12 @@ class CameraPose:
         for name, origin, axis, kind in self.chain:
             result = result @ origin
             if kind in ('revolute', 'continuous'):
-                result = result @ transform(rotation(np.asarray(axis) * positions.get(name, 0.)), (0., 0., 0.))
+                result = result @ transform(rotation(np.asarray(axis) * positions.get(name, 0.0)), (0.0, 0.0, 0.0))
         return result
 
     def pose(self, positions):
         """The camera's 4x4 optical pose in the robot frame, for the neck's measured angles."""
-        drawn = {name: positions.get(name, 0.) + self.offsets.get(name, 0.) for name in self.joints}
+        drawn = {name: positions.get(name, 0.0) + self.offsets.get(name, 0.0) for name in self.joints}
         return self._link(drawn) @ self.mount
 
 
@@ -134,17 +146,28 @@ class HeadPoseFeed:
                 joint, scale, offset = self.axes[motor]
                 angles[joint] = row[1 + 4 * index] * scale + offset
             pose = pose7(self.camera_pose.pose(angles))
-            samples.append([row[0] / 1000 + self.offset, *(angles.get(j, 0.) for j in self.camera_pose.joints), *pose])
+            samples.append([row[0] / 1000 + self.offset, *(angles.get(j, 0.0) for j in self.camera_pose.joints), *pose])
             # The row as the service recorded it, for the episodes (helm.task_capture): per motor, its position,
             # velocity, effort (N m) and the command it was given, in `motors` order.
-            raw.append([float(v) for v in row[1:1 + 4 * len(self.motors)]])
+            raw.append([float(v) for v in row[1 : 1 + 4 * len(self.motors)]])
             self.last_ms = row[0]
         if not samples:
             return False
         import zmq
+
         try:
-            self.socket.send_string(json.dumps({'joints': self.camera_pose.joints, 'zero': self.zero,
-                                                'samples': samples, 'motors': self.motors, 'raw': raw}), zmq.NOBLOCK)
+            self.socket.send_string(
+                json.dumps(
+                    {
+                        'joints': self.camera_pose.joints,
+                        'zero': self.zero,
+                        'samples': samples,
+                        'motors': self.motors,
+                        'raw': raw,
+                    }
+                ),
+                zmq.NOBLOCK,
+            )
         except zmq.Again:
             return False  # Nobody keeps up: the next rows go with the next reply.
         return True

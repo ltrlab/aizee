@@ -1,4 +1,5 @@
 """Synthetic demonstrations through the actual receiver: what the recorder publishes, and what it throws away."""
+
 import json
 
 import h5py
@@ -20,9 +21,12 @@ class _Unplannable(HoldStillPolicy):
 
 def test_a_failed_trial_leaves_no_episode_and_a_success_publishes_one(tmp_path):
     assert default_binary().is_file(), 'Required contract: build the actual native control_harness first'
-    runner = TrialRunner(RunConfig(grippers='driven', timeout_s=1., camera_size=(64, 48)), stack=derive_stack(),
-                         directory=tmp_path / 'receiver')
-    recorder = EpisodeRecorder(tmp_path / 'episodes', hz=15., metadata={'test': True})
+    runner = TrialRunner(
+        RunConfig(grippers='driven', timeout_s=1.0, camera_size=(64, 48)),
+        stack=derive_stack(),
+        directory=tmp_path / 'receiver',
+    )
+    recorder = EpisodeRecorder(tmp_path / 'episodes', hz=15.0, metadata={'test': True})
     try:
         # Holding still never succeeds: the recording is thrown away, partial file and all.
         record = runner.run_trial(HoldStillPolicy(), cube_poses(GridSpec())[0], 0, recorder=recorder)
@@ -33,8 +37,9 @@ def test_a_failed_trial_leaves_no_episode_and_a_success_publishes_one(tmp_path):
         assert record['outcome'] == 'source_gap_or_abort' and recorder.last_path is None and recorder.last_frames == 0
         # The same recorder on the live scene and plant publishes the frames of a trial that succeeded.
         plant, scene = runner.plant, runner.scene
-        context = type('Context', (), dict(index=7, cube_start={'x': .18, 'y': -.34, 'yaw': 0.},
-                                           joint_names=tuple(plant.names)))()
+        context = type(
+            'Context', (), dict(index=7, cube_start={'x': 0.18, 'y': -0.34, 'yaw': 0.0}, joint_names=tuple(plant.names))
+        )()
         recorder.start(scene, plant, context, HoldStillPolicy())
         for _ in range(20):
             plant.cycle()
@@ -50,7 +55,7 @@ def test_a_failed_trial_leaves_no_episode_and_a_success_publishes_one(tmp_path):
         assert attrs['format_version'] == 9 and attrs['complete'] and not attrs['training_promoted']
         assert metadata['collection_mode'] == 'scripted_demonstrator' and metadata['test'] is True
         assert metadata['head'] == SIMULATED_HEAD
-        assert metadata['scene']['gripper_drives'] and metadata['cube_start']['x'] == .18
+        assert metadata['scene']['gripper_drives'] and metadata['cube_start']['x'] == 0.18
         frames = int(attrs['frame_count'])
         assert frames == recorder.last_frames and 2 <= frames <= 4  # 20 cycles of 10 ms at 15 Hz.
         assert set(json.loads(attrs['camera_roles'])) == {'left_wrist', 'right_wrist', 'head'}

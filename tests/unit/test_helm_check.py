@@ -1,4 +1,5 @@
 """Minerva Check in Helm: it runs alone, in the background, and the page gets no evidence payloads."""
+
 import asyncio
 import threading
 from types import SimpleNamespace
@@ -20,13 +21,24 @@ SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
 def test_helm_runs_the_check_alone(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.server import create_app
+
     release, published, runs = threading.Event(), threading.Event(), []
 
     def runner(**options):
         runs.append(options)
-        report = {'kind': 'minerva_check', 'state': 'running', 'stages': [
-            {'id': 'pc', 'title': 'Operator PC', 'checks': [{'id': 'x', 'title': 'X', 'status': 'pass',
-                                                             'detail': 'ok', 'seconds': .1, 'data': {'big': 1}}]}]}
+        report = {
+            'kind': 'minerva_check',
+            'state': 'running',
+            'stages': [
+                {
+                    'id': 'pc',
+                    'title': 'Operator PC',
+                    'checks': [
+                        {'id': 'x', 'title': 'X', 'status': 'pass', 'detail': 'ok', 'seconds': 0.1, 'data': {'big': 1}}
+                    ],
+                }
+            ],
+        }
         options['publish'](report)
         published.set()
         release.wait(5)
@@ -59,6 +71,7 @@ def test_helm_runs_the_check_alone(tmp_path):
     async def main():
         async with TestClient(TestServer(create_app(session, link, check=workspace, token='secret'))) as client:
             await scenario(client)
+
     try:
         asyncio.run(main())
     finally:
@@ -70,16 +83,30 @@ def saved_report(runs, name, *, legacy=False, failed=()):
     """A finished report on disk: today's checks (or the set before the live sweep), passing."""
     stages = []
     for key, title in check.STAGES.items():
-        checks = [{'id': c['id'], 'title': c['title'], 'detail': 'ok', 'seconds': .1,
-                   'status': 'fail' if c['id'] in failed else 'pending' if key == 'sweep' else 'pass'}
-                  for c in check.CHECKS if c['stage'] == key]
+        checks = [
+            {
+                'id': c['id'],
+                'title': c['title'],
+                'detail': 'ok',
+                'seconds': 0.1,
+                'status': 'fail' if c['id'] in failed else 'pending' if key == 'sweep' else 'pass',
+            }
+            for c in check.CHECKS
+            if c['stage'] == key
+        ]
         if legacy and key == 'sweep':
             checks = [{'id': 'sweep', 'title': 'Live joint sweep', 'status': 'pending', 'detail': '', 'seconds': 0}]
         if legacy and key == 'pc':
             checks = [c for c in checks if c['id'] != 'servo']
         stages.append({'id': key, 'title': title, 'checks': checks})
-    report = {'schema': 1, 'kind': 'minerva_check', 'state': 'finished', 'verdict': 'go',
-              'summary': 'GO: every check passed', 'stages': stages}
+    report = {
+        'schema': 1,
+        'kind': 'minerva_check',
+        'state': 'finished',
+        'verdict': 'go',
+        'summary': 'GO: every check passed',
+        'stages': stages,
+    }
     directory = runs / 'minerva-check'
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f'{name}.json').write_text(json.dumps(report), encoding='utf-8')

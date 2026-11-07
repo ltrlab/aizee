@@ -43,6 +43,7 @@ import torch.nn as nn
 # Timestep (flow-time) embedding
 # ---------------------------------------------------------------------------
 
+
 class FlowTimeEmbedding(nn.Module):
     """Sinusoidal embedding of the continuous flow-time t in [0, 1] -> d_model."""
 
@@ -59,10 +60,7 @@ class FlowTimeEmbedding(nn.Module):
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """t: [B] in [0,1] -> [B, d_model]."""
         half = self.d_model // 2
-        freqs = torch.exp(
-            -math.log(self.max_period)
-            * torch.arange(half, device=t.device, dtype=torch.float32) / half
-        )
+        freqs = torch.exp(-math.log(self.max_period) * torch.arange(half, device=t.device, dtype=torch.float32) / half)
         args = t.float().unsqueeze(1) * freqs.unsqueeze(0)  # [B, half]
         emb = torch.cat([torch.cos(args), torch.sin(args)], dim=1)
         if self.d_model % 2:  # pad odd d_model
@@ -78,6 +76,7 @@ def _modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torc
 # ---------------------------------------------------------------------------
 # DiT block: AdaLN-Zero self-attn + gated cross-attn + AdaLN-Zero MLP
 # ---------------------------------------------------------------------------
+
 
 class AdaLNDiTBlock(nn.Module):
     """One denoiser block.
@@ -113,14 +112,12 @@ class AdaLNDiTBlock(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,               # [B, K, d]
-        cond: torch.Tensor,            # [B, d]
-        memory: torch.Tensor,          # [B, S, d]
+        x: torch.Tensor,  # [B, K, d]
+        cond: torch.Tensor,  # [B, d]
+        memory: torch.Tensor,  # [B, S, d]
         memory_key_padding_mask: Optional[torch.Tensor] = None,  # [B, S] True=pad
     ) -> torch.Tensor:
-        (shift_sa, scale_sa, gate_sa,
-         gate_ca,
-         shift_mlp, scale_mlp, gate_mlp) = self.ada(cond).chunk(7, dim=-1)
+        (shift_sa, scale_sa, gate_sa, gate_ca, shift_mlp, scale_mlp, gate_mlp) = self.ada(cond).chunk(7, dim=-1)
 
         h = _modulate(self.norm1(x), shift_sa, scale_sa)
         sa, _ = self.self_attn(h, h, h, need_weights=False)
@@ -128,8 +125,11 @@ class AdaLNDiTBlock(nn.Module):
 
         h = self.norm2(x)
         ca, _ = self.cross_attn(
-            h, memory, memory,
-            key_padding_mask=memory_key_padding_mask, need_weights=False,
+            h,
+            memory,
+            memory,
+            key_padding_mask=memory_key_padding_mask,
+            need_weights=False,
         )
         x = x + gate_ca.unsqueeze(1) * ca
 
@@ -141,6 +141,7 @@ class AdaLNDiTBlock(nn.Module):
 # ---------------------------------------------------------------------------
 # Full flow-matching action head
 # ---------------------------------------------------------------------------
+
 
 class FlowMatchingActionHead(nn.Module):
     """Conditional flow-matching head predicting an action chunk [B, K, A].
@@ -178,10 +179,9 @@ class FlowMatchingActionHead(nn.Module):
         self.time_embed = FlowTimeEmbedding(d_model)
         self.cond_proj = nn.Linear(cond_dim, d_model) if cond_dim > 0 else None
 
-        self.blocks = nn.ModuleList([
-            AdaLNDiTBlock(d_model, nhead, dim_feedforward, dropout)
-            for _ in range(num_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [AdaLNDiTBlock(d_model, nhead, dim_feedforward, dropout) for _ in range(num_layers)]
+        )
 
         # Final AdaLN-Zero + zero-init output projection (velocity starts at 0).
         self.norm_out = nn.LayerNorm(d_model, elementwise_affine=False)
@@ -194,7 +194,7 @@ class FlowMatchingActionHead(nn.Module):
 
     # -- conditioning ------------------------------------------------------
     def _cond_vector(self, t: torch.Tensor, cond: Optional[torch.Tensor]) -> torch.Tensor:
-        c = self.time_embed(t)                       # [B, d]
+        c = self.time_embed(t)  # [B, d]
         if self.cond_proj is not None and cond is not None:
             c = c + self.cond_proj(cond)
         return c
@@ -202,10 +202,10 @@ class FlowMatchingActionHead(nn.Module):
     # -- velocity field ----------------------------------------------------
     def forward(
         self,
-        noisy_actions: torch.Tensor,                 # [B, K, A]
-        t: torch.Tensor,                             # [B] in [0,1]
-        cond: Optional[torch.Tensor],                # [B, cond_dim] or None
-        memory: torch.Tensor,                        # [B, S, d_model]
+        noisy_actions: torch.Tensor,  # [B, K, A]
+        t: torch.Tensor,  # [B] in [0,1]
+        cond: Optional[torch.Tensor],  # [B, cond_dim] or None
+        memory: torch.Tensor,  # [B, S, d_model]
         memory_key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Predict the flow velocity v_theta(x_t, t, cond, memory) -> [B, K, A]."""
@@ -220,7 +220,7 @@ class FlowMatchingActionHead(nn.Module):
     # -- training loss -----------------------------------------------------
     def flow_loss(
         self,
-        clean_actions: torch.Tensor,                 # [B, K, A] (normalized)
+        clean_actions: torch.Tensor,  # [B, K, A] (normalized)
         cond: Optional[torch.Tensor],
         memory: torch.Tensor,
         memory_key_padding_mask: Optional[torch.Tensor] = None,
@@ -258,16 +258,21 @@ class FlowMatchingActionHead(nn.Module):
         B = memory.size(0)
         device = memory.device
         noise = torch.randn(
-            B, self.chunk_size, self.action_dim, device=device, generator=generator,
+            B,
+            self.chunk_size,
+            self.action_dim,
+            device=device,
+            generator=generator,
         )
         P = 0
         if prefix_actions is not None:
-            if (prefix_actions.ndim != 3 or prefix_actions.size(0) != B
-                    or prefix_actions.size(2) != self.action_dim
-                    or not (0 <= prefix_actions.size(1) <= self.chunk_size)):
-                raise ValueError(
-                    f"prefix_actions must have shape [B={B}, P<=K={self.chunk_size}, A={self.action_dim}]"
-                )
+            if (
+                prefix_actions.ndim != 3
+                or prefix_actions.size(0) != B
+                or prefix_actions.size(2) != self.action_dim
+                or not (0 <= prefix_actions.size(1) <= self.chunk_size)
+            ):
+                raise ValueError(f'prefix_actions must have shape [B={B}, P<=K={self.chunk_size}, A={self.action_dim}]')
             P = prefix_actions.size(1)
         x = noise.clone()
         dt = 1.0 / num_steps
@@ -283,4 +288,4 @@ class FlowMatchingActionHead(nn.Module):
         return x
 
 
-__all__ = ["FlowMatchingActionHead", "AdaLNDiTBlock", "FlowTimeEmbedding"]
+__all__ = ['FlowMatchingActionHead', 'AdaLNDiTBlock', 'FlowTimeEmbedding']

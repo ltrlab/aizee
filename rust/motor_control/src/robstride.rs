@@ -161,11 +161,11 @@ impl MotorModel {
 #[derive(Debug, Clone)]
 pub struct MotorFeedback {
     pub motor_id: u8,
-    pub mode: MotorMode,    // Motor operating mode (Reset/Calibration/Run)
-    pub position: f32,      // radians
-    pub velocity: f32,      // rad/s
-    pub torque: f32,        // Nm
-    pub temperature: f32,   // °C
+    pub mode: MotorMode,  // Motor operating mode (Reset/Calibration/Run)
+    pub position: f32,    // radians
+    pub velocity: f32,    // rad/s
+    pub torque: f32,      // Nm
+    pub temperature: f32, // °C
     pub error: MotorError,
     pub timestamp: std::time::Instant,
 }
@@ -186,7 +186,7 @@ pub mod params {
     pub const MECHPOS: u16 = 0x7019;
     pub const IQF: u16 = 0x701A;
     pub const MECHVEL: u16 = 0x701B;
-    pub const VBUS: u16 = 0x701C;  // Battery voltage (float, in Volts)
+    pub const VBUS: u16 = 0x701C; // Battery voltage (float, in Volts)
     pub const LOC_KP: u16 = 0x701E;
     pub const SPD_KP: u16 = 0x701F;
     pub const SPD_KI: u16 = 0x7020;
@@ -222,7 +222,8 @@ pub fn parse_feedback(frame: &CanFrame, model: MotorModel) -> Result<MotorFeedba
 
     // Parse angle (bytes 0-1, big-endian)
     let angle_raw = u16::from_be_bytes([data[0], data[1]]);
-    let position = (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
+    let position =
+        (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
 
     // Parse velocity (bytes 2-3)
     let vel_raw = u16::from_be_bytes([data[2], data[3]]);
@@ -367,19 +368,18 @@ pub fn build_control_frame(
         .clamp(0.0, 0xFFFF as f32) as u16;
 
     // Encode Kp: [0, kp_max] → [0, 0xFFFF] (unsigned)
-    let kp_u16 = (kp.clamp(0.0, kp_max) / kp_max * 0xFFFF as f32)
-        .clamp(0.0, 0xFFFF as f32) as u16;
+    let kp_u16 = (kp.clamp(0.0, kp_max) / kp_max * 0xFFFF as f32).clamp(0.0, 0xFFFF as f32) as u16;
 
     // Encode Kd: [0, kd_max] → [0, 0xFFFF] (unsigned)
-    let kd_u16 = (kd.clamp(0.0, kd_max) / kd_max * 0xFFFF as f32)
-        .clamp(0.0, 0xFFFF as f32) as u16;
+    let kd_u16 = (kd.clamp(0.0, kd_max) / kd_max * 0xFFFF as f32).clamp(0.0, 0xFFFF as f32) as u16;
 
     // Encode torque: [-torque_max, torque_max] → [0, 0xFFFF] (signed, goes in arb_id)
     let torque_u16 = ((torque.clamp(-torque_max, torque_max) / torque_max + 1.0) * 0x7FFF as f32)
         .clamp(0.0, 0xFFFF as f32) as u16;
 
     // Build CAN arbitration ID: msg_type(5) | torque_u16(16) | motor_id(8)
-    let arb_id_raw = ((MotorMsg::Control as u32) << 24) | ((torque_u16 as u32) << 8) | (motor_id as u32);
+    let arb_id_raw =
+        ((MotorMsg::Control as u32) << 24) | ((torque_u16 as u32) << 8) | (motor_id as u32);
     let arb_id = ExtendedId::new(arb_id_raw).expect("Invalid extended CAN ID");
 
     // Pack data as 4 big-endian u16: position, velocity, kp, kd

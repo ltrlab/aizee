@@ -16,6 +16,7 @@ It is an ordinary subprocess (`python -m robot_platform.teleop.vr_worker`) speak
 pickles on its stdin and stdout: Helm's teleop loop on a PC runs in a daemonic process, which multiprocessing forbids
 children. Everything it prints goes to a log file.
 """
+
 import math
 import multiprocessing
 import os
@@ -28,24 +29,43 @@ import time
 
 from .policy_worker import _ChildEnd, _read_frame, _write_frame
 
-START_TIMEOUT_S = 30.  # Building both arms' chains takes well under a second; importing numpy cold, a few.
+START_TIMEOUT_S = 30.0  # Building both arms' chains takes well under a second; importing numpy cold, a few.
 
 
 def _sample(value, at):
     """A controller as Helm checked it (helm.xr.hand_sample: position, orientation, grip, trigger, hold, ui)."""
     from .vr_arms import HandSample
-    return HandSample(tuple(value['position']), tuple(value['orientation']), float(value['grip']),
-                      float(value['trigger']), bool(value['hold']), at, bool(value['ui']))
+
+    return HandSample(
+        tuple(value['position']),
+        tuple(value['orientation']),
+        float(value['grip']),
+        float(value['trigger']),
+        bool(value['hold']),
+        at,
+        bool(value['ui']),
+    )
 
 
 def _answer(commands, holds, triggers):
     """Each arm's command, its count of B/Y presses, and its trigger (None without a fresh hand off the screens): an
     arm not yet seeded still says where its trigger is, for the gripper Engage aligns to."""
-    return {arm: {'positions': c.positions, 'closure': c.closure, 'gripped': c.gripped, 'tracking': c.tracking,
-                  'clamped': c.clamped, 'converged': c.converged, 'at_limit': list(c.at_limit),
-                  'sigma': None if not math.isfinite(c.sigma) else c.sigma, 'near_singular': c.near_singular,
-                  'holds': holds[arm], 'trigger': triggers.get(arm)}
-            for arm, c in commands.items()}
+    return {
+        arm: {
+            'positions': c.positions,
+            'closure': c.closure,
+            'gripped': c.gripped,
+            'tracking': c.tracking,
+            'clamped': c.clamped,
+            'converged': c.converged,
+            'at_limit': list(c.at_limit),
+            'sigma': None if not math.isfinite(c.sigma) else c.sigma,
+            'near_singular': c.near_singular,
+            'holds': holds[arm],
+            'trigger': triggers.get(arm),
+        }
+        for arm, c in commands.items()
+    }
 
 
 def build(setup):
@@ -55,6 +75,7 @@ def build(setup):
     from robot_platform.models.urdf import register_verified_assets
     from .arm_ik import ArmKinematics
     from .vr_arms import DragSettings, VRArms
+
     if setup.get('verified'):
         register_verified_assets(setup['verified'])  # No CAD files on the robot: its release vouches for them.
     model = UrdfModel(ModelProfile.load(setup['model']))
@@ -68,6 +89,7 @@ def serve(conn, setup, *, clock=time.monotonic, vr=None, own_process=True):
     number, {arm: CAD positions}). In a process of its own it moves off the control CPUs first."""
     if own_process:
         from robot_platform.control.scheduling import prefer_background
+
         prefer_background()
         try:
             os.nice(10)
@@ -140,10 +162,19 @@ def serve(conn, setup, *, clock=time.monotonic, vr=None, own_process=True):
             commands = vr.update(now, samples)
             for arm, command in commands.items():
                 holds[arm] += bool(command.hold)
-            triggers = {arm: min(1., max(0., sample.trigger)) for arm, sample in samples.items()
-                        if now - sample.at <= vr.settings.stale_s and not sample.ui}
-            conn.send({'seed': seeded, 'commands': _answer(commands, holds, triggers), 'at': now,
-                       'compute_ms': (time.perf_counter() - started) * 1000})
+            triggers = {
+                arm: min(1.0, max(0.0, sample.trigger))
+                for arm, sample in samples.items()
+                if now - sample.at <= vr.settings.stale_s and not sample.ui
+            }
+            conn.send(
+                {
+                    'seed': seeded,
+                    'commands': _answer(commands, holds, triggers),
+                    'at': now,
+                    'compute_ms': (time.perf_counter() - started) * 1000,
+                }
+            )
         except (EOFError, OSError, BrokenPipeError):
             return
         except Exception as exc:  # noqa: BLE001 - one bad update; the loop holds while answers are missing.
@@ -169,20 +200,32 @@ class VRWorker:
         self._hello = threading.Event()
         if in_process:
             self._conn, child = multiprocessing.Pipe()
-            self.process = threading.Thread(target=serve, args=(child, setup), daemon=True, name='vr-worker',
-                                            kwargs={'vr': vr, 'own_process': False})
+            self.process = threading.Thread(
+                target=serve,
+                args=(child, setup),
+                daemon=True,
+                name='vr-worker',
+                kwargs={'vr': vr, 'own_process': False},
+            )
             self.process.start()
         else:
             self.log_path = Path(tempfile.gettempdir()) / f'minerva-vr-{os.getpid()}-{time.time_ns()}.log'
             self._log = open(self.log_path, 'wb')
             # Small matrices: BLAS threads would only contend with the cameras on the background CPUs.
             env = dict(os.environ, OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', MKL_NUM_THREADS='1')
-            self.process = subprocess.Popen([python or sys.executable, '-u', '-m', 'robot_platform.teleop.vr_worker'],
-                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log, env=env)
+            self.process = subprocess.Popen(
+                [python or sys.executable, '-u', '-m', 'robot_platform.teleop.vr_worker'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=self._log,
+                env=env,
+            )
             self._conn = _Pipes(self.process)
             self._conn.send(setup)
-        self._threads = [threading.Thread(target=self._send, daemon=True, name='vr-worker-send'),
-                         threading.Thread(target=self._read, daemon=True, name='vr-worker-reader')]
+        self._threads = [
+            threading.Thread(target=self._send, daemon=True, name='vr-worker-send'),
+            threading.Thread(target=self._read, daemon=True, name='vr-worker-reader'),
+        ]
         for thread in self._threads:
             thread.start()
 
@@ -261,7 +304,7 @@ class VRWorker:
             return ''
         return f': {tail}' if tail else ''
 
-    def close(self, timeout=5.):
+    def close(self, timeout=5.0):
         with self._wake:
             self._closing = True
             self._wake.notify_all()

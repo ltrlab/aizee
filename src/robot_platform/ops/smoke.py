@@ -3,6 +3,7 @@
 Opens no device and touches no CAN interface. Prints one JSON object.
 Usage (on the robot): python3 -m robot_platform.ops.smoke <release root>
 """
+
 import json
 from importlib import import_module
 from pathlib import Path
@@ -13,8 +14,7 @@ import time
 def check_requirements(manifest):
     """Check the verified release's declared modules before model/native startup."""
     names = manifest.get('requires', {}).get('modules', [])
-    if not isinstance(names, list) or any(not isinstance(name, str) or not name
-                                         for name in names):
+    if not isinstance(names, list) or any(not isinstance(name, str) or not name for name in names):
         raise RuntimeError('Release requires.modules must be a list of module names')
     modules = {}
     for name in names:
@@ -31,6 +31,7 @@ def check_requirements(manifest):
 def run(root):
     started = time.perf_counter()
     from .release import CALIBRATION, activate
+
     manifest = activate(root)
     modules = check_requirements(manifest)
     root = Path(root)
@@ -42,10 +43,17 @@ def run(root):
     from robot_platform.simulation.control_harness import NativeControlHarness
     from robot_platform.simulation.native_collision import NativeCollisionBackend
     from robot_platform.simulation.runtime_model import RuntimeCollisionModel
-    report = {'release': manifest['id'], 'commit': manifest['source']['commit'],
-              'python': sys.version.split()[0], 'numpy': numpy.__version__, 'scipy': scipy.__version__,
-              'msgpack': '.'.join(map(str, msgpack.version)), 'pyzmq': zmq.__version__,
-              'required_modules': modules}
+
+    report = {
+        'release': manifest['id'],
+        'commit': manifest['source']['commit'],
+        'python': sys.version.split()[0],
+        'numpy': numpy.__version__,
+        'scipy': scipy.__version__,
+        'msgpack': '.'.join(map(str, msgpack.version)),
+        'pyzmq': zmq.__version__,
+        'required_modules': modules,
+    }
     _plan, _paths, _device, _reference, model, pose, _bindings = load_plan(root / CALIBRATION)
     runtime = RuntimeCollisionModel(model.profile)
     if not runtime.kinematics_only:
@@ -54,21 +62,41 @@ def run(root):
     backend = NativeCollisionBackend(runtime, geometry_mode='keepout')
     try:
         state = {name: pose[name] for name in runtime.scene.independent_joints}
-        backend.proximity(state, threshold=.05, scope='inter_branch')
+        backend.proximity(state, threshold=0.05, scope='inter_branch')
         samples = []
         for _ in range(20):
             begin = time.perf_counter()
-            backend.proximity(state, threshold=.05, scope='inter_branch')
+            backend.proximity(state, threshold=0.05, scope='inter_branch')
             samples.append((time.perf_counter() - begin) * 1000)
         report['keepout_query_ms'] = {'p50': round(sorted(samples)[10], 2), 'max': round(max(samples), 2)}
     finally:
         backend.close()
-    config = {'group': 'smoke', 'identity': {'model': 'smoke', 'calibration': 'smoke', 'collision_policy': 'smoke'},
-              'lease_ms': 100, 'feedback_timeout_ms': 20, 'settled_velocity': .001,
-              'joints': [{'name': 'axis', 'unit': 'radians', 'lower': -1., 'upper': 1., 'max_velocity': 1.,
-                          'max_effort': 1., 'max_kp': 1., 'max_kd': 1., 'stop_acceleration': 1., 'hold_kp': 1.,
-                          'hold_kd': 1., 'max_tracking_error': .1, 'max_temperature': 70., 'gripper': True}]}
-    with NativeControlHarness(config, [0.]) as harness:
+    config = {
+        'group': 'smoke',
+        'identity': {'model': 'smoke', 'calibration': 'smoke', 'collision_policy': 'smoke'},
+        'lease_ms': 100,
+        'feedback_timeout_ms': 20,
+        'settled_velocity': 0.001,
+        'joints': [
+            {
+                'name': 'axis',
+                'unit': 'radians',
+                'lower': -1.0,
+                'upper': 1.0,
+                'max_velocity': 1.0,
+                'max_effort': 1.0,
+                'max_kp': 1.0,
+                'max_kd': 1.0,
+                'stop_acceleration': 1.0,
+                'hold_kp': 1.0,
+                'hold_kd': 1.0,
+                'max_tracking_error': 0.1,
+                'max_temperature': 70.0,
+                'gripper': True,
+            }
+        ],
+    }
+    with NativeControlHarness(config, [0.0]) as harness:
         harness.step(0)
         report['receiver_harness'] = harness.step(10, {'type': 'status'})['status']['state']
     report['ok'] = True

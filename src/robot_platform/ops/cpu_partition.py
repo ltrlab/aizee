@@ -19,6 +19,7 @@ The split also keeps CPU 3 for the head's receiver alone (2026-11-03): beside th
 started up to 15 ms late, and one late tick stopped the head mid-session. Installing again moves an older split to
 this one; Helm, which keeps itself to the background CPUs, moves when it next starts (a deploy restarts it).
 """
+
 import argparse
 from itertools import combinations
 import json
@@ -53,8 +54,10 @@ def cpu_list(text):
 
 
 def drop_in(cpus=BACKGROUND):
-    return ('# robot_platform.ops.cpu_partition: this camera keeps off the control CPUs.\n'
-            '[Service]\nCPUAffinity=\nCPUAffinity=' + ' '.join(map(str, cpus)) + '\n')
+    return (
+        '# robot_platform.ops.cpu_partition: this camera keeps off the control CPUs.\n'
+        '[Service]\nCPUAffinity=\nCPUAffinity=' + ' '.join(map(str, cpus)) + '\n'
+    )
 
 
 class Host:
@@ -131,8 +134,10 @@ def _stale(host):
 def _quiet(host):
     sessions = host.sessions()
     if sessions:
-        raise RuntimeError(f'A Helm session is running on this robot (process {sessions[0]}); stop it in Helm '
-                           'first: restarting a camera interrupts its stream.')
+        raise RuntimeError(
+            f'A Helm session is running on this robot (process {sessions[0]}); stop it in Helm '
+            'first: restarting a camera interrupts its stream.'
+        )
 
 
 def _restart(host):
@@ -152,9 +157,11 @@ def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD):
     online = cpu_list(host.path(ONLINE).read_text())
     groups = (control, background, head)
     if not set().union(*map(set, groups)) <= online or any(set(a) & set(b) for a, b in combinations(groups, 2)):
-        raise RuntimeError(f'CPUs {sorted(online)} are online here: control {list(control)}, background '
-                           f'{list(background)} and head {list(head)} must be online and apart. Check the power mode '
-                           '(nvpmodel).')
+        raise RuntimeError(
+            f'CPUs {sorted(online)} are online here: control {list(control)}, background '
+            f'{list(background)} and head {list(head)} must be online and apart. Check the power mode '
+            '(nvpmodel).'
+        )
     for unit in SERVICES:
         if host.systemctl('show', '-p', 'LoadState', '--value', unit).strip() != 'loaded':
             raise RuntimeError(f'{unit} is not installed here.')
@@ -165,13 +172,24 @@ def install(host=None, control=CONTROL, background=BACKGROUND, head=HEAD):
         _write(host.path(UNITS / (unit + '.d') / DROP_IN), drop_in(background))
     _unlink(_stale(host))  # It never took, so its manager (Helm's) needs no restart.
     placed = _restart(host)
-    stray = {unit: sorted(set().union(*threads.values())) for unit, threads in placed.items()
-             if threads and any(cpus != set(background) for cpus in threads.values())}
+    stray = {
+        unit: sorted(set().union(*threads.values()))
+        for unit, threads in placed.items()
+        if threads and any(cpus != set(background) for cpus in threads.values())
+    }
     if stray:
-        raise RuntimeError(f'Cameras still run outside CPUs {list(background)}: {stray}. The loop was left '
-                           'unpinned; run remove, then check the units with systemctl cat.')
-    _write(partition, json.dumps({'control': list(control), 'background': list(background), 'head': list(head),
-                                  'services': list(SERVICES)}, indent=2) + '\n')
+        raise RuntimeError(
+            f'Cameras still run outside CPUs {list(background)}: {stray}. The loop was left '
+            'unpinned; run remove, then check the units with systemctl cat.'
+        )
+    _write(
+        partition,
+        json.dumps(
+            {'control': list(control), 'background': list(background), 'head': list(head), 'services': list(SERVICES)},
+            indent=2,
+        )
+        + '\n',
+    )
     cpu_partition(partition), head_cpus(partition)  # The loop and the head read it back the same way.
     return status(host)
 
@@ -191,15 +209,25 @@ def status(host=None):
     host = host or Host()
     partition = cpu_partition(host.path(PARTITION))
     head = head_cpus(host.path(PARTITION))
-    report = {'partition': None if partition is None else {'control': sorted(partition[0]),
-                                                           'background': sorted(partition[1]),
-                                                           'head': None if head is None else sorted(head)},
-              'cameras': {}, 'sessions': {}}
+    report = {
+        'partition': None
+        if partition is None
+        else {
+            'control': sorted(partition[0]),
+            'background': sorted(partition[1]),
+            'head': None if head is None else sorted(head),
+        },
+        'cameras': {},
+        'sessions': {},
+    }
     for unit in SERVICES:
         pid = host.main_pid(unit)
         threads = host.cpus(pid) if pid else {}
-        report['cameras'][unit] = {'drop_in': host.path(UNITS / (unit + '.d') / DROP_IN).exists(), 'pid': pid or None,
-                                   'cpus': sorted(set().union(*threads.values())) if threads else None}
+        report['cameras'][unit] = {
+            'drop_in': host.path(UNITS / (unit + '.d') / DROP_IN).exists(),
+            'pid': pid or None,
+            'cpus': sorted(set().union(*threads.values())) if threads else None,
+        }
     for pid in host.sessions():
         threads = host.cpus(pid)
         report['sessions'][pid] = sorted(set().union(*threads.values())) if threads else None
@@ -207,16 +235,22 @@ def status(host=None):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python3 -m robot_platform.ops.cpu_partition', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog='python3 -m robot_platform.ops.cpu_partition',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('action', choices=('install', 'remove', 'status'))
     args = parser.parse_args(argv)
     if args.action != 'status' and getattr(os, 'geteuid', lambda: -1)() != 0:
         print('install and remove change systemd units: run them with sudo.', file=sys.stderr)
         return 2
     if args.action != 'status' and not sys.flags.dont_write_bytecode:
-        print('Run as sudo python3 -B -m robot_platform.ops.cpu_partition, so no root-owned bytecode is left '
-              'in the release.', file=sys.stderr)
+        print(
+            'Run as sudo python3 -B -m robot_platform.ops.cpu_partition, so no root-owned bytecode is left '
+            'in the release.',
+            file=sys.stderr,
+        )
         return 2
     try:
         report = {'install': install, 'remove': remove, 'status': status}[args.action]()

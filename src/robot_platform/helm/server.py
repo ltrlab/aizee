@@ -11,6 +11,7 @@ session's arm as its receiver reads it, else the reader. The Leaders workspace
 and a teleop session both need the leader USB ports, so they exclude each other.
 Teleop, the servo sweep and Minerva Check exclude each other.
 """
+
 import asyncio
 import contextvars
 from pathlib import Path
@@ -24,9 +25,8 @@ from .webrtc_link import WebRTCLink
 STATIC = Path(__file__).parent / 'static'
 # Served before a login, so the login page has Helm's type: these exact paths, nothing else under /helm.
 LOGIN_FONTS = frozenset({'/helm/fonts/minecraft-regular.woff2', '/helm/fonts/minecraft-bold.woff2'})
-RETURN_MOVED_RAD = .02  # A confirmed return starts only if no joint moved more than this since it was shown.
+RETURN_MOVED_RAD = 0.02  # A confirmed return starts only if no joint moved more than this since it was shown.
 RESTART_DELAY_S = 1.5  # Joint zero's Verify answers the page before Helm stops to load the new reference.
-
 
 
 def task_phase(progress):
@@ -71,6 +71,7 @@ def task_visual_label(capabilities):
         return 'Camera appearance: full CAD visuals.'
     return 'Camera appearance is not reported yet.'
 
+
 # The logged-in session of the request being handled (helm.access), for the state it answers with.
 CURRENT_SESSION = contextvars.ContextVar('helm_session', default=None)
 # The remote headset's WebRTC offer needs a login, not control, as its socket does: the session the device in control
@@ -85,7 +86,7 @@ OPEN_POSTS = ('/api/helm/logout', '/api/helm/control/claim', '/api/helm/control/
 VIDEO_BACKLOG = 64 * 1024
 VIDEO_SOCKET_BUFFER = 32 * 1024
 VIDEO_HIGH_WATER = 4 * 1024 * 1024
-VIDEO_SLOW_S = 2.  # The stream reports a slow link for this long after it last skipped a frame.
+VIDEO_SLOW_S = 2.0  # The stream reports a slow link for this long after it last skipped a frame.
 
 
 def video_backlog(transport):
@@ -93,11 +94,36 @@ def video_backlog(transport):
     return transport.get_write_buffer_size() if transport is not None and not transport.is_closing() else 0
 
 
-def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=None, token=None, live=False,
-               gripper_zero=None, simulation_only=False, cameras=None, camera_video=None, episodes=None, ups=None,
-               access=None, bridge=None, mesh_store=None, operator_files=None, calibration=None, network=None,
-               display=None, head_setup=None, head_alignment=None, maps=None, twin=None, joint_zero=None,
-               restart=None):
+def create_app(
+    session,
+    link,
+    *,
+    teleop=None,
+    leaders=None,
+    check=None,
+    tune=None,
+    token=None,
+    live=False,
+    gripper_zero=None,
+    simulation_only=False,
+    cameras=None,
+    camera_video=None,
+    episodes=None,
+    ups=None,
+    access=None,
+    bridge=None,
+    mesh_store=None,
+    operator_files=None,
+    calibration=None,
+    network=None,
+    display=None,
+    head_setup=None,
+    head_alignment=None,
+    maps=None,
+    twin=None,
+    joint_zero=None,
+    restart=None,
+):
     """`live`: keep the stopped reader running whenever Minerva is online and nothing else holds the motors
     (helm.live_view); sessions then take the motors from it instead of asking for Disconnect first.
     `episodes`: the recorded-episode library behind Replay (helm.episodes), told to read nothing while a
@@ -124,10 +150,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     from robot_platform.viewer.server import create_app as viewer_app
     from .live_view import LiveView
     from .telemetry import select_telemetry
+
     token = token or secrets.token_urlsafe(24)
     camera_change = asyncio.Lock()
     video_sockets = set()
     from .xr import Headset
+
     headset = Headset()  # The operator's headset steering the head (helm.xr).
     xr_steered = {'count': 0}
     # Settings → Headset's preview: the 3D view's head follows the headset while no session drives the head.
@@ -138,6 +166,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         grippers = None
     else:
         from .gripper_zero import GripperZero
+
         grippers = gripper_zero or GripperZero(lambda: getattr(session, 'address', None) or session.device['address'])
 
     def head_alone():
@@ -194,16 +223,23 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if joints is None and head_setup is not None:
             read = head_setup.joints()
             if read is not None:  # Each reading a pose of its own, as each headset pose is.
-                return display.preview(pose, read, head_setup.sequence, source='head-setup',
-                                       note='read by its setup, the servos limp'), True
+                return display.preview(
+                    pose, read, head_setup.sequence, source='head-setup', note='read by its setup, the servos limp'
+                ), True
         if joints is None and xr_preview['on']:
             return display.preview(pose, headset.angles(), headset.poses), False
         live = (getattr(teleop, 'receiver', None) or {}).get('mode') == 'live'
         return display.guide(pose, joints), joints is not None and live
 
     drawn = display.profile if display is not None else session.model.profile
-    app = viewer_app([drawn], drawn.id, guide=shown, index_html=STATIC / 'index.html', local_only=access is None,
-                     mesh_store=mesh_store)
+    app = viewer_app(
+        [drawn],
+        drawn.id,
+        guide=shown,
+        index_html=STATIC / 'index.html',
+        local_only=access is None,
+        mesh_store=mesh_store,
+    )
     if access is not None:
         from .access import COOKIE, stop_request
 
@@ -228,10 +264,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                     pass
                 if not stop_request(path, payload):
                     holder = access.view(session_token)['holder']
-                    who = f"{holder['device']} has control" if holder else 'No device has control'
-                    return web.json_response({'error': f'View only: {who}. Take control first.', 'view_only': True},
-                                             status=403)
+                    who = f'{holder["device"]} has control' if holder else 'No device has control'
+                    return web.json_response(
+                        {'error': f'View only: {who}. Take control first.', 'view_only': True}, status=403
+                    )
             return await handler(request)
+
         app.middlewares.append(gate)
 
     def authorized(request):
@@ -245,14 +283,28 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Expected a JSON object')
         if simulation_only:
             allowed = {
-                '/api/helm/teleop/start', '/api/helm/teleop/stop', '/api/helm/teleop/key', '/api/helm/teleop/pedal',
-                '/api/helm/teleop/route', '/api/helm/teleop/zero', '/api/helm/teleop/target',
-                '/api/helm/teleop/receiver', '/api/helm/settings/apply', '/api/helm/settings/reset',
-                '/api/helm/leaders/connect', '/api/helm/leaders/disconnect', '/api/helm/leaders/range',
-                '/api/helm/leaders/reference', '/api/helm/leaders/save',
-                '/api/helm/teleop/tuning/apply', '/api/helm/teleop/tuning/save',
-                '/api/helm/teleop/tuning/restore', '/api/helm/task', '/api/helm/teleop/grip_feedback',
-                '/api/helm/xr/zero', '/api/helm/xr/preview',
+                '/api/helm/teleop/start',
+                '/api/helm/teleop/stop',
+                '/api/helm/teleop/key',
+                '/api/helm/teleop/pedal',
+                '/api/helm/teleop/route',
+                '/api/helm/teleop/zero',
+                '/api/helm/teleop/target',
+                '/api/helm/teleop/receiver',
+                '/api/helm/settings/apply',
+                '/api/helm/settings/reset',
+                '/api/helm/leaders/connect',
+                '/api/helm/leaders/disconnect',
+                '/api/helm/leaders/range',
+                '/api/helm/leaders/reference',
+                '/api/helm/leaders/save',
+                '/api/helm/teleop/tuning/apply',
+                '/api/helm/teleop/tuning/save',
+                '/api/helm/teleop/tuning/restore',
+                '/api/helm/task',
+                '/api/helm/teleop/grip_feedback',
+                '/api/helm/xr/zero',
+                '/api/helm/xr/preview',
             }
             if request.path not in allowed:
                 raise ValueError('Simulation mode cannot operate or calibrate the physical robot')
@@ -276,16 +328,18 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         state['head_alignment'] = head_alignment.snapshot() if head_alignment is not None else None
         state['maps'] = maps.snapshot() if maps is not None else None
         state['twin'] = twin.snapshot() if twin is not None else None
-        state['joint_zero'] = (dict(joint_zero.snapshot(), restarts=restart is not None)
-                               if joint_zero is not None else None)
+        state['joint_zero'] = (
+            dict(joint_zero.snapshot(), restarts=restart is not None) if joint_zero is not None else None
+        )
         state['mode'] = 'simulation' if simulation_only else 'robot'
         task = (state['teleop'] or {}).get('task')
         if simulation_only and task is not None:
             task['display_phase'] = task_phase(task.get('task') or {})
             task['display_visual'] = task_visual_label(task.get('capabilities') or {})
         elif task is not None:
-            task['camera_summary'] = camera_preflight(task.get('cameras') or {}, task.get('camera_roles')
-                                                       or ('left_wrist', 'right_wrist', 'head'))
+            task['camera_summary'] = camera_preflight(
+                task.get('cameras') or {}, task.get('camera_roles') or ('left_wrist', 'right_wrist', 'head')
+            )
         # The model's joint telemetry from the one source the 3D view shows: a running session, else the reader.
         state['telemetry'] = select_telemetry(state)
         if display is not None:  # For the model the 3D view draws, as its guide is.
@@ -319,21 +373,31 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if not isinstance(payload, dict) or set(payload) - {'password', 'device'}:
             raise ValueError('Expected password and device')
         try:
-            session_token = await off_loop(lambda: access.login(payload.get('password', ''), device=payload.get('device'),
-                                                                address=request.remote))
+            session_token = await off_loop(
+                lambda: access.login(payload.get('password', ''), device=payload.get('device'), address=request.remote)
+            )
         except PermissionError as exc:
             return web.json_response({'error': str(exc)}, status=429)
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=401)
         from .access import COOKIE, SESSION_S
+
         response = web.json_response({'ok': True})
-        response.set_cookie(COOKIE, session_token, httponly=True, samesite='Strict', secure=request.secure,
-                            max_age=int(SESSION_S), path='/')
+        response.set_cookie(
+            COOKIE,
+            session_token,
+            httponly=True,
+            samesite='Strict',
+            secure=request.secure,
+            max_age=int(SESSION_S),
+            path='/',
+        )
         return response
 
     async def logout(request):
         await body(request)
         from .access import COOKIE
+
         access.logout(CURRENT_SESSION.get())
         response = web.json_response({'ok': True})
         response.del_cookie(COOKIE, path='/')
@@ -360,9 +424,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if camera_change.locked():
             return 'A camera change is running; wait for readback'
         if teleop is not None:
-            task = (teleop.snapshot().get('task') or {})
+            task = teleop.snapshot().get('task') or {}
             recording = task.get('recording') or {}
-            if teleop.active or recording.get('active') or recording.get('state') in ('starting', 'recording', 'stopping', 'finishing'):
+            if (
+                teleop.active
+                or recording.get('active')
+                or recording.get('state') in ('starting', 'recording', 'stopping', 'finishing')
+            ):
                 return 'Stop the teleop session and capture before changing camera settings'
         return None
 
@@ -372,17 +440,22 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if cameras is None:
             raise ValueError('Camera settings are not configured')
 
-    replay_busy_at = [-1., None]
+    replay_busy_at = [-1.0, None]
 
     def replay_busy():
         """Why Replay may not read now: a recording runs on the same robot CPUs and disk. Cached briefly, since
         every uncached frame asks."""
         now = time.monotonic()
-        if now - replay_busy_at[0] > .25:
+        if now - replay_busy_at[0] > 0.25:
             reason = None
             if teleop is not None:
                 recording = (teleop.snapshot().get('task') or {}).get('recording') or {}
-                if recording.get('active') or recording.get('state') in ('starting', 'recording', 'stopping', 'finishing'):
+                if recording.get('active') or recording.get('state') in (
+                    'starting',
+                    'recording',
+                    'stopping',
+                    'finishing',
+                ):
                     reason = 'Replay waits while a recording is running'
             replay_busy_at[:] = [now, reason]
         return replay_busy_at[1]
@@ -395,7 +468,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('Replay is not configured in this Helm')
 
     def episode_name(request):
-        return f"{request.match_info['session']}/{request.match_info['episode']}"
+        return f'{request.match_info["session"]}/{request.match_info["episode"]}'
 
     async def episodes_list(_request):
         need_episodes()
@@ -405,18 +478,26 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         """Motor -> URDF joint, scale, offset and unit: how a recorded position poses the 3D model, as the stopped
         reader's telemetry maps it (helm.telemetry.stopped_packet)."""
         from contextlib import nullcontext
+
         mapping, transmissions = getattr(session, 'mapping', None) or {}, getattr(session, 'transmissions', None) or []
         with getattr(session, 'lock', None) or nullcontext():
-            rows = {row['motor']: dict(joint=joint, scale=row['sign'], offset=row['offset_rad'], unit='rad')
-                    for joint, row in mapping.items()}
+            rows = {
+                row['motor']: dict(joint=joint, scale=row['sign'], offset=row['offset_rad'], unit='rad')
+                for joint, row in mapping.items()
+            }
             for entry in transmissions:
                 scale = entry['metres_per_motor_rad']
-                rows[entry['motor']] = dict(joint=entry['joint'], scale=scale, unit='m',
-                                            offset=entry['joint_reference_m'] - scale * entry['motor_reference_rad'])
+                rows[entry['motor']] = dict(
+                    joint=entry['joint'],
+                    scale=scale,
+                    unit='m',
+                    offset=entry['joint_reference_m'] - scale * entry['motor_reference_rad'],
+                )
         return rows
 
     async def episode_get(request):
         from .episodes import EpisodeBusy
+
         need_episodes()
         name = episode_name(request)
         try:
@@ -433,6 +514,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
     async def episode_review(request):
         """Keep or Discard an episode for training, with an optional note; refused while a recording runs."""
         from .episodes import EpisodeBusy
+
         payload = await body(request)
         need_episodes()
         if not set(payload) <= {'verdict', 'note'} or 'verdict' not in payload:
@@ -446,6 +528,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
 
     async def episode_frame(request):
         from .episodes import EpisodeBusy
+
         need_episodes()
         name, role = episode_name(request), request.match_info['role']
         try:
@@ -464,8 +547,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_cameras()
         result = await off_loop(cameras.snapshot)
         reason = camera_apply_reason()
-        return web.json_response(dict(result, can_apply=reason is None, reason=reason),
-                                 headers={'Cache-Control': 'no-store'})
+        return web.json_response(
+            dict(result, can_apply=reason is None, reason=reason), headers={'Cache-Control': 'no-store'}
+        )
 
     async def camera_set(request):
         payload = await body(request)
@@ -478,8 +562,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         # The lock is acquired before yielding. Session start shares this fence,
         # including its stopped-reader handoff, so it cannot race a remote write.
         async with camera_change:
-            pending = asyncio.create_task(off_loop(lambda: cameras.set(
-                request.match_info['role'], payload['name'], payload['value'])))
+            pending = asyncio.create_task(
+                off_loop(lambda: cameras.set(request.match_info['role'], payload['name'], payload['value']))
+            )
             try:
                 result = await asyncio.shield(pending)
             except asyncio.CancelledError:
@@ -494,7 +579,6 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         jpeg = await off_loop(lambda: cameras.frame(request.match_info['role']))
         return web.Response(body=jpeg, content_type='image/jpeg', headers={'Cache-Control': 'no-store'})
 
-
     async def camera_live(request):
         if simulation_only:
             raise ValueError('Simulation mode cannot access physical cameras')
@@ -506,7 +590,8 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if not secrets.compare_digest(request.query.get('token', ''), token):
             raise web.HTTPForbidden(text='Missing or invalid Helm session token')
         from .camera_video import browser_packet
-        ws = web.WebSocketResponse(heartbeat=5., max_msg_size=4096, compress=False)
+
+        ws = web.WebSocketResponse(heartbeat=5.0, max_msg_size=4096, compress=False)
         await ws.prepare(request)
         transport = request.transport
         if transport is not None:
@@ -519,6 +604,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         # headset's 3D picture asks for the head camera's frames with their depth (?roles=head_depth).
         wanted = {role for role in request.query.get('roles', '').split(',') if role}
         from .camera_video import DEPTH_ROLE
+
         acquiring = asyncio.create_task(off_loop(lambda: camera_video.subscribe(depth=DEPTH_ROLE in wanted)))
         try:
             viewer = await asyncio.shield(acquiring)
@@ -527,28 +613,28 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(lambda: camera_video.unsubscribe(viewer))
             video_sockets.discard(ws)
             raise
-        viewer_heartbeat = {'sequence':None, 'at':asyncio.get_running_loop().time()}
+        viewer_heartbeat = {'sequence': None, 'at': asyncio.get_running_loop().time()}
 
         async def close_video(code=1000, message=b''):
             try:
-                await asyncio.wait_for(ws.close(code=code, message=message), 1.)
+                await asyncio.wait_for(ws.close(code=code, message=message), 1.0)
             except asyncio.TimeoutError:
                 if request.transport is not None:
                     request.transport.close()
 
         async def publish():
-            sent, status_at, skipped_at = {}, 0., None
+            sent, status_at, skipped_at = {}, 0.0, None
             try:
                 while not ws.closed:
                     status, frames = camera_video.snapshot()
                     now = asyncio.get_running_loop().time()
-                    if now-viewer_heartbeat['at'] > 3.:
+                    if now - viewer_heartbeat['at'] > 3.0:
                         await close_video(code=1008, message=b'Viewer heartbeat expired')
                         return
                     status['viewer_heartbeat'] = viewer_heartbeat['sequence']
-                    status['link'] = 'slow' if skipped_at is not None and now-skipped_at < VIDEO_SLOW_S else 'ok'
-                    if now-status_at >= .25:
-                        await asyncio.wait_for(ws.send_json(status), .5)
+                    status['link'] = 'slow' if skipped_at is not None and now - skipped_at < VIDEO_SLOW_S else 'ok'
+                    if now - status_at >= 0.25:
+                        await asyncio.wait_for(ws.send_json(status), 0.5)
                         status_at = now
                     for role, (header, jpeg) in frames.items():
                         if viewer_heartbeat['sequence'] is None or (wanted and role not in wanted):
@@ -567,11 +653,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                             continue
                         header, jpeg = current
                         header = dict(header, viewer_heartbeat=viewer_heartbeat['sequence'])
-                        await asyncio.wait_for(ws.send_bytes(browser_packet(header, jpeg)), .5)
+                        await asyncio.wait_for(ws.send_bytes(browser_packet(header, jpeg)), 0.5)
                         sent[role] = header['sequence']
-                    await asyncio.sleep(.1)
+                    await asyncio.sleep(0.1)
             except (ConnectionError, RuntimeError, asyncio.TimeoutError):
                 await close_video()
+
         publisher = asyncio.create_task(publish())
         try:
             async for message in ws:
@@ -579,7 +666,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                     try:
                         value = message.json()
                         sequence = value.get('sequence')
-                        if set(value) != {'type', 'sequence'} or value['type'] != 'heartbeat' or type(sequence) is not int or not 0 <= sequence <= 2**53-1:
+                        if (
+                            set(value) != {'type', 'sequence'}
+                            or value['type'] != 'heartbeat'
+                            or type(sequence) is not int
+                            or not 0 <= sequence <= 2**53 - 1
+                        ):
                             raise ValueError('Invalid viewer heartbeat')
                         if viewer_heartbeat['sequence'] is not None and sequence <= viewer_heartbeat['sequence']:
                             raise ValueError('Viewer heartbeat did not advance')
@@ -589,11 +681,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                 elif message.type == web.WSMsgType.BINARY:
                     await close_video(code=1008, message=b'Camera stream is read-only')
         finally:
+
             async def release_viewer():
                 publisher.cancel()
                 await asyncio.gather(publisher, return_exceptions=True)
                 video_sockets.discard(ws)
                 await off_loop(lambda: camera_video.unsubscribe(viewer))
+
             # aiohttp can cancel a disconnected request during its first cleanup
             # await. The subscriber release must still finish in that case.
             releasing = asyncio.create_task(release_viewer())
@@ -701,6 +795,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if replay is not None:
             from robot_platform.teleop.episode_source import validate_request
             from .episodes import EpisodeError
+
             need_episodes()
             name = validate_request(replay)['episode']
             try:
@@ -713,8 +808,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         if leaders is not None and leaders.running:
             raise ValueError('Disconnect the leaders in the Leaders tab before starting teleop')
         not_checking()
-        if simulation_only and (getattr(teleop, 'simulation', None) is None
-                                or teleop.target != 'pc' or teleop.receiver['mode'] != 'virtual'):
+        if simulation_only and (
+            getattr(teleop, 'simulation', None) is None or teleop.target != 'pc' or teleop.receiver['mode'] != 'virtual'
+        ):
             raise ValueError('Simulation mode needs the virtual receiver on this PC')
         if getattr(cameras, 'write_fault', None):
             raise ValueError(cameras.write_fault)
@@ -724,9 +820,12 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             zero_settled()
         async with camera_change:
             await take_motors(arms=not head_alone())
-            teleop.start(confirm=payload.get('confirm') is True, **({'replay': replay} if replay is not None else {}),
-                         **({'policy': policy} if policy is not None else {}),
-                         **({'headset': True} if headset_input else {}))
+            teleop.start(
+                confirm=payload.get('confirm') is True,
+                **({'replay': replay} if replay is not None else {}),
+                **({'policy': policy} if policy is not None else {}),
+                **({'headset': True} if headset_input else {}),
+            )
         return state_response()
 
     async def task_action(request):
@@ -958,8 +1057,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         (helm.head_alignment); none moves a motor."""
         payload = await body(request)
         need_head_alignment()
-        actions = {'capture': head_alignment.capture, 'undo': head_alignment.undo, 'new': head_alignment.new_run,
-                   'solve': head_alignment.solve, 'save': head_alignment.save}
+        actions = {
+            'capture': head_alignment.capture,
+            'undo': head_alignment.undo,
+            'new': head_alignment.new_run,
+            'solve': head_alignment.solve,
+            'save': head_alignment.save,
+        }
         action = actions.get(request.match_info['action'])
         if action is None:
             raise web.HTTPNotFound()
@@ -1034,8 +1138,7 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             path = maps.splat(request.match_info['name'])
         except FileNotFoundError as exc:
             raise web.HTTPNotFound(text=str(exc))
-        return web.FileResponse(path, headers={'Content-Type': 'application/octet-stream',
-                                               'Cache-Control': 'no-store'})
+        return web.FileResponse(path, headers={'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store'})
 
     async def map_capture(request):
         """A head scene capture for a map, recorded on the robot as the operator looks around (helm.maps); it moves
@@ -1072,21 +1175,31 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             return None
         running = teleop is not None and teleop.head_pose(*pose)
         # The controllers that came with it, as Helm checked them, to a headset session's grab and drag.
-        hands = {hand: {key: value for key, value in headset.hands[hand].items() if key != 'at'}
-                 for hand in (data.get('hands') or {}) if hand in headset.hands}
+        hands = {
+            hand: {key: value for key, value in headset.hands[hand].items() if key != 'at'}
+            for hand in (data.get('hands') or {})
+            if hand in headset.hands
+        }
         if hands and teleop is not None and hasattr(teleop, 'hands'):
             teleop.hands(hands, headset.epoch, headset.zero_yaw)
         xr_steered['count'] += 1
         if xr_steered['count'] % 15 != 1:  # Now and then: what the head does with it.
             return None
-        head = (((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {})
-        return {'type': 'status', 'steering': bool(running), 'head': head.get('state'), 'source': head.get('source'),
-                'head_fault': head.get('fault'), **headset.status()}
+        head = ((teleop.snapshot() if teleop is not None else None) or {}).get('head') or {}
+        return {
+            'type': 'status',
+            'steering': bool(running),
+            'head': head.get('state'),
+            'source': head.get('source'),
+            'head_fault': head.get('fault'),
+            **headset.status(),
+        }
 
     def xr_channel_pose(text, owner):
         """A message on a remote headset's pose channel. It steers only for the login that opened the link, on that
         login's socket; a message that is not a good pose is dropped, as the channel has no way to say so."""
         import json as _json
+
         if not headset.connection or headset.owner != owner:
             return
         try:
@@ -1107,7 +1220,9 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             raise ValueError('A WebRTC offer is its sdp and type')
         owner = CURRENT_SESSION.get() if access is not None else None
         if headset.connection and headset.owner != owner:  # As the socket: it would end that headset's picture.
-            raise ValueError(f"{headset.device or 'Another headset'} is steering the head: stop head tracking there first")
+            raise ValueError(
+                f'{headset.device or "Another headset"} is steering the head: stop head tracking there first'
+            )
         return web.json_response(await remote_link.offer(sdp, kind, owner))
 
     async def xr_socket(request):
@@ -1115,13 +1230,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         A logged-in device's page with Helm's action token, not control: the session the device in control engages
         decides whether the head moves. One device's headset at a time (helm.xr.Headset)."""
         import json as _json
+
         if request.headers.get('Origin') not in (None, f'{request.scheme}://{request.host}'):
             raise web.HTTPForbidden(text='Cross-origin headset stream rejected')
         if not secrets.compare_digest(request.query.get('token', ''), token):
             raise web.HTTPForbidden(text='Missing or invalid Helm session token')
         owner = CURRENT_SESSION.get() if access is not None else None
         device = (access.view(owner)['device'] if access is not None else None) or 'The headset'
-        ws = web.WebSocketResponse(heartbeat=5., max_msg_size=1024, compress=False)
+        ws = web.WebSocketResponse(heartbeat=5.0, max_msg_size=1024, compress=False)
         await ws.prepare(request)
         try:
             connection = headset.connect(owner, device)
@@ -1138,8 +1254,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
                     kind = data.get('type') if isinstance(data, dict) else None
                     if kind in ('zero', 'start'):
                         (headset.zero if kind == 'zero' else headset.start)(connection)
-                        await ws.send_json({'type': 'status', 'zeroed': kind == 'zero', 'restarted': kind == 'start',
-                                            **headset.status()})
+                        await ws.send_json(
+                            {
+                                'type': 'status',
+                                'zeroed': kind == 'zero',
+                                'restarted': kind == 'start',
+                                **headset.status(),
+                            }
+                        )
                         continue
                     reply = xr_steer(connection, data)
                 except ValueError as exc:
@@ -1160,17 +1282,19 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         """The wrist cameras' mounts on the model's links, for the headset's wrist pictures (helm.xr.wrist_mounts):
         the newest wrist calibration's, else the nominal mount."""
         from .xr import wrist_mounts
+
         if calibration is not None:
             cameras, root = calibration.config['cameras'], calibration.root
         else:
             from robot_platform.vision.rig import load_rig
+
             cameras, root = load_rig()['cameras'], None
         mounts = await off_loop(lambda: wrist_mounts(cameras, root))
         return web.json_response({'mounts': mounts}, headers={'Cache-Control': 'no-store'})
 
     def need_head_setup():
         if head_setup is None:
-            raise ValueError("The head is set up in Helm on Minerva, beside its servo board")
+            raise ValueError('The head is set up in Helm on Minerva, beside its servo board')
 
     async def head_read(request):
         """Read the head (its servos limp), or stop. Not while a session holds the motors."""
@@ -1253,8 +1377,14 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
         need_tune()
         if not set(payload) <= {'arm', 'joints', 'mode', 'target', 'absent'} or 'arm' not in payload:
             raise ValueError('Expected arm, and optionally joints, mode, target and absent (an unplugged gripper)')
-        tune.configure(arm=payload['arm'], joints=payload.get('joints'), mode=payload.get('mode', 'live'),
-                       target=payload.get('target'), verify=False, absent=payload.get('absent'))
+        tune.configure(
+            arm=payload['arm'],
+            joints=payload.get('joints'),
+            mode=payload.get('mode', 'live'),
+            target=payload.get('target'),
+            verify=False,
+            absent=payload.get('absent'),
+        )
         return state_response()
 
     async def tune_start(request):
@@ -1294,9 +1424,13 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             tune.offer = offer
             return state_response()
         shown, tune.offer = tune.offer, None
-        if (not shown or shown['arm'] != offer['arm']
-                or any(abs(a['position'] - b['position']) > RETURN_MOVED_RAD
-                       for a, b in zip(shown['joints'], offer['joints']))):
+        if (
+            not shown
+            or shown['arm'] != offer['arm']
+            or any(
+                abs(a['position'] - b['position']) > RETURN_MOVED_RAD for a, b in zip(shown['joints'], offer['joints'])
+            )
+        ):
             raise ValueError('The arm moved since its pose was shown: look at it again, then confirm')
         zero_settled()
         power_ok()
@@ -1362,9 +1496,10 @@ def create_app(session, link, *, teleop=None, leaders=None, check=None, tune=Non
             await off_loop(leaders.disconnect)
         if not simulation_only:
             await off_loop(link.disconnect)
-        await asyncio.gather(*(asyncio.wait_for(
-            ws.close(code=1001, message=b'Helm shutting down'), 1.)
-            for ws in list(video_sockets)), return_exceptions=True)
+        await asyncio.gather(
+            *(asyncio.wait_for(ws.close(code=1001, message=b'Helm shutting down'), 1.0) for ws in list(video_sockets)),
+            return_exceptions=True,
+        )
         await remote_link.close()
         if camera_video is not None:
             await off_loop(camera_video.close)

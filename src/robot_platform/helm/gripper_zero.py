@@ -6,6 +6,7 @@ the release's stopped maintenance on the robot (ops.probe zero_gripper): every d
 zeroed and saved, nothing enabled. The server stops the live reader first and refuses while anything else holds
 the motors. Persistence on the drive is confirmed by a power cycle, as for any re-zero.
 """
+
 import json
 import shlex
 import threading
@@ -13,7 +14,7 @@ import time
 
 from robot_platform.ops.probe import GRIPPERS
 
-TIMEOUT_S = 120.
+TIMEOUT_S = 120.0
 
 
 class GripperZero:
@@ -21,6 +22,7 @@ class GripperZero:
 
     def __init__(self, address, *, open_ssh=None, remote_root=None, clock=time.time):
         from robot_platform.ops.check import CURRENT
+
         self.address, self.open_ssh, self.clock = address, open_ssh, clock
         self.remote_root = remote_root or CURRENT
         self.lock = threading.Lock()
@@ -48,10 +50,13 @@ class GripperZero:
 
     def _run(self, motor):
         from robot_platform.ops.ssh import DEFAULT_PROFILE, connect, run
+
         client = (self.open_ssh or connect)(DEFAULT_PROFILE, address=self.address())
         try:
-            command = (f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe '
-                       f'zero_gripper {shlex.quote(motor)}')
+            command = (
+                f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe '
+                f'zero_gripper {shlex.quote(motor)}'
+            )
             status, out, err = run(client, command, timeout=TIMEOUT_S)
         finally:
             client.close()

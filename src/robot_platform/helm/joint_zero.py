@@ -16,6 +16,7 @@ direction session (a zero moves no sign) and the manual tuning presets. The old 
 and Helm restarts to load the new revision. Wrist camera stills and the twin correction already refuse anything
 recorded on another reference.
 """
+
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -30,8 +31,8 @@ from robot_platform.control.joint_calibration import arms_reference_name, digest
 from robot_platform.ops.probe import ARM_JOINTS
 
 KIND = 'minerva_joint_zero'
-VERIFY_RAD = .01  # A kept zero reads within this at the pose it was set at: the zero's own readback limit.
-TIMEOUT_S = 180.
+VERIFY_RAD = 0.01  # A kept zero reads within this at the pose it was set at: the zero's own readback limit.
+TIMEOUT_S = 180.0
 
 
 def pending_path(directory, asset_id):
@@ -72,40 +73,65 @@ def next_reference(current, zeroed, scan, *, at, labels=None):
     rows = {row['name']: row for row in scan['motors']}
     document = deepcopy(current)
     document.update(
-        id=f"{current['id'].rsplit('-', 1)[0]}-{_stamp(at)}", supersedes=current['id'], recorded_at=_iso(at),
+        id=f'{current["id"].rsplit("-", 1)[0]}-{_stamp(at)}',
+        supersedes=current['id'],
+        recorded_at=_iso(at),
         power_cycle_verified=True,
-        reference_description=(f"Revision of {current['id']}: {names} re-zeroed by Helm's Joint zero, the operator "
-                               'holding the arm at the six-joint zero pose (every arm joint at 0 rad in the viewer). '
-                               'Every other motor keeps its zero.'),
+        reference_description=(
+            f"Revision of {current['id']}: {names} re-zeroed by Helm's Joint zero, the operator "
+            'holding the arm at the six-joint zero pose (every arm joint at 0 rad in the viewer). '
+            'Every other motor keeps its zero.'
+        ),
         # A zero moves no sign: the direction checks the old revision kept still hold.
         direction_evidence_from=sorted(set(current.get('direction_evidence_from') or []) | {current['id']}),
-        rezeroed={'motors': sorted(zeroed), 'at_utc': max(entry['at'] for entry in zeroed.values()),
-                  'reason': "Helm's Joint zero",
-                  'operator_report': 'Arm held at the six-joint zero pose; motor power switched off and on before '
-                                     'Verify, the arm left where it was.',
-                  'before_zero_rad': {motor: entry['before_rad'] for motor, entry in sorted(zeroed.items())},
-                  'evidence': sorted({entry['evidence'] for entry in zeroed.values()})},
+        rezeroed={
+            'motors': sorted(zeroed),
+            'at_utc': max(entry['at'] for entry in zeroed.values()),
+            'reason': "Helm's Joint zero",
+            'operator_report': 'Arm held at the six-joint zero pose; motor power switched off and on before '
+            'Verify, the arm left where it was.',
+            'before_zero_rad': {motor: entry['before_rad'] for motor, entry in sorted(zeroed.items())},
+            'evidence': sorted({entry['evidence'] for entry in zeroed.values()}),
+        },
         power_cycle_verification={
-            'operator_report': "Motor power switched off and on after the zero, the arm left at the zero pose "
-                               "(confirmed in Helm's Verify).",
-            'capture_started_at': scan.get('started_at'), 'remote_capture': scan.get('evidence'),
-            'all_14_passed': bool(scan.get('success')) and len(rows) == len(current['motors'])
-                             and all(row.get('reset_confirmed') for row in scan['motors']),
+            'operator_report': 'Motor power switched off and on after the zero, the arm left at the zero pose '
+            "(confirmed in Helm's Verify).",
+            'capture_started_at': scan.get('started_at'),
+            'remote_capture': scan.get('evidence'),
+            'all_14_passed': bool(scan.get('success'))
+            and len(rows) == len(current['motors'])
+            and all(row.get('reset_confirmed') for row in scan['motors']),
             'rezeroed_max_absolute_readback_rad': max(abs(rows[motor]['position_rad']) for motor in zeroed),
-            'motors': [{key: row.get(key) for key in ('name', 'position_rad', 'uid', 'firmware', 'reset_confirmed',
-                                                       'zero_sta')} for row in scan['motors']]},
-        invalidated_calibrations=[f'Saved joint limits of {names}: re-sweep them on the Limits tab',
-                                  "Wrist camera stills and the digital twin's correction recorded before this zero"],
-        limitations=list(current.get('limitations') or []) + [
+            'motors': [
+                {
+                    key: row.get(key)
+                    for key in ('name', 'position_rad', 'uid', 'firmware', 'reset_confirmed', 'zero_sta')
+                }
+                for row in scan['motors']
+            ],
+        },
+        invalidated_calibrations=[
+            f'Saved joint limits of {names}: re-sweep them on the Limits tab',
+            "Wrist camera stills and the digital twin's correction recorded before this zero",
+        ],
+        limitations=list(current.get('limitations') or [])
+        + [
             f"{names}: re-zeroed by Helm's Joint zero on {_iso(at)[:10]}. Their saved limits were cleared for a "
-            're-sweep; servo settings and leader mapping carry over.'])
+            're-sweep; servo settings and leader mapping carry over.'
+        ],
+    )
     for motor in document['motors']:
         entry = zeroed.get(motor['name'])
         if entry is not None:
-            motor.update(after_save_samples_rad=[entry['after_save_rad']], zero_transmissions=1,
-                         save_transmissions=1 if entry['save_sent'] else 0, save_response=None,
-                         save_response_missing=entry['save_response_missing'], before_zero_rad=entry['before_rad'],
-                         zeroed_at=entry['at'])
+            motor.update(
+                after_save_samples_rad=[entry['after_save_rad']],
+                zero_transmissions=1,
+                save_transmissions=1 if entry['save_sent'] else 0,
+                save_response=None,
+                save_response_missing=entry['save_response_missing'],
+                before_zero_rad=entry['before_rad'],
+                zeroed_at=entry['at'],
+            )
     return document
 
 
@@ -135,6 +161,7 @@ class JointZero:
 
     def __init__(self, session, *, runs, open_ssh=None, remote_root=None, clock=time.time):
         from robot_platform.ops.check import CURRENT
+
         self.session, self.runs, self.open_ssh, self.clock = session, Path(runs), open_ssh, clock
         self.remote_root = remote_root or CURRENT
         self.lock = threading.Lock()
@@ -146,8 +173,10 @@ class JointZero:
 
     def unavailable(self):
         if self.path is None:
-            return ("Joint zero keeps the arms' new reference among Helm's operator files, which only Helm on Minerva "
-                    'has (helm --operator-files)')
+            return (
+                "Joint zero keeps the arms' new reference among Helm's operator files, which only Helm on Minerva "
+                'has (helm --operator-files)'
+            )
         return None
 
     def pending(self):
@@ -156,7 +185,7 @@ class JointZero:
             return None
         document = json.loads(self.path.read_text(encoding='utf-8'))
         if document.get('kind') != KIND or document.get('asset_id') != self.session.asset_id:
-            raise ValueError(f'{self.path.name} is not this robot\'s joint zero')
+            raise ValueError(f"{self.path.name} is not this robot's joint zero")
         return document if document.get('zeroed') else None
 
     def blocking(self):
@@ -169,8 +198,10 @@ class JointZero:
             return f'The joint zero could not be read: {exc}'
         if pending:
             names = ', '.join(self._label(motor) for motor in sorted(pending['zeroed']))
-            return (f"{names}: zeroed, waiting for the power cycle. Switch the motors' power off and on and press "
-                    'Verify in Limits → Joint zero first')
+            return (
+                f"{names}: zeroed, waiting for the power cycle. Switch the motors' power off and on and press "
+                'Verify in Limits → Joint zero first'
+            )
         return None
 
     def _label(self, motor):
@@ -196,11 +227,14 @@ class JointZero:
     def _probe(self, args):
         """One robot-side probe's report (its 'ok' removed); raises when it failed to run."""
         from robot_platform.ops.ssh import DEFAULT_PROFILE, connect, run
+
         address = getattr(self.session, 'address', None) or self.session.device['address']
         client = (self.open_ssh or connect)(DEFAULT_PROFILE, address=address)
         try:
-            command = (f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe '
-                       + ' '.join(shlex.quote(arg) for arg in args))
+            command = (
+                f'cd {shlex.quote(self.remote_root)} && PYTHONPATH=src python3 -u -m robot_platform.ops.probe '
+                + ' '.join(shlex.quote(arg) for arg in args)
+            )
             status, out, err = run(client, command, timeout=TIMEOUT_S)
         finally:
             client.close()
@@ -239,10 +273,24 @@ class JointZero:
         sent = [joint for joint in report.get('joints') or [] if joint.get('zero_sent')]
         for joint in sent:
             pending['zeroed'][joint['motor']] = dict(
-                {key: joint.get(key) for key in ('before_rad', 'after_zero_rad', 'after_save_rad', 'uid', 'firmware',
-                                                 'zero_acknowledged', 'save_sent', 'save_response_missing')},
-                at=_iso(self.clock()), evidence=report.get('evidence'), reference=self.session.reference['id'],
-                reference_sha256=self.session.bindings['reference'])
+                {
+                    key: joint.get(key)
+                    for key in (
+                        'before_rad',
+                        'after_zero_rad',
+                        'after_save_rad',
+                        'uid',
+                        'firmware',
+                        'zero_acknowledged',
+                        'save_sent',
+                        'save_response_missing',
+                    )
+                },
+                at=_iso(self.clock()),
+                evidence=report.get('evidence'),
+                reference=self.session.reference['id'],
+                reference_sha256=self.session.bindings['reference'],
+            )
         if sent:
             save_json(self.path, pending)
         return [joint['motor'] for joint in sent]
@@ -262,12 +310,12 @@ class JointZero:
                 raise ValueError('No joint zero is waiting for its power cycle')
             scan = self._probe(['motors'])
             if not scan.get('success'):
-                raise RuntimeError(f"The stopped read failed: {scan.get('error') or 'no reason given'}")
+                raise RuntimeError(f'The stopped read failed: {scan.get("error") or "no reason given"}')
             rows = {row['name']: row for row in scan.get('motors') or []}
             readings = {motor: rows[motor]['position_rad'] for motor in pending['zeroed'] if motor in rows}
             missing = sorted(set(pending['zeroed']) - set(readings))
             if missing:
-                raise RuntimeError(f"The stopped read has no reading of {', '.join(map(self._label, missing))}")
+                raise RuntimeError(f'The stopped read has no reading of {", ".join(map(self._label, missing))}')
             off = {motor: value for motor, value in readings.items() if abs(value) > VERIFY_RAD}
             if off:
                 report = {'success': False, 'readings': readings, 'error': self._off_text(off, pending)}
@@ -282,10 +330,14 @@ class JointZero:
         for motor, value in sorted(off.items()):
             before = pending['zeroed'][motor].get('before_rad')
             kept_old = before is not None and abs(value - before) <= max(VERIFY_RAD, abs(before) / 2)
-            parts.append(f'{self._label(motor)} reads {value:+.3f} rad'
-                         + (f', its old zero ({before:+.3f}): the drive did not keep the zero' if kept_old else ''))
-        return ('; '.join(parts) + f". A kept zero reads within {VERIFY_RAD} rad at the zero pose. If the arm moved, "
-                'put it back at the zero pose and verify again; if a drive lost its zero, zero it again.')
+            parts.append(
+                f'{self._label(motor)} reads {value:+.3f} rad'
+                + (f', its old zero ({before:+.3f}): the drive did not keep the zero' if kept_old else '')
+            )
+        return (
+            '; '.join(parts) + f'. A kept zero reads within {VERIFY_RAD} rad at the zero pose. If the arm moved, '
+            'put it back at the zero pose and verify again; if a drive lost its zero, zero it again.'
+        )
 
     def _apply(self, pending, scan):
         """Record the new revision and move what is bound to the old one. Everything is worked out first, the old
@@ -323,14 +375,27 @@ class JointZero:
         for path, moved in presets.items():
             save_json(path, moved)
         _write(target, data)
-        save_json(kept / 'applied.json', {'reference': document['id'], 'supersedes': current['id'],
-                                          'reference_sha256': new['reference'], 'zeroed': zeroed,
-                                          'limits_cleared': sorted(set(zeroed) & set((valid or {}).get('joints', {}))),
-                                          'moved': [str(path) for path in presets], 'scan': scan.get('evidence')})
+        save_json(
+            kept / 'applied.json',
+            {
+                'reference': document['id'],
+                'supersedes': current['id'],
+                'reference_sha256': new['reference'],
+                'zeroed': zeroed,
+                'limits_cleared': sorted(set(zeroed) & set((valid or {}).get('joints', {}))),
+                'moved': [str(path) for path in presets],
+                'scan': scan.get('evidence'),
+            },
+        )
         self.path.unlink()
         self.applied = {'reference': document['id'], 'at': _iso(at), 'kept': str(kept)}
-        return {'reference': document['id'], 'supersedes': current['id'], 'zeroed': sorted(zeroed),
-                'resweep': sorted(zeroed), 'kept': str(kept)}
+        return {
+            'reference': document['id'],
+            'supersedes': current['id'],
+            'zeroed': sorted(zeroed),
+            'resweep': sorted(zeroed),
+            'kept': str(kept),
+        }
 
     # -- the page ----------------------------------------------------------------------------------------------
 
@@ -347,11 +412,24 @@ class JointZero:
             pending, error = None, str(exc)
         with self.lock:
             running, last, applied = self.running, deepcopy(self.last), deepcopy(self.applied)
-        return {'available': self.unavailable() is None, 'reason': self.unavailable(), 'running': running,
-                'last': last, 'applied': applied, 'error': error, 'reference': self.session.reference['id'],
-                'verify_rad': VERIFY_RAD,
-                'pending': None if not pending else [
-                    dict(motor=motor, label=self._label(motor), **{key: entry.get(key) for key in (
-                        'before_rad', 'after_save_rad', 'at', 'save_response_missing')})
-                    for motor, entry in sorted(pending['zeroed'].items())],
-                'resweep': [{'motor': motor, 'label': self._label(motor)} for motor in self.resweep()]}
+        return {
+            'available': self.unavailable() is None,
+            'reason': self.unavailable(),
+            'running': running,
+            'last': last,
+            'applied': applied,
+            'error': error,
+            'reference': self.session.reference['id'],
+            'verify_rad': VERIFY_RAD,
+            'pending': None
+            if not pending
+            else [
+                dict(
+                    motor=motor,
+                    label=self._label(motor),
+                    **{key: entry.get(key) for key in ('before_rad', 'after_save_rad', 'at', 'save_response_missing')},
+                )
+                for motor, entry in sorted(pending['zeroed'].items())
+            ],
+            'resweep': [{'motor': motor, 'label': self._label(motor)} for motor in self.resweep()],
+        }

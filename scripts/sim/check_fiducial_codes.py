@@ -9,6 +9,7 @@ development environment does not include, so run it with a Python that has OpenC
 
 Prints one line per marker; exits 1 if any differs.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,8 +38,10 @@ def main() -> int:
             read = [] if ids is None else ids.ravel().tolist()
             ok = np.array_equal(table, opencv) and read == [tag_id]
             failures += not ok
-            print(f'{family} ID {tag_id}: cells {"match" if np.array_equal(table, opencv) else "DIFFER"}, '
-                  f'detector reads {read} -> {"ok" if ok else "FAIL"}')
+            print(
+                f'{family} ID {tag_id}: cells {"match" if np.array_equal(table, opencv) else "DIFFER"}, '
+                f'detector reads {read} -> {"ok" if ok else "FAIL"}'
+            )
     print(f'OpenCV {cv2.__version__}: {"all match" if not failures else f"{failures} failed"}')
     return 1 if failures else 0
 

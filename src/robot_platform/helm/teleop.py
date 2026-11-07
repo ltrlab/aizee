@@ -13,6 +13,7 @@ Receiver limits come from the saved joint limits. Each leader channel's saved
 (hand-swept) range spans its robot joint's usable range; route signs come from
 the teleop profile plus local operator edits.
 """
+
 from collections import deque
 from copy import deepcopy
 import gc
@@ -48,9 +49,12 @@ KEYS = frozenset('IETHXO')  # O: take over from the policy, or hand back to it (
 STILL_PENDING = 'Taking a still: resume once it is saved'  # The page says the same (static/teleop_mode.js).
 ENGAGED = ('ENGAGING', 'TELEOP')
 SOURCE_KINDS = ('episode', 'policy', 'headset')
-OPENING = {'episode': 'reading the episode', 'policy': 'loading the policy',
-           'headset': "starting the headset's grab and drag"}
-REPLAY_SETTLE_S = .5  # After a replay's last frame, the arms follow it this long before the loop holds.
+OPENING = {
+    'episode': 'reading the episode',
+    'policy': 'loading the policy',
+    'headset': "starting the headset's grab and drag",
+}
+REPLAY_SETTLE_S = 0.5  # After a replay's last frame, the arms follow it this long before the loop holds.
 HELD = ('stopping', 'stopped')  # Receiver states in which it brakes or holds the arm itself.
 LOWERING_ATTEMPTS = 3  # Re-arms after the receiver stops the arm, before it is left held where it stopped.
 # A re-arm the receiver refuses for these waits (it holds the arm meanwhile): a drive not answering, a joint over
@@ -61,8 +65,8 @@ WAIT_TO_REARM = ('feedback_stale', 'limit_violation', 'invalid_state')
 # rather than lowering it (2026-11-01, the user: "pause and not shutdown when a camera drops out"). More such trips
 # than PAUSE_ATTEMPTS in PAUSE_WINDOW_S are lowered, as any other fault.
 HOST_STALL = ('command_expired', 'collision_expired')
-CAMERA_PAUSE_S = 10.
-PAUSE_ATTEMPTS, PAUSE_WINDOW_S = 3, 60.
+CAMERA_PAUSE_S = 10.0
+PAUSE_ATTEMPTS, PAUSE_WINDOW_S = 3, 60.0
 # A joint over the speed allowed where it is, reading after reading (the receiver's sustained_speed check), is braked
 # to a hold, and the arms are held there as after a camera drop rather than lowered: left J4 lurched into its lower
 # end in VR (2026-11-03; the user: "if this fault happens, it doesn't trigger full shutdown, just a hold"). Engage
@@ -76,8 +80,11 @@ def load_profile(path):
 
 def validate_profile(profile):
     """The checks every teleop profile passes, also applied to one resolved with operator settings."""
-    if (profile.get('kind') != 'guarded_teleop_profile' or profile.get('backend') != 'virtual'
-            or profile.get('runtime_approved') is not False):
+    if (
+        profile.get('kind') != 'guarded_teleop_profile'
+        or profile.get('backend') != 'virtual'
+        or profile.get('runtime_approved') is not False
+    ):
         raise ValueError('Helm teleop needs a virtual, unapproved guarded teleop profile')
     mode = profile['receiver'].get('collision_mode', 'enforced')
     if mode not in ('enforced', 'advisory', 'disabled'):
@@ -88,38 +95,53 @@ def validate_profile(profile):
     interpolation = receiver.get('interpolation_ms', 40)
     if mode == 'disabled':
         hz, direct = receiver.get('loop_hz'), receiver.get('direct') or {}
-        if (type(hz) is not int or not 50 <= hz <= 200 or 1000 % hz
-                or type(interpolation) is not int or not 0 <= interpolation <= 1000 / hz
-                or receiver.get('collision') is not None
-                or set(direct) - {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms', 'position_only'}
-                or any(type(direct.get(k)) is not int
-                       for k in ('command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'))
-                or type(direct.get('position_only', False)) is not bool
-                or not 2 * 1000 / hz < direct.get('command_ms', 0) <= receiver['lease_ms']
-                or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 2 * 1000 / hz
-                or direct.get('velocity_timeout_ms', 0) <= 0
-                or not 0 <= direct.get('limit_reaction_ms', -1) <= 1000):
+        if (
+            type(hz) is not int
+            or not 50 <= hz <= 200
+            or 1000 % hz
+            or type(interpolation) is not int
+            or not 0 <= interpolation <= 1000 / hz
+            or receiver.get('collision') is not None
+            or set(direct) - {'command_ms', 'velocity_timeout_ms', 'limit_reaction_ms', 'position_only'}
+            or any(type(direct.get(k)) is not int for k in ('command_ms', 'velocity_timeout_ms', 'limit_reaction_ms'))
+            or type(direct.get('position_only', False)) is not bool
+            or not 2 * 1000 / hz < direct.get('command_ms', 0) <= receiver['lease_ms']
+            or not interpolation <= direct.get('velocity_timeout_ms', 0) <= 2 * 1000 / hz
+            or direct.get('velocity_timeout_ms', 0) <= 0
+            or not 0 <= direct.get('limit_reaction_ms', -1) <= 1000
+        ):
             raise ValueError('Direct teleop needs explicit timing, limit reaction and no collision policy')
     elif receiver.get('direct') is not None or receiver.get('loop_hz') is not None:
         raise ValueError('Independent loop rate and direct policy require disabled collision mode')
-    elif (type(interpolation) is not int or not 10 <= interpolation <= 40
-            or not 0 < receiver.get('compute_budget_s', 0) <= .6 * interpolation / 1000):
+    elif (
+        type(interpolation) is not int
+        or not 10 <= interpolation <= 40
+        or not 0 < receiver.get('compute_budget_s', 0) <= 0.6 * interpolation / 1000
+    ):
         raise ValueError('The receiver interpolates over 10-40 ms (the loop period), with compute under 60% of it')
     from robot_platform.teleop.lifecycle import validate_trial
+
     trial = validate_trial(profile.get('trial'))
     if trial and (mode != 'disabled' or receiver['direct'].get('position_only') is not True):
         raise ValueError('A bounded trial requires explicit direct position-only mode')
     # Manual tuning runs a direct law: position-only, or (unramped) with velocity fed forward (guarded_config).
-    if ('manual_tuning' in profile and (profile['manual_tuning'] is not True or trial or mode != 'disabled'
-            or not (receiver['direct'].get('position_only') is True or interpolation == 0))):
-        raise ValueError('Manual tuning requires direct position-only or unramped velocity feed-forward control '
-                         'without a fixed trial')
+    if 'manual_tuning' in profile and (
+        profile['manual_tuning'] is not True
+        or trial
+        or mode != 'disabled'
+        or not (receiver['direct'].get('position_only') is True or interpolation == 0)
+    ):
+        raise ValueError(
+            'Manual tuning requires direct position-only or unramped velocity feed-forward control '
+            'without a fixed trial'
+        )
     live = profile.get('live')
     if live is not None and (
-            set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
-            or not 0 < live.get('reference_tolerance_rad', 0) <= .1
-            or not 1000 <= live.get('period_us', 0) <= 10000
-            or not live['period_us'] <= live.get('maximum_lateness_us', 0) <= 20000):
+        set(live) - {'reference_tolerance_rad', 'period_us', 'maximum_lateness_us', 'note'}
+        or not 0 < live.get('reference_tolerance_rad', 0) <= 0.1
+        or not 1000 <= live.get('period_us', 0) <= 10000
+        or not live['period_us'] <= live.get('maximum_lateness_us', 0) <= 20000
+    ):
         raise ValueError('The live block needs a reference tolerance of at most 0.1 rad and receiver timing')
     return profile
 
@@ -127,28 +149,43 @@ def validate_profile(profile):
 def loop_period_s(profile):
     """Direct mode has an independent update rate; legacy modes use their ramp period."""
     receiver = profile['receiver']
-    return 1 / receiver['loop_hz'] if receiver.get('collision_mode') == 'disabled' else receiver.get('interpolation_ms', 40) / 1000
+    return (
+        1 / receiver['loop_hz']
+        if receiver.get('collision_mode') == 'disabled'
+        else receiver.get('interpolation_ms', 40) / 1000
+    )
 
 
 def velocity_feedforward(profile):
     """Direct, unramped and not position-only: arm joints get a smoothed velocity fed forward (guarded_config)."""
     receiver = profile['receiver']
-    return (receiver.get('collision_mode') == 'disabled' and receiver.get('interpolation_ms', 40) == 0
-            and not (receiver.get('direct') or {}).get('position_only', False))
+    return (
+        receiver.get('collision_mode') == 'disabled'
+        and receiver.get('interpolation_ms', 40) == 0
+        and not (receiver.get('direct') or {}).get('position_only', False)
+    )
 
 
 def control_law(direct, position_only, feedforward):
     """The receiver's control law, as guarded_config names it in each joint's report."""
     if not direct:
         return CONTROL_LAW
-    return ('direct-position-only' if position_only else 'direct-velocity-feedforward' if feedforward
-            else 'direct-feedforward')
+    return (
+        'direct-position-only'
+        if position_only
+        else 'direct-velocity-feedforward'
+        if feedforward
+        else 'direct-feedforward'
+    )
 
 
 def profile_law(profile):
     receiver = profile['receiver']
-    return control_law(receiver.get('collision_mode') == 'disabled',
-                       (receiver.get('direct') or {}).get('position_only', False), velocity_feedforward(profile))
+    return control_law(
+        receiver.get('collision_mode') == 'disabled',
+        (receiver.get('direct') or {}).get('position_only', False),
+        velocity_feedforward(profile),
+    )
 
 
 def switched_profile(profile, manual):
@@ -164,30 +201,30 @@ def switched_profile(profile, manual):
 
 def source_misses(period_s):
     """At most 80 ms or ten missed samples before engaged following requires Engage again."""
-    return min(10, max(1, round(.08 / period_s)))
+    return min(10, max(1, round(0.08 / period_s)))
 
 
-CYCLE_BUDGET_S = .035  # A cycle not dispatched this long after it started faults the session; a slower one
+CYCLE_BUDGET_S = 0.035  # A cycle not dispatched this long after it started faults the session; a slower one
 # than its period only starts the next late (the receiver's lease and collision verdict still bound it).
 # A live session records every receiver tick (91 kB/s for both arms at 400 Hz) up to this much, about 90
 # minutes; its events go on being logged.
 RECORDING_BYTES = 512 * 1024 * 1024
-RECORDING_FLUSH_S = 1.
+RECORDING_FLUSH_S = 1.0
 # A status-only view at least this often, even when nothing changed and no cycle has time for a full view: Idle's
 # three receiver exchanges leave none, and Helm must still tell a quiet loop from a lost one (the pedals lock at
 # 750 ms). Status is computed every cycle anyway; sending it costs no control time.
-STATUS_HEARTBEAT_S = .25
+STATUS_HEARTBEAT_S = 0.25
 # The 3D views' pose (Helm's guide: the arms and the neck) alone, this often, in any cycle with POSE_COST_S left: a
 # full view, the only one that carried it, took ~3 ms of the arms' 10 ms cycle and, beside a live head's thread,
 # found room 30 times in 12 minutes of TELEOP (2026-10-31): Helm's 3D view and the headset's model stood still.
-POSE_INTERVAL_S = .1
-POSE_COST_S = .0005
-HEAD_POSE_ANSWER_S = .75  # Headset poses go to a loop that answered this recently, like the pedals.
+POSE_INTERVAL_S = 0.1
+POSE_COST_S = 0.0005
+HEAD_POSE_ANSWER_S = 0.75  # Headset poses go to a loop that answered this recently, like the pedals.
 # A live head's thread shares the interpreter with the arms' loop. When an arms' reply arrives while the head's code
 # runs, CPython hands the interpreter over after its switch interval, 5 ms: beside the head, the arms' exchanges took
 # up to 10.6 ms (2-3 ms alone) and a command came within 2 ms of expiring (2026-10-31). 1 ms, as the demo collector's
 # loop has it.
-HEAD_SWITCH_INTERVAL_S = .001
+HEAD_SWITCH_INTERVAL_S = 0.001
 
 
 def routes_path(runs, asset_id):
@@ -205,6 +242,7 @@ def edge_reference(path, helm):
     """The arms' reference as the loop on Minerva names it: release-relative, or Helm's operator copy, which is on
     Minerva when Helm runs there."""
     from robot_platform.ops.release import ROOT
+
     path = Path(path).resolve()
     if path.is_relative_to(ROOT):
         return path.relative_to(ROOT).as_posix()
@@ -215,8 +253,9 @@ def edge_reference(path, helm):
 
 def routes_sha256(profile):
     """The digest of a profile's route definitions."""
-    return hashlib.sha256(json.dumps(profile.get('routes') or {}, sort_keys=True, separators=(',', ':'))
-                          .encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(profile.get('routes') or {}, sort_keys=True, separators=(',', ':')).encode()
+    ).hexdigest()
 
 
 def load_route_edits(path, profile, asset_id):
@@ -239,8 +278,17 @@ def load_route_edits(path, profile, asset_id):
 def save_route_edits(path, profile, asset_id, edits):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    save_json(path, {'schema': 1, 'profile': profile['id'], 'routes_sha256': routes_sha256(profile),
-                     'asset_id': asset_id, 'runtime_approved': False, 'routes': edits})
+    save_json(
+        path,
+        {
+            'schema': 1,
+            'profile': profile['id'],
+            'routes_sha256': routes_sha256(profile),
+            'asset_id': asset_id,
+            'runtime_approved': False,
+            'routes': edits,
+        },
+    )
 
 
 def merge_routes(routes, edits):
@@ -263,8 +311,19 @@ class AdvisoryCompiler:
     bound exists: model joints outside this receiver (the other, disabled arm)
     are taken at `fixed`, their parked reference pose.
     """
-    def __init__(self, backend, config, joint_map, *, fixed=None, cad_limits=None, clearance_m=.005,
-                 warn_m=.05, compute_budget_s=.025):
+
+    def __init__(
+        self,
+        backend,
+        config,
+        joint_map,
+        *,
+        fixed=None,
+        cad_limits=None,
+        clearance_m=0.005,
+        warn_m=0.05,
+        compute_budget_s=0.025,
+    ):
         self.backend, self.config = backend, config
         self.names = tuple(joint['name'] for joint in config['joints'])
         self.joint_map, self.fixed, self.cad_limits = dict(joint_map), dict(fixed or {}), dict(cad_limits or {})
@@ -285,42 +344,65 @@ class AdvisoryCompiler:
         clear = not pairs or pairs[0]['distance_m'] > self.clearance_m
         if not clear:
             self.blocked += 1
-        self.last_verdict = {'advisory': True, 'clear': clear,
-                             'reason': 'target_clear' if not pairs else 'target_near' if clear else 'target_contact',
-                             'distance_m': pairs[0]['distance_m'] if pairs else None,
-                             'shapes': pairs[0]['shapes'] if pairs else None}
-        return {'offer': offered['offer']['id'], 'world_revision': policy['world_revision'],
-                'scope': policy['scope'],
-                'lower': [joint['lower'] for joint in self.config['joints']],
-                'upper': [joint['upper'] for joint in self.config['joints']]}
+        self.last_verdict = {
+            'advisory': True,
+            'clear': clear,
+            'reason': 'target_clear' if not pairs else 'target_near' if clear else 'target_contact',
+            'distance_m': pairs[0]['distance_m'] if pairs else None,
+            'shapes': pairs[0]['shapes'] if pairs else None,
+        }
+        return {
+            'offer': offered['offer']['id'],
+            'world_revision': policy['world_revision'],
+            'scope': policy['scope'],
+            'lower': [joint['lower'] for joint in self.config['joints']],
+            'upper': [joint['upper'] for joint in self.config['joints']],
+        }
 
 
 class TeleopCore:
     """The loop body, built from plain data. Openers are injectable for tests."""
 
-    def __init__(self, bundle, *, open_leaders=None, open_backend=None, open_harness=None, open_receiver=None,
-                 open_simulation=None, open_policy=None, open_vr=None, clock=time.perf_counter):
+    def __init__(
+        self,
+        bundle,
+        *,
+        open_leaders=None,
+        open_backend=None,
+        open_harness=None,
+        open_receiver=None,
+        open_simulation=None,
+        open_policy=None,
+        open_vr=None,
+        clock=time.perf_counter,
+    ):
         self.bundle, self.clock = deepcopy(bundle), clock
         self.base_profile = self.profile = load_profile(bundle['teleop_profile'])
         if bundle.get('operator_settings') is not None:
             # Operator settings only tighten the profile's timing (helm.settings); the receiver is derived from
             # the result, and build() takes the lifecycle's speeds and freshness from them.
             from .settings import resolve_profile
+
             self.profile = resolve_profile(self.base_profile, bundle['operator_settings'])
         self.profile = switched_profile(self.profile, bundle.get('manual_tuning'))
         # Gripper force feedback (teleop.grip_feedback): off until the operator switches it on in Helm.
         from robot_platform.teleop.grip_feedback import GripFeedback
+
         self.grip_feedback = GripFeedback(self.profile.get('grip_feedback'))
         self.grip_feedback.set(**(bundle.get('grip_feedback') or {}))  # Helm's saved strength and feel.
         self.period_s = loop_period_s(self.profile)
         self.collision_mode = self.profile['receiver'].get('collision_mode', 'enforced')
         receiver = bundle.get('receiver') or {'mode': 'virtual'}
         self.live_arm = receiver.get('arm') if receiver.get('mode') == 'live' else None
-        if receiver.get('mode') not in ('virtual', 'live') or (receiver['mode'] == 'live'
-                                                                 and self.live_arm not in ('left', 'right', 'both')):
+        if receiver.get('mode') not in ('virtual', 'live') or (
+            receiver['mode'] == 'live' and self.live_arm not in ('left', 'right', 'both')
+        ):
             raise ValueError('The receiver is virtual, or live on the left, right or both arms')
-        if self.profile.get('trial') and self.live_arm and (
-                self.live_arm == 'both' or not self.profile['trial']['motor'].startswith(self.live_arm + '_')):
+        if (
+            self.profile.get('trial')
+            and self.live_arm
+            and (self.live_arm == 'both' or not self.profile['trial']['motor'].startswith(self.live_arm + '_'))
+        ):
             raise ValueError('The trial permits only its selected single arm')
         # Both arms in one receiver need enforced checks of one arm against the other: boxes the receiver checks
         # against the motion commanded (MotionEnvelopeCompiler). The virtual receiver can rehearse them.
@@ -341,6 +423,7 @@ class TeleopCore:
         if open_leaders is None and bundle.get('leader_factory'):
             # Previews/tests only: 'module:function' building a scripted leader source.
             import importlib
+
             module, _, function = bundle['leader_factory'].partition(':')
             open_leaders = getattr(importlib.import_module(module), function)
         self.open_leaders = open_leaders or self._open_leaders
@@ -354,19 +437,25 @@ class TeleopCore:
         if self.source_spec is not None:
             spec = self.source_spec
             if not isinstance(spec, dict) or spec.get('kind') not in SOURCE_KINDS:
-                raise ValueError('The loop follows the leaders, replays an episode, runs a policy or follows the '
-                                 'headset')
+                raise ValueError(
+                    'The loop follows the leaders, replays an episode, runs a policy or follows the headset'
+                )
             if spec['kind'] == 'headset':
                 from robot_platform.teleop.headset_source import validate_request
+
                 self.source_spec = validate_request(spec)
             elif spec['kind'] == 'episode':
                 from robot_platform.teleop.episode_source import validate_request
+
                 if set(spec) - {'kind', 'episode', 'speed', 'root'}:
                     raise ValueError('The loop follows the leaders, replays an episode or runs a policy')
-                self.source_spec = dict(validate_request({key: spec[key] for key in ('episode', 'speed') if key in spec}),
-                                        root=spec.get('root'))
+                self.source_spec = dict(
+                    validate_request({key: spec[key] for key in ('episode', 'speed') if key in spec}),
+                    root=spec.get('root'),
+                )
             else:
                 from robot_platform.teleop.policy_source import validate_request
+
                 self.source_spec = validate_request(spec, live=bool(self.live_arm))
         # Policy corrections (the user, 2026-11-01): a policy session asked with takeover also opens the leaders, and
         # the operator takes over from the policy and hands back to it (O, pedal B), each time through a hold. Who
@@ -378,9 +467,13 @@ class TeleopCore:
         opening = OPENING.get((self.source_spec or {}).get('kind'), 'opening the leaders')
         if self._takeover:
             opening += ' and opening the leaders'
-        self.message = (f'Checking {self._the_arm}, then starting the live receiver…' if self.live_arm
-                        else f'Loading the simulated Minerva and its window; {opening}…' if self.simulation
-                        else f'Loading the collision model and virtual receiver; {opening}…')
+        self.message = (
+            f'Checking {self._the_arm}, then starting the live receiver…'
+            if self.live_arm
+            else f'Loading the simulated Minerva and its window; {opening}…'
+            if self.simulation
+            else f'Loading the collision model and virtual receiver; {opening}…'
+        )
         self.derived = self.session = self.mapper = self.leaders = self.harness = self.compiler = None
         self.scales = {}
         self.fault = self.input_error = self.last_target = None
@@ -397,7 +490,7 @@ class TeleopCore:
         self._land = False  # Closing: shut down (lower, then disable) before the receiver closes.
         self.late_targets, self.sequence, self.overruns = 0, 0, 0
         self._shown_block = None  # The hold on screen: why a move was not certified.
-        self.slowest_ms = self.largest_gap_ms = 0.
+        self.slowest_ms = self.largest_gap_ms = 0.0
         self._last_start = None
         self.cycles = deque(maxlen=CYCLE_HISTORY)
         self._closers = []
@@ -434,6 +527,7 @@ class TeleopCore:
         self.head_process, self._head_loop, self._head_noticed = bool(self.live_arm), None, False
         if bundle.get('head') is not None:
             from .head_teleop import HeadTeleop
+
             self.head = HeadTeleop(bundle['head'], live=bool(self.live_arm), clock=self.clock)
 
     # -- resources -------------------------------------------------------
@@ -441,51 +535,79 @@ class TeleopCore:
     def _open_backend(self, model):
         from robot_platform.simulation.native_collision import NativeCollisionBackend
         from robot_platform.simulation.runtime_model import RuntimeCollisionModel
+
         return NativeCollisionBackend(RuntimeCollisionModel(model.profile), geometry_mode='keepout')
 
     def _open_harness(self, config, initial):
         from robot_platform.simulation.control_harness import NativeControlHarness
+
         harness = NativeControlHarness(config, initial)
         self.scheduling['receiver'] = prefer_responsive(harness.process.pid)
         harness.step(0)
-        harness.timeout_s = .035
+        harness.timeout_s = 0.035
         return harness
 
     def _open_simulation(self, derived, model, reference):
         from robot_platform.simulation.minerva_sim import open_simulation
+
         directory = Path(self.simulation['directory']) / time.strftime('sim-%Y%m%dT%H%M%SZ', time.gmtime())
-        receiver = open_simulation(derived, model=model, directions=self.bundle['directions'],
-                                   motors=reference['motors'], servo=self.bundle.get('servo'), directory=directory,
-                                   clock=self.clock, viewer=self.simulation.get('viewer', True),
-                                   seed=self.simulation.get('seed', 1), actuators=self.simulation.get('actuators'),
-                                   task_scene=self.simulation.get('task_scene', False),
-                                   visual_mode=self.simulation.get('visual_mode', 'collision_proxy'),
-                                   workcell=self.simulation.get('workcell'))
+        receiver = open_simulation(
+            derived,
+            model=model,
+            directions=self.bundle['directions'],
+            motors=reference['motors'],
+            servo=self.bundle.get('servo'),
+            directory=directory,
+            clock=self.clock,
+            viewer=self.simulation.get('viewer', True),
+            seed=self.simulation.get('seed', 1),
+            actuators=self.simulation.get('actuators'),
+            task_scene=self.simulation.get('task_scene', False),
+            visual_mode=self.simulation.get('visual_mode', 'collision_proxy'),
+            workcell=self.simulation.get('workcell'),
+        )
         self.scheduling['receiver'] = prefer_responsive(receiver.harness.process.pid)
         return receiver
 
     def _open_receiver(self, config, device, reference):
         from robot_platform.control.live_receiver import LiveReceiver, service_config
         from robot_platform.ops.release import ROOT
+
         live = self.profile['live']
         used = {motor['bus'] for motor in reference['motors']}
         buses = [b['interface'] for b in device['buses'] if b['interface'] in used]
-        service = service_config(config, device, reference, self.bundle['receiver']['motor_models'],
-                                 buses=buses, tolerance_rad=live['reference_tolerance_rad'],
-                                 period_us=live['period_us'], maximum_lateness_us=live['maximum_lateness_us'])
+        service = service_config(
+            config,
+            device,
+            reference,
+            self.bundle['receiver']['motor_models'],
+            buses=buses,
+            tolerance_rad=live['reference_tolerance_rad'],
+            period_us=live['period_us'],
+            maximum_lateness_us=live['maximum_lateness_us'],
+        )
         evidence = Path.home() / 'minerva' / 'evidence' / time.strftime('live-%Y%m%dT%H%M%SZ', time.gmtime())
-        return LiveReceiver(service, device=device, reference=reference, binary=ROOT / 'bin' / 'guarded_controller',
-                            directory=evidence, labels=self.labels).start()
+        return LiveReceiver(
+            service,
+            device=device,
+            reference=reference,
+            binary=ROOT / 'bin' / 'guarded_controller',
+            directory=evidence,
+            labels=self.labels,
+        ).start()
 
     def _open_leaders(self, profile):
         from robot_platform.teleop.leader_bridge import SAMPLER_HZ, LatestLeaderInputs
         from robot_platform.teleop.openrb import OpenRBInputs
+
         leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=SAMPLER_HZ)
         try:
             leaders.connect()
         except Exception as exc:
-            raise RuntimeError(f'Could not open the leader arms ({exc}). Close the leader viewer or any other '
-                               'program using their USB ports, then start again.') from exc
+            raise RuntimeError(
+                f'Could not open the leader arms ({exc}). Close the leader viewer or any other '
+                'program using their USB ports, then start again.'
+            ) from exc
         return leaders
 
     # -- route edits -----------------------------------------------------
@@ -537,32 +659,44 @@ class TeleopCore:
         self.mapper = self._mapper()
         self._hold = self.session.lifecycle.state in ENGAGED
         self.message = 'Leader zero set. Engage (T) to follow from it.'
-        return {name: {joint['name']: q for joint, q in zip(self.leader_profile['leaders'][name]['joints'],
-                                                            sample.positions_rad)}
-                for name, sample in samples.items()}
+        return {
+            name: {
+                joint['name']: q
+                for joint, q in zip(self.leader_profile['leaders'][name]['joints'], sample.positions_rad)
+            }
+            for name, sample in samples.items()
+        }
 
     # -- build -------------------------------------------------------------
 
     def _mapper(self):
         from robot_platform.teleop.absolute_mapping import AbsoluteLeaderMapper
         from robot_platform.teleop.leader_routes import build_routes
+
         report = self.derived['report']
         usable = {row['motor']: tuple(row['usable']) for row in report}
         opens = {row['motor']: row['opens'] for row in report if row['opens']}
         # The leader zero lines up with the robot's reference pose.
         home = {row['motor']: row['home'] for row in report}
         routes = {motor: route for motor, route in self.routes().items() if motor in home}
-        anchors = {motor: (self.references[route['leader']][route['channel'] - 1], home[motor])
-                   for motor, route in routes.items()}
+        anchors = {
+            motor: (self.references[route['leader']][route['channel'] - 1], home[motor])
+            for motor, route in routes.items()
+        }
         routes = build_routes(routes, self.ranges, self.derived['joint_map'], usable, opens, anchors)
         # One live arm routes from one leader; the mapper takes exactly the leaders it routes.
         self.route_leaders = {route['leader'] for route in routes}
-        self.scales = {route['actuator']: {key: route[key] for key in ('scale', 'reach', 'overtravel')}
-                       for route in routes}
+        self.scales = {
+            route['actuator']: {key: route[key] for key in ('scale', 'reach', 'overtravel')} for route in routes
+        }
         # 20 rad/s: a quick trigger squeeze is not an encoder glitch (those jump much further).
-        return AbsoluteLeaderMapper(self.derived['config']['joints'], routes,
-                                    max_age_s=self.leaders.inputs.max_age_s, max_skew_s=self.leaders.inputs.max_skew_s,
-                                    max_leader_speed_rad_s=20.)
+        return AbsoluteLeaderMapper(
+            self.derived['config']['joints'],
+            routes,
+            max_age_s=self.leaders.inputs.max_age_s,
+            max_skew_s=self.leaders.inputs.max_skew_s,
+            max_leader_speed_rad_s=20.0,
+        )
 
     def build(self):
         from robot_platform.control.collision_envelope import CollisionEnvelopeCompiler, MotionEnvelopeCompiler
@@ -571,19 +705,22 @@ class TeleopCore:
         from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
         from robot_platform.teleop.leader_ranges import range_table, reference_table, validate_ranges
         from robot_platform.teleop.lifecycle import TeleopLifecycle
+
         plan, paths, device, reference, model, pose, bindings = load_plan(
-            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference'))
+            self.bundle['calibration_profile'], reference=self.bundle.get('calibration_reference')
+        )
         self._model_path = paths['model']
         if bindings != self.bundle['bindings']:
             raise ValueError('Calibration files changed since Helm started; restart Helm')
-        transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), plan['steps'],
-                                                       reference, model)
+        transmissions = validate_preview_transmissions(
+            plan.get('preview_transmissions', []), plan['steps'], reference, model
+        )
         self.model, self.pose = model, pose
         self.labels = {s['motor']: s['label'] for s in plan['steps']}
         self.labels.update({t['motor']: t['motor'].replace('_', ' ').capitalize() for t in transmissions})
         steps = plan['steps']
         if self.live_arm and 'live' not in self.profile:
-            raise ValueError('Live teleop needs the profile\'s live block')
+            raise ValueError("Live teleop needs the profile's live block")
         if self.live_arm in ('left', 'right'):
             # One arm on physical motors: the other arm is not in this receiver and is never enabled. Its checks
             # against the other arm (parked at its reference) are advisory.
@@ -594,25 +731,40 @@ class TeleopCore:
         if self.collision_mode != 'disabled':
             backend = self.open_backend(model)
             self._closers.append(backend.close)
-        derived = derive_receiver(reference=reference, steps=steps, directions=self.bundle['directions'],
-                                  transmissions=transmissions, model=model, limits=self.bundle['limits'],
-                                  profile=self.profile, backend=backend, servo=self.bundle.get('servo'),
-                                  collision_bound='motion' if self.collision_mode == 'motion' else None)
+        derived = derive_receiver(
+            reference=reference,
+            steps=steps,
+            directions=self.bundle['directions'],
+            transmissions=transmissions,
+            model=model,
+            limits=self.bundle['limits'],
+            profile=self.profile,
+            backend=backend,
+            servo=self.bundle.get('servo'),
+            collision_bound='motion' if self.collision_mode == 'motion' else None,
+        )
         if self.profile.get('manual_tuning') is True:
             from .manual_tuning import receiver_rows, validate, install_initial
             from robot_platform.control.commissioning import motor_models
             from robot_platform.ops.release import ROOT
             from robot_platform.teleop.lifecycle import direct_law
+
             if self.profile.get('trial') or not derived['config'].get('direct') or not direct_law(derived['lifecycle']):
-                raise ValueError('Manual tuning requires direct position-only or velocity feed-forward control '
-                                 'without a fixed trial')
+                raise ValueError(
+                    'Manual tuning requires direct position-only or velocity feed-forward control without a fixed trial'
+                )
             models = (self.bundle.get('receiver') or {}).get('motor_models') or motor_models(device, ROOT)
             self._manual_rows = receiver_rows(derived, models, self.labels)
             selected = deepcopy(self.bundle.get('manual_tuning'))
-            if (not isinstance(selected, dict) or set(selected) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
-                    or type(selected.get('velocity_feedforward', False)) is not bool
-                    or not isinstance(selected['session_id'], str) or not selected['session_id']
-                    or type(selected['revision']) is not int or selected['revision'] < 0):
+            if (
+                not isinstance(selected, dict)
+                or set(selected) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
+                or type(selected.get('velocity_feedforward', False)) is not bool
+                or not isinstance(selected['session_id'], str)
+                or not selected['session_id']
+                or type(selected['revision']) is not int
+                or selected['revision'] < 0
+            ):
                 raise ValueError('Manual tuning needs a versioned complete operator preset')
             names = {r['motor'] for r in self._manual_rows}
             rows = validate([r for r in selected['joints'] if r['motor'] in names], self._manual_rows)
@@ -625,20 +777,29 @@ class TeleopCore:
             cameras = None
             if self.bundle.get('policy_cameras') is not None:
                 from robot_platform.teleop.policy_worker import CaptureCameras
+
                 cameras = CaptureCameras(self.bundle['policy_cameras'])
-            self.policy_worker = self.open_policy(self.source_spec['policy'],
-                                                  [joint['name'] for joint in derived['config']['joints']],
-                                                  policy_context(derived, self.period_s), cameras=cameras)
+            self.policy_worker = self.open_policy(
+                self.source_spec['policy'],
+                [joint['name'] for joint in derived['config']['joints']],
+                policy_context(derived, self.period_s),
+                cameras=cameras,
+            )
             self._closers.append(self.policy_worker.close)
         if self._source_kind == 'headset':
             # The controllers' grab and drag runs in its own process off the control CPUs (teleop.vr_worker),
             # building the arms' chains while the receiver opens.
             from robot_platform.models.urdf import verified_assets
             from robot_platform.teleop.headset_source import worker_limits
-            self.vr_worker = self.open_vr({'model': str(self._model_path), 'verified': verified_assets(),
-                                           'limits': worker_limits(derived['report'],
-                                                                   [j['name'] for j in derived['config']['joints']]),
-                                           'period_s': self.period_s})
+
+            self.vr_worker = self.open_vr(
+                {
+                    'model': str(self._model_path),
+                    'verified': verified_assets(),
+                    'limits': worker_limits(derived['report'], [j['name'] for j in derived['config']['joints']]),
+                    'period_s': self.period_s,
+                }
+            )
             self._closers.append(self.vr_worker.close)
         if self._leaders_wanted:
             base = Path(self.bundle['teleop_profile']).resolve().parent
@@ -654,9 +815,11 @@ class TeleopCore:
             # The leaders whose profile names a trigger servo: the only ones the PC drives (teleop.grip_feedback).
             # None in a policy session: force feedback stays off there, as before takeover existed.
             from robot_platform.teleop.grip_feedback import trigger_config
+
             self.grip_triggers = {} if self._takeover else trigger_config(leader_profile)
-            self.centers = {leader: [None if row is None else row[0] for row in rows]
-                            for leader, rows in self.ranges.items()}
+            self.centers = {
+                leader: [None if row is None else row[0] for row in rows] for leader, rows in self.ranges.items()
+            }
         else:  # A replay, or a policy without takeover, takes no leaders.
             self.leader_profile = self.ranges = self.references = None
             self.grip_triggers, self.centers = {}, {}
@@ -668,6 +831,7 @@ class TeleopCore:
             self.camera_watch = CameraWatch.open()  # Linux only: elsewhere no camera pauses.
             if self.camera_watch is not None:
                 self._closers.append(self.camera_watch.close)
+
             def exchange(request):
                 self._capture_exchange_started = self.clock()
                 return harness.exchange(request)
@@ -695,42 +859,81 @@ class TeleopCore:
                 return harness.step(now_ms, request)['reply']
 
         names = tuple(joint['name'] for joint in derived['config']['joints'])
-        controller = GuardedControllerClient(exchange, group=derived['config']['group'],
-                                             identity=derived['config']['identity'], joint_names=names)
+        controller = GuardedControllerClient(
+            exchange, group=derived['config']['group'], identity=derived['config']['identity'], joint_names=names
+        )
         budget = self.profile['receiver'].get('compute_budget_s')
         # Model joints outside this receiver (the other arm, if one is live) stay at the reference pose.
         fixed = {name: pose[name] for name in pose if name not in derived['joint_map']}
         if self.collision_mode == 'disabled':
             compiler = None
         elif self.collision_mode == 'advisory':
-            compiler = AdvisoryCompiler(backend, derived['config'], derived['joint_map'], fixed=fixed,
-                                        cad_limits=derived['cad_limits'], compute_budget_s=budget)
+            compiler = AdvisoryCompiler(
+                backend,
+                derived['config'],
+                derived['joint_map'],
+                fixed=fixed,
+                cad_limits=derived['cad_limits'],
+                compute_budget_s=budget,
+            )
         elif self.collision_mode == 'motion':
             # Enforced: a move whose box could bring the arms together is held (GuardedLifecycleSession).
-            compiler = MotionEnvelopeCompiler(backend, derived['config'], derived['joint_map'], fixed=fixed,
-                                              cad_limits=derived['cad_limits'], compute_budget_s=budget,
-                                              clock=self.clock)
+            compiler = MotionEnvelopeCompiler(
+                backend,
+                derived['config'],
+                derived['joint_map'],
+                fixed=fixed,
+                cad_limits=derived['cad_limits'],
+                compute_budget_s=budget,
+                clock=self.clock,
+            )
         else:
-            compiler = CollisionEnvelopeCompiler(backend, derived['config'], derived['joint_map'],
-                                                 compute_budget_s=budget, cad_limits=derived['cad_limits'])
+            compiler = CollisionEnvelopeCompiler(
+                backend,
+                derived['config'],
+                derived['joint_map'],
+                compute_budget_s=budget,
+                cad_limits=derived['cad_limits'],
+            )
         rows, source = derived['lifecycle'], {'max_source_misses': source_misses(self.period_s)}
         if self.bundle.get('operator_settings') is not None:
             from .settings import validate_bundle
-            rows, source = validate_bundle(self.base_profile, derived, self.bundle['operator_settings'],
-                                           self._manual_state)
-        lifecycle = TeleopLifecycle(rows, clock=self.clock, **source,
-                                    trial=self.profile.get('trial'),
-                                    allow_repeated_source=self.collision_mode == 'disabled')
+
+            rows, source = validate_bundle(
+                self.base_profile, derived, self.bundle['operator_settings'], self._manual_state
+            )
+        lifecycle = TeleopLifecycle(
+            rows,
+            clock=self.clock,
+            **source,
+            trial=self.profile.get('trial'),
+            allow_repeated_source=self.collision_mode == 'disabled',
+        )
         if self._manual_state is not None:
             names = set(lifecycle.names)
             lifecycle.configure_manual([r for r in self._manual_state['joints'] if r['motor'] in names])
         if self.collision_mode == 'disabled':
             from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
-            session = DirectLifecycleSession(controller, derived['config'], lifecycle, lambda: harness.last,
-                                             period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+
+            session = DirectLifecycleSession(
+                controller,
+                derived['config'],
+                lifecycle,
+                lambda: harness.last,
+                period_s=self.period_s,
+                cycle_budget_s=CYCLE_BUDGET_S,
+                clock=self.clock,
+            )
         else:
-            session = GuardedLifecycleSession(controller, compiler, lifecycle, lambda: harness.last,
-                                              period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+            session = GuardedLifecycleSession(
+                controller,
+                compiler,
+                lifecycle,
+                lambda: harness.last,
+                period_s=self.period_s,
+                cycle_budget_s=CYCLE_BUDGET_S,
+                clock=self.clock,
+            )
         self.derived, self.harness, self.session, self.compiler = derived, harness, session, compiler
         if self._leaders_wanted:
             self.leaders = self.open_leaders(leader_profile)
@@ -745,6 +948,7 @@ class TeleopCore:
                 self.route_leaders = set()
         if self.head is not None and self.head_process:
             from .head_teleop import HeadProcess
+
             self.head = HeadProcess.instead_of(self.head)
         if self.head is not None:
             self._closers.append(self.head.close)  # Closed with the arms' resources, even if its build fails.
@@ -781,22 +985,33 @@ class TeleopCore:
             self._closers.append(lambda: sys.setswitchinterval(switch_interval))
             self._head_loop = self.head
         self.phase = 'running'
-        self.message = (f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
-                        'switch in reach; then Enable (E) and Engage (T).' if self.live_arm else
-                        'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).')
+        self.message = (
+            f'{self._receiver_name} · motors are enabled from Idle (I). Keep the foot '
+            'switch in reach; then Enable (E) and Engage (T).'
+            if self.live_arm
+            else 'VIRTUAL RECEIVER · no motors move. Idle (I) first, then Enable (E) and Engage (T).'
+        )
         if self._source_kind == 'policy':
-            self.message += (f' POLICY {self.source.policy.name}: Enable (E) shows its first action, Engage (T) aligns '
-                             'the arms to it at the alignment speed, then the policy drives them; Hold (T) pauses.')
+            self.message += (
+                f' POLICY {self.source.policy.name}: Enable (E) shows its first action, Engage (T) aligns '
+                'the arms to it at the alignment speed, then the policy drives them; Hold (T) pauses.'
+            )
             if self._takeover:
-                self.message += (' Take over (O or pedal B): the arms hold, then Resume aligns them to your leaders; '
-                                 'O or B again hands back to the policy the same way.')
+                self.message += (
+                    ' Take over (O or pedal B): the arms hold, then Resume aligns them to your leaders; '
+                    'O or B again hands back to the policy the same way.'
+                )
         elif self._source_kind == 'headset':
-            self.message += (' HEADSET: Engage (T) raises a hanging arm to its ready pose at the alignment speed and '
-                             "the grippers to their triggers; then hold a controller's grip to drag its arm, and B or "
-                             'Y holds both.')
+            self.message += (
+                ' HEADSET: Engage (T) raises a hanging arm to its ready pose at the alignment speed and '
+                "the grippers to their triggers; then hold a controller's grip to drag its arm, and B or "
+                'Y holds both.'
+            )
         elif self.source is not None:
-            self.message += (f' REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode\'s '
-                             'first frame, then replays it; Hold pauses it.')
+            self.message += (
+                f" REPLAY at {self.source.speed:g}×: Engage (T) first aligns the arms to the episode's "
+                'first frame, then replays it; Hold pauses it.'
+            )
 
     @property
     def _source_kind(self):
@@ -815,10 +1030,12 @@ class TeleopCore:
 
     def _open_policy(self, policy, names, context, cameras=None):
         from robot_platform.teleop.policy_worker import PolicyWorker
+
         return PolicyWorker(policy, names, context=context, cameras=cameras)
 
     def _open_vr(self, setup):
         from robot_platform.teleop.vr_worker import VRWorker
+
         return VRWorker(setup, clock=self.clock)
 
     def _open_source(self, names):
@@ -827,6 +1044,7 @@ class TeleopCore:
         once its worker has loaded it."""
         if self._source_kind == 'headset':
             from robot_platform.teleop.headset_source import HeadsetSource
+
             info = self.vr_worker.ready()
             self._event('headset', arms=info['arms'])
             # A hanging arm rises to its ready pose on Engage: where it hangs is the lifecycle's zero position.
@@ -834,18 +1052,27 @@ class TeleopCore:
             return HeadsetSource(names, self.derived['report'], reference=reference)
         if self._source_kind == 'policy':
             from robot_platform.teleop.policy_source import PolicySource
+
             info = self.policy_worker.ready()
-            self._event('policy', policy=self.source_spec['policy'], name=info['name'], action_dt=info['action_dt'],
-                        cameras=info['camera_roles'], describe=info.get('describe'))
+            self._event(
+                'policy',
+                policy=self.source_spec['policy'],
+                name=info['name'],
+                action_dt=info['action_dt'],
+                cameras=info['camera_roles'],
+                describe=info.get('describe'),
+            )
             return PolicySource(names, action_dt=info['action_dt'], policy=SimpleNamespace(name=info['name']))
         from robot_platform.helm.episode_worker import resolve_episode
         from robot_platform.teleop.episode_source import EpisodeSource
+
         spec = self.source_spec
         root = Path(spec.get('root') or Path.home() / 'minerva' / 'evidence').expanduser().resolve()
         path = resolve_episode(root, spec['episode'])
         source = EpisodeSource.load(path, names, speed=spec['speed'], episode=spec['episode'])
-        self._event('replay', episode=spec['episode'], speed=spec['speed'], duration_s=source.duration,
-                    frames=len(source.times))
+        self._event(
+            'replay', episode=spec['episode'], speed=spec['speed'], duration_s=source.duration, frames=len(source.times)
+        )
         return source
 
     def close(self):
@@ -869,7 +1096,7 @@ class TeleopCore:
             # Wait for evidence only after successful resource cleanup. If any
             # teardown is unconfirmed, initiate recorder close without waiting.
             try:
-                self._stop_recording(timeout=0. if failures else 5.)
+                self._stop_recording(timeout=0.0 if failures else 5.0)
             except Exception as exc:
                 reason = str(exc) or type(exc).__name__
                 failures.append(reason)
@@ -887,8 +1114,11 @@ class TeleopCore:
             self.fail(self.fault or 'Teleop cleanup could not be confirmed')
         if self.phase != 'fault':
             self.phase = 'stopped'
-            self.message = (f'Teleop stopped. The live receiver disabled {self._the_arm} and its CAN link is down.'
-                            if self.live_arm else 'Teleop stopped. The virtual receiver is closed.')
+            self.message = (
+                f'Teleop stopped. The live receiver disabled {self._the_arm} and its CAN link is down.'
+                if self.live_arm
+                else 'Teleop stopped. The virtual receiver is closed.'
+            )
         if failures:
             self.message += ' Closing reported: ' + '; '.join(failures)
 
@@ -899,9 +1129,12 @@ class TeleopCore:
     # -- cycle -------------------------------------------------------------
 
     def _recent_cycle_s(self):
-        durations = sorted(c['completed_at'] - c['started_at'] for c in itertools.islice(reversed(self.cycles), 25)
-                           if c.get('completed_at') is not None)
-        return durations[int(.9 * (len(durations) - 1))] if durations else 0.
+        durations = sorted(
+            c['completed_at'] - c['started_at']
+            for c in itertools.islice(reversed(self.cycles), 25)
+            if c.get('completed_at') is not None
+        )
+        return durations[int(0.9 * (len(durations) - 1))] if durations else 0.0
 
     def _send_grip_feedback(self, state):
         """This cycle's trigger walls ride the next leader request: only while following (TELEOP) and while a
@@ -914,21 +1147,29 @@ class TeleopCore:
         # and velocity), paired with its joint names as the telemetry pairs them.
         harness, derived = getattr(self, 'harness', None), getattr(self, 'derived', None)
         last = (harness.last or {}) if harness is not None else {}
-        names = ((last.get('status') or {}).get('joint_names')
-                 or [joint['name'] for joint in ((derived or {}).get('config') or {}).get('joints', [])])
-        rows = [dict(item, name=name) for name, item in zip(names, last.get('feedback') or [])
-                if isinstance(item, dict) and item.get('fault') is not True]
+        names = (last.get('status') or {}).get('joint_names') or [
+            joint['name'] for joint in ((derived or {}).get('config') or {}).get('joints', [])
+        ]
+        rows = [
+            dict(item, name=name)
+            for name, item in zip(names, last.get('feedback') or [])
+            if isinstance(item, dict) and item.get('fault') is not True
+        ]
         # The law's hold time and smoothing run on the time since its last cycle.
         clock = getattr(self, 'clock', None)
         now = clock() if clock is not None else None
         last, self._grip_at = getattr(self, '_grip_at', None), now
-        dt = now - last if now is not None and last is not None else getattr(self, 'period_s', .01)
-        strengths = feedback.update(rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None), dt=dt,
-                                    walls=self._grip_walls(rows))
+        dt = now - last if now is not None and last is not None else getattr(self, 'period_s', 0.01)
+        strengths = feedback.update(
+            rows, engaged=state == 'TELEOP' and not getattr(self, 'fault', None), dt=dt, walls=self._grip_walls(rows)
+        )
         triggers = getattr(self, 'grip_triggers', None) or {}
         # Only the leaders with a trigger: the PC drops any other strength, and Helm must not show one as sent.
-        leaders.grip = (None if strengths is None or not triggers
-                        else {name: value for name, value in strengths.items() if name in triggers})
+        leaders.grip = (
+            None
+            if strengths is None or not triggers
+            else {name: value for name, value in strengths.items() if name in triggers}
+        )
 
     def _grip_walls(self, rows):
         """Where each trigger meets the object now: {leader: (wall, reading, opens)}.
@@ -938,6 +1179,7 @@ class TeleopCore:
         A leader is left out when its route, sample or gripper position is missing, or when its route and its
         trigger disagree on which way opens: a wall on the wrong side would push the trigger open at once."""
         from robot_platform.teleop.absolute_mapping import reading_for
+
         triggers = getattr(self, 'grip_triggers', None) or {}
         samples = getattr(self, '_grip_samples', None) or {}
         routes = getattr(getattr(self, 'mapper', None), 'routes', None) or []
@@ -946,12 +1188,25 @@ class TeleopCore:
         opening = -self.grip_feedback.config['closing_effort_sign']
         walls = {}
         for leader, (channel, opens) in triggers.items():
-            route = next((r for r in routes if r.get('leader') == leader and r.get('channel') == channel - 1
-                          and r.get('actuator') in self.grip_feedback.GRIPPERS), None)
+            route = next(
+                (
+                    r
+                    for r in routes
+                    if r.get('leader') == leader
+                    and r.get('channel') == channel - 1
+                    and r.get('actuator') in self.grip_feedback.GRIPPERS
+                ),
+                None,
+            )
             sample = samples.get(leader)
             position = positions.get(route['actuator']) if route is not None else None
-            if (route is None or sample is None or type(position) not in (int, float) or not math.isfinite(position)
-                    or (1 if route['direction'] > 0 else -1) * opening != opens):
+            if (
+                route is None
+                or sample is None
+                or type(position) not in (int, float)
+                or not math.isfinite(position)
+                or (1 if route['direction'] > 0 else -1) * opening != opens
+            ):
                 continue
             walls[leader] = (reading_for(route, position), sample.positions_rad[channel - 1], opens)
         return walls
@@ -961,12 +1216,15 @@ class TeleopCore:
         if feedback is None:
             return None
         # Usable only with a leader source that carries strengths and a leader profile that names the triggers.
-        return dict(feedback.snapshot(), available=hasattr(getattr(self, 'leaders', None), 'grip')
-                    and bool(getattr(self, 'grip_triggers', None)))
+        return dict(
+            feedback.snapshot(),
+            available=hasattr(getattr(self, 'leaders', None), 'grip') and bool(getattr(self, 'grip_triggers', None)),
+        )
 
     def set_grip_feedback(self, payload):
         """Switch force feedback on or off, and set its strength and feel (teleop.grip_feedback.SETTINGS), live."""
         from robot_platform.teleop.grip_feedback import SETTINGS
+
         if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', *SETTINGS}:
             raise ValueError('Force feedback takes enabled and ' + ', '.join(SETTINGS))
         self.grip_feedback.set(**payload)
@@ -974,6 +1232,7 @@ class TeleopCore:
 
     def _leader_target(self, engaged):
         from robot_platform.teleop.leader_routes import unwrap_samples
+
         if self.mapper.fault and not engaged:
             self.mapper.reset()  # Leaders only preview outside engagement.
         try:
@@ -995,11 +1254,14 @@ class TeleopCore:
         except Exception as exc:
             return None, str(exc) or type(exc).__name__
         self.last_target = target
-        self._input_timing = {'poll_ms': (mapped-polled)*1000, 'map_ms': (self.clock()-mapped)*1000,
-                              'source_age_at_map_ms': (self.clock()-min(row['sampled_at'] for row in target))*1000}
+        self._input_timing = {
+            'poll_ms': (mapped - polled) * 1000,
+            'map_ms': (self.clock() - mapped) * 1000,
+            'source_age_at_map_ms': (self.clock() - min(row['sampled_at'] for row in target)) * 1000,
+        }
         if repeated:
             self._input_timing['repeated_source'] = True
-        margin = max(self._recent_cycle_s(), .01)
+        margin = max(self._recent_cycle_s(), 0.01)
         age = self.clock() - min(row['sampled_at'] for row in target)
         if age + margin >= self.session.lifecycle.target_max_age_s:
             self.late_targets += 1
@@ -1008,13 +1270,23 @@ class TeleopCore:
 
     def queue_tuning(self, payload):
         from .manual_tuning import validate
-        if (self._manual_state is None or self.phase != 'running' or self.fault or self.recording_fault
-                or self.session.lifecycle.state != 'HOLD' or self._tuning_pending is not None
-                or self._tuning_confirm is not None):
+
+        if (
+            self._manual_state is None
+            or self.phase != 'running'
+            or self.fault
+            or self.recording_fault
+            or self.session.lifecycle.state != 'HOLD'
+            or self._tuning_pending is not None
+            or self._tuning_confirm is not None
+        ):
             raise ValueError('Hold the running arm before applying manual tuning')
-        if (not isinstance(payload, dict) or set(payload) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
-                or payload['session_id'] != self._manual_state['session_id']
-                or payload['revision'] != self._manual_state['revision']):
+        if (
+            not isinstance(payload, dict)
+            or set(payload) - {'velocity_feedforward'} != {'session_id', 'revision', 'joints'}
+            or payload['session_id'] != self._manual_state['session_id']
+            or payload['revision'] != self._manual_state['revision']
+        ):
             raise ValueError('Tuning revision changed; review the current settings')
         if payload.get('velocity_feedforward', False) is not self._manual_state.get('velocity_feedforward', False):
             raise ValueError('Velocity feed-forward switches at the next session start; stop the session to change it')
@@ -1025,10 +1297,12 @@ class TeleopCore:
         selected = validate([r for r in payload['joints'] if r['motor'] in names], self._manual_rows)
         feedback = (self.harness.last or {}).get('feedback') or []
         settled = self.derived['config']['settled_velocity']
-        if (len(feedback) != len(names)
-                or any(type(row.get('velocity')) not in (int, float)
-                       or not abs(row['velocity']) <= settled for row in feedback)):
-            raise ValueError('The motor feedback is not settled. Wait in Hold before applying; existing settings are unchanged.')
+        if len(feedback) != len(names) or any(
+            type(row.get('velocity')) not in (int, float) or not abs(row['velocity']) <= settled for row in feedback
+        ):
+            raise ValueError(
+                'The motor feedback is not settled. Wait in Hold before applying; existing settings are unchanged.'
+            )
         lifecycle = self.session.lifecycle
         before = plain_copy(lifecycle._joints), plain_copy(lifecycle._manual), lifecycle._manual_hold
         try:
@@ -1046,6 +1320,7 @@ class TeleopCore:
         receiver's -last.json keeps its final two ticks only: what tripped Engage on 2026-10-09 could not be told."""
         import numpy as np
         from robot_platform.control.servo_sweep import recorder_columns, result_rows
+
         transport, directory = getattr(receiver, 'transport', None), getattr(receiver, 'directory', None)
         if transport is None or directory is None:
             return
@@ -1055,13 +1330,23 @@ class TeleopCore:
             if self.live_arm != 'both':
                 raise ValueError('Task capture requires both arms and both grippers')
             from .task_capture_process import LiveTaskCaptureProcess
-            self.task_capture = LiveTaskCaptureProcess(directory / 'episodes', names, self.bundle['task_capture'],
-                metadata={'source': 'real', 'asset_id': self.bundle['asset_id'],
-                          'bindings': self.bundle['bindings'], 'receiver_identity': config['identity'],
-                          'action_semantics': 'receiver_emitted_position_at_sample'})
+
+            self.task_capture = LiveTaskCaptureProcess(
+                directory / 'episodes',
+                names,
+                self.bundle['task_capture'],
+                metadata={
+                    'source': 'real',
+                    'asset_id': self.bundle['asset_id'],
+                    'bindings': self.bundle['bindings'],
+                    'receiver_identity': config['identity'],
+                    'action_semantics': 'receiver_emitted_position_at_sample',
+                },
+            )
             self._closers.append(self.task_capture.close)
-        (directory / 'columns.json').write_text(json.dumps(
-            {'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8')
+        (directory / 'columns.json').write_text(
+            json.dumps({'dtype': 'float32', 'columns': recorder_columns(names)}, indent=1) + '\n', encoding='utf-8'
+        )
         self._recorder = RecordingWriter(directory)
         self._samples = self._recorder.stream('samples.f32', binary=True)
         self._events = self._recorder.stream('events.jsonl')
@@ -1073,8 +1358,14 @@ class TeleopCore:
                 return
             rows, dropped = result_rows(result, names)
             if self.live_arm and self.task_capture is not None:
-                self.task_capture.receive(result, rows, dropped=dropped,
-                    started_at=self._capture_exchange_started, received_at=self.clock(), label=self._capture_label())
+                self.task_capture.receive(
+                    result,
+                    rows,
+                    dropped=dropped,
+                    started_at=self._capture_exchange_started,
+                    received_at=self.clock(),
+                    label=self._capture_label(),
+                )
             if dropped:
                 self._event('rows_dropped', count=dropped)
             if rows and self._recorded < RECORDING_BYTES:
@@ -1089,14 +1380,16 @@ class TeleopCore:
                 self._recorded += len(data)
                 if self._recorded >= RECORDING_BYTES:
                     self._event('recording_full', bytes=self._recorded)
+
         transport.on_result = on_result
         self._event('session', receiver=self.live_arm, collision=self.collision_mode, joints=names)
 
     def _event(self, kind, **fields):
         if self._events is not None:
             try:
-                self._events.write(json.dumps({'t': self.clock(), 'at': utc_now(), 'kind': kind, **fields},
-                                              default=str) + '\n')
+                self._events.write(
+                    json.dumps({'t': self.clock(), 'at': utc_now(), 'kind': kind, **fields}, default=str) + '\n'
+                )
                 self._events.flush()
             except RecordingError as exc:
                 self._recording_error = str(exc)
@@ -1106,12 +1399,19 @@ class TeleopCore:
         if self._events is None:
             return
         status = ((self.harness.last or {}).get('status') or {}) if self.harness is not None else {}
-        now = (self.session.lifecycle.state if self.session else None, self.fault, self.message,
-               self.session.blocked if self.session else None, status.get('state'), status.get('reason'))
+        now = (
+            self.session.lifecycle.state if self.session else None,
+            self.fault,
+            self.message,
+            self.session.blocked if self.session else None,
+            status.get('state'),
+            status.get('reason'),
+        )
         if now != self._logged:
             self._logged = now
-            self._event('state', lifecycle=now[0], fault=now[1], message=now[2], blocked=now[3], receiver=now[4],
-                        reason=now[5])
+            self._event(
+                'state', lifecycle=now[0], fault=now[1], message=now[2], blocked=now[3], receiver=now[4], reason=now[5]
+            )
         clock = self.clock()
         if self._samples is not None and (self._flushed is None or clock - self._flushed >= RECORDING_FLUSH_S):
             try:
@@ -1125,10 +1425,16 @@ class TeleopCore:
     def task_action(self, action):
         if action == 'start_record' and self._source_kind == 'episode':
             raise ValueError('A replay is not recorded: a replayed episode is not a human demonstration')
-        if (action == 'start_record' and self._source_kind == 'policy' and self.task_capture is not None
-                and not getattr(self.task_capture, 'labels', False)):
+        if (
+            action == 'start_record'
+            and self._source_kind == 'policy'
+            and self.task_capture is not None
+            and not getattr(self.task_capture, 'labels', False)
+        ):
             # The robot's capture labels each frame policy or correction (_capture_label); another would say human.
-            raise ValueError('A policy rollout is recorded on the robot only: this capture would label its frames human')
+            raise ValueError(
+                'A policy rollout is recorded on the robot only: this capture would label its frames human'
+            )
         if self.recording_fault:
             raise ValueError('Recording failed; stop this session before starting another episode')
         if self.task_capture is None:
@@ -1148,15 +1454,27 @@ class TeleopCore:
         policy session the policy's frames, or a correction while the operator's leaders drive; otherwise human. The
         state lets the export leave out the holds and the alignments between drivers."""
         state = self.session.lifecycle.state if getattr(self, 'session', None) is not None else None
-        authority = ('human' if self._source_kind is None
-                     else 'correction' if getattr(self, 'driver', None) == 'leaders' else 'policy')
+        authority = (
+            'human'
+            if self._source_kind is None
+            else 'correction'
+            if getattr(self, 'driver', None) == 'leaders'
+            else 'policy'
+        )
         return {'authority': authority, 'lifecycle': state}
 
     def _pedal_context(self, task=None):
         state = self.session.lifecycle.state if self.session else None
-        return dict(phase=self.phase, state=state, fault=self.fault, recording_fault=self.recording_fault,
-                    spent=bool(self.live_arm and self._powered), closing=self._pedal_closing,
-                    task=self._pedal_task if task is None else task, driver=getattr(self, 'driver', None))
+        return dict(
+            phase=self.phase,
+            state=state,
+            fault=self.fault,
+            recording_fault=self.recording_fault,
+            spent=bool(self.live_arm and self._powered),
+            closing=self._pedal_closing,
+            task=self._pedal_task if task is None else task,
+            driver=getattr(self, 'driver', None),
+        )
 
     def prepare_pedal(self, payload):
         self._poll_recording()
@@ -1179,8 +1497,9 @@ class TeleopCore:
             task = health() if health is not None else self.task_capture.snapshot()
             recording = task.get('recording') or {}
             error = task.get('error') or recording.get('error')
-            if task.get('failed') or (error and (recording.get('active')
-                    or recording.get('state') in ('failed', 'aborted'))):
+            if task.get('failed') or (
+                error and (recording.get('active') or recording.get('state') in ('failed', 'aborted'))
+            ):
                 raise RecordingError(error or 'Task capture failed')
         if self._recording_error is not None:
             raise RecordingError(self._recording_error)
@@ -1196,7 +1515,7 @@ class TeleopCore:
         elif state == 'IDLE':
             response = 'Idle; enabling is locked. Stop this session before restarting.'
         else:
-            response = ('Guarded hold active.' if self._recording_hold_confirmed else 'Guarded hold requested.')
+            response = 'Guarded hold active.' if self._recording_hold_confirmed else 'Guarded hold requested.'
             response += ' Following is locked. H disables; X or Stop session requests return to the reference.'
         return f'RECORDING FAILED · {self.recording_fault} · {response}'
 
@@ -1229,7 +1548,7 @@ class TeleopCore:
             if not self.fault:
                 self.message = self._recording_notice()
 
-    def _stop_recording(self, *, timeout=5.):
+    def _stop_recording(self, *, timeout=5.0):
         recorder, self._recorder = self._recorder, None
         if recorder is None:
             return
@@ -1261,6 +1580,7 @@ class TeleopCore:
 
     def _tick(self, key, started):
         from robot_platform.teleop.guarded_lifecycle import minerva_action
+
         self._input_timing = {}
         if getattr(self, '_head_loop', None) is not None and self.head.fault and not self._head_noticed:
             # The head faulted in its own process: the arms hold this cycle, as after a failed inline head cycle.
@@ -1290,11 +1610,15 @@ class TeleopCore:
                     self.session.disable_now()
                 except Exception as exc:
                     self.session.stop_error = str(exc) or type(exc).__name__
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disable could not be confirmed: '
-                                    f'{self.session.stop_error}. Use the foot switch; the session remains faulted.')
+                    self.message = (
+                        f'{self._receiver_name} FAULT · {self.fault} · Disable could not be confirmed: '
+                        f'{self.session.stop_error}. Use the foot switch; the session remains faulted.'
+                    )
                 else:
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
-                                    'is limp where it was. Stop the session and start it again.')
+                    self.message = (
+                        f'{self._receiver_name} FAULT · {self.fault} · Disabled at your request: the arm '
+                        'is limp where it was. Stop the session and start it again.'
+                    )
             elif pausing:
                 self._pause(started)
             elif self._lowering:
@@ -1321,14 +1645,18 @@ class TeleopCore:
             self._head_hold = False
             if engaged and action not in ('disable', 'shutdown'):
                 action = 'disengage'
-                notice = (f'{self.head.fault} · The arms hold: Engage (T) follows again without the head; stop '
-                          'the session to start the head again.')
+                notice = (
+                    f'{self.head.fault} · The arms hold: Engage (T) follows again without the head; stop '
+                    'the session to start the head again.'
+                )
         if getattr(self, '_camera_hold', False):
             self._camera_hold = False
             if engaged and action not in ('disable', 'shutdown'):
                 action = 'disengage'
-                notice = (f'Paused: {self._camera_dropped} dropped off USB. The arms hold: Engage (T) follows again '
-                          'once it is back.')
+                notice = (
+                    f'Paused: {self._camera_dropped} dropped off USB. The arms hold: Engage (T) follows again '
+                    'once it is back.'
+                )
         capture_hold = False
         if self.recording_fault and action not in ('disable', 'shutdown'):
             # Never poll/reuse leader targets or allow a queued enable/engage
@@ -1347,13 +1675,19 @@ class TeleopCore:
             now = self.clock()
             self._policy_exchange(previous, now)
             target = source.target(previous, now)
-            self.input_error = (None if target is not None or previous not in ENGAGED
-                                else source.last_error or 'The policy has no fresh chunk: holding')
+            self.input_error = (
+                None
+                if target is not None or previous not in ENGAGED
+                else source.last_error or 'The policy has no fresh chunk: holding'
+            )
             self.last_target = target  # The joint rows show the policy's target where a leader's would be.
         elif key != 'H' and not self.recording_fault and source is not None and self._source_kind == 'headset':
             target = self._headset_exchange(previous, self.clock())
-            self.input_error = (None if target is not None or previous not in ENGAGED
-                                else source.last_error or 'No fresh answer from the headset: holding')
+            self.input_error = (
+                None
+                if target is not None or previous not in ENGAGED
+                else source.last_error or 'No fresh answer from the headset: holding'
+            )
             self.last_target = target  # The joint rows show the headset's target where a leader's would be.
             if source.hold_wanted(previous) and action is None:
                 action = 'disengage'
@@ -1363,16 +1697,26 @@ class TeleopCore:
                 source.rewind()  # Engage after the end replays from the start, aligning back to it first.
             target, self.input_error = source.target(previous, self.clock()), None
             self.last_target = target  # The joint rows show the episode's target where a leader's would be.
-            if (previous == 'TELEOP' and action is None and source.finished
-                    and self.clock() - source.finished_at >= REPLAY_SETTLE_S):
+            if (
+                previous == 'TELEOP'
+                and action is None
+                and source.finished
+                and self.clock() - source.finished_at >= REPLAY_SETTLE_S
+            ):
                 action = 'disengage'
-                notice = ('Replay finished: holding its last pose. Engage (T) replays it again from the start; '
-                          'Return (X) lowers the arms.')
+                notice = (
+                    'Replay finished: holding its last pose. Engage (T) replays it again from the start; '
+                    'Return (X) lowers the arms.'
+                )
         elif key != 'H' and not self.recording_fault:
             self._send_grip_feedback(previous)
             target, self.input_error = self._leader_target(engaged)
-        allowed = {'enable': ('IDLE',), 'engage': ('IDLE', 'HOLD'), 'disengage': ENGAGED,
-                   'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP')}
+        allowed = {
+            'enable': ('IDLE',),
+            'engage': ('IDLE', 'HOLD'),
+            'disengage': ENGAGED,
+            'shutdown': ('IDLE', 'HOLD', 'ENGAGING', 'TELEOP'),
+        }
         if action in allowed and previous not in allowed[action]:
             notice = f'[{key}] Not available from {previous}. Start with Idle (I), then Enable (E).'
             action = None
@@ -1382,8 +1726,10 @@ class TeleopCore:
             notice = f'[{key}] The arm was disabled. Stop the session and start a new one to enable it again.'
             action = None
         if action == 'engage' and target is None and policy_drives:
-            notice = (f"[{key}] Engage waits for the policy's first action"
-                      f"{': ' + source.last_error if source.last_error else ' (computing it)'}; press T again.")
+            notice = (
+                f"[{key}] Engage waits for the policy's first action"
+                f'{": " + source.last_error if source.last_error else " (computing it)"}; press T again.'
+            )
             action = None
         elif action == 'engage' and target is None:
             notice = f'[{key}] Engage needs live leaders: {self.input_error or "sample arrived late; press T again"}'
@@ -1400,17 +1746,24 @@ class TeleopCore:
                 record = self.session.cycle(action=action, target=target, started_at=started)
             else:
                 names = set(lifecycle.names)
-                record = self.session.cycle(action=action, target=target, started_at=started,
-                    tuning=[r for r in tuning['joints'] if r['motor'] in names])
+                record = self.session.cycle(
+                    action=action,
+                    target=target,
+                    started_at=started,
+                    tuning=[r for r in tuning['joints'] if r['motor'] in names],
+                )
                 if record.get('tuning_rejected'):
                     self._tuning_result = (record['tuning_rejected'], None)
                 else:
                     self._tuning_confirm = (dict(tuning, revision=tuning['revision'] + 1), record['request_sequence'])
                 self._tuning_pending = None
             if capture_hold:
-                if (record.get('accepted') is not True or record.get('skipped')
-                        or (record.get('status') or {}).get('state') not in ('holding', 'executing')
-                        or lifecycle.state != 'HOLD'):
+                if (
+                    record.get('accepted') is not True
+                    or record.get('skipped')
+                    or (record.get('status') or {}).get('state') not in ('holding', 'executing')
+                    or lifecycle.state != 'HOLD'
+                ):
                     reason = 'Recording failed and guarded hold could not be confirmed'
                     self.session.fault(reason)  # Existing receiver brake/recovery path.
                     raise RuntimeError(reason)
@@ -1433,27 +1786,34 @@ class TeleopCore:
             status = getattr(exc, 'status', None) or self.session.controller.status or {}
             reason = status.get('reason')
             detail = fault_detail(self.harness.last, self.derived['config'], self.labels) if self.harness else ''
-            self.fault = (f"Receiver {status.get('state')}: {reason}" + (f' ({detail})' if detail else '')
-                          + f' · {exc}') if reason not in (None, 'ok') else str(exc)
+            self.fault = (
+                (f'Receiver {status.get("state")}: {reason}' + (f' ({detail})' if detail else '') + f' · {exc}')
+                if reason not in (None, 'ok')
+                else str(exc)
+            )
             camera = reason in HOST_STALL and self._camera_pause_due(started)
-            if (previous in ('HOLD', *ENGAGED) and (camera or self._trip_hold_due(status, started))
-                    and self._held()):
+            if previous in ('HOLD', *ENGAGED) and (camera or self._trip_hold_due(status, started)) and self._held():
                 self._pausing, self._paused_by = True, 'camera' if camera else 'trip'
                 self._head_cycle(None, started)
-                self.message = (f'{self._receiver_name} PAUSED · {self.fault} · '
-                                + (f'{self._camera_dropped} dropped off USB and the receiver' if camera
-                                   else 'The receiver')
-                                + f' braked {self._the_arm} to a hold; taking it back there…')
+                self.message = (
+                    f'{self._receiver_name} PAUSED · {self.fault} · '
+                    + (f'{self._camera_dropped} dropped off USB and the receiver' if camera else 'The receiver')
+                    + f' braked {self._the_arm} to a hold; taking it back there…'
+                )
                 return
             self._head_after_fault(key, started)  # The head goes back to its rest while the arms are lowered.
             if self._held():
                 self._lowering, self._lowerings = True, 0
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver braked {self._the_arm} '
-                                'to a hold; lowering to the reference, then disabling…')
+                self.message = (
+                    f'{self._receiver_name} FAULT · {self.fault} · The receiver braked {self._the_arm} '
+                    'to a hold; lowering to the reference, then disabling…'
+                )
             else:
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
-                                + (f' and disabled {self._the_arm}' if self.live_arm else '')
-                                + '. Stop the session and start it again.')
+                self.message = (
+                    f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself'
+                    + (f' and disabled {self._the_arm}' if self.live_arm else '')
+                    + '. Stop the session and start it again.'
+                )
             return
         self._record(record)
         self._head_cycle(action if record.get('accepted') else None, started)
@@ -1464,8 +1824,10 @@ class TeleopCore:
         if blocked and self._shown_block != blocked.split(' (')[0]:
             # Held, not faulted: the arms follow again once the leaders part.
             self._shown_block = blocked.split(' (')[0]
-            self.message = (f'{self._receiver_name} · {current} · HOLDING: {blocked}. Move the leaders apart; the '
-                            'arms follow again once their path is clear.')
+            self.message = (
+                f'{self._receiver_name} · {current} · HOLDING: {blocked}. Move the leaders apart; the '
+                'arms follow again once their path is clear.'
+            )
         elif not blocked and self._shown_block:
             self._shown_block = None
             self.message = f'{self._receiver_name} · {current} · following again.'
@@ -1476,8 +1838,10 @@ class TeleopCore:
             if current == 'HOLD' and engaged and lifecycle.reason:
                 self.message += f' · {lifecycle.reason} · last input problem: {self.input_error}'
             if current == 'DISABLED' and self.live_arm:
-                self.message += (f' · {self._the_arm} {"are" if self.live_arm == "both" else "is"} limp. Stop the '
-                                 'session; a new one checks the reference pose again.')
+                self.message += (
+                    f' · {self._the_arm} {"are" if self.live_arm == "both" else "is"} limp. Stop the '
+                    'session; a new one checks the reference pose again.'
+                )
         if self.recording_fault and not self.fault:
             self.message = self._recording_notice()
 
@@ -1504,8 +1868,12 @@ class TeleopCore:
         head = getattr(self, 'head', None)
         if key == 'H':
             action = 'disable'
-        elif (head is not None and head.session is not None and head.returning is None
-              and head.state in ('HOLD', 'ENGAGING', 'TELEOP')):
+        elif (
+            head is not None
+            and head.session is not None
+            and head.returning is None
+            and head.state in ('HOLD', 'ENGAGING', 'TELEOP')
+        ):
             action = 'shutdown'
         else:
             action = None
@@ -1538,37 +1906,50 @@ class TeleopCore:
             if session.lifecycle.state == 'FAULT':
                 if self._lowerings >= LOWERING_ATTEMPTS:
                     self._lowering = False
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arm '
-                                    f'{LOWERING_ATTEMPTS} times while it was lowered and holds it where it stopped. '
-                                    'Support the arm, then stop the session (it goes limp).')
+                    self.message = (
+                        f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arm '
+                        f'{LOWERING_ATTEMPTS} times while it was lowered and holds it where it stopped. '
+                        'Support the arm, then stop the session (it goes limp).'
+                    )
                     return
                 if session.recover():
                     self._lowerings += 1
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · {self._set_aside()}Re-armed '
-                                    'where the receiver held it; lowering the arm to the reference…')
+                    self.message = (
+                        f'{self._receiver_name} FAULT · {self.fault} · {self._set_aside()}Re-armed '
+                        'where the receiver held it; lowering the arm to the reference…'
+                    )
                 return
             record = session.cycle(action=None, target=None, started_at=started)
             self._record(record)
             if session.lifecycle.state == 'DISABLED':
                 self._lowering = False
                 aside = self._set_aside()
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · {aside}The arm was lowered to the '
-                                'reference and disabled. ' + ('Check that drive\'s power and wiring, then stop the '
-                                                             'session and start it again.' if aside else
-                                                             'Stop the session and start it again.'))
+                self.message = (
+                    f'{self._receiver_name} FAULT · {self.fault} · {aside}The arm was lowered to the '
+                    'reference and disabled. '
+                    + (
+                        "Check that drive's power and wiring, then stop the session and start it again."
+                        if aside
+                        else 'Stop the session and start it again.'
+                    )
+                )
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
             if getattr(exc, 'reason', None) in WAIT_TO_REARM and self._held():
                 dropped = (self.harness.last or {}).get('hardware_dropped') if self.harness else None
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · ' + (
+                self.message = f'{self._receiver_name} FAULT · {self.fault} · ' + (
                     f'{dropped}. The receiver holds the arm on the other drives and cannot re-arm it this session. '
-                    'Support the arm, then press H to disable it (it goes limp).' if dropped else
-                    f'The receiver holds the arm; waiting to re-arm it ({exc.reason}). If it stays held, support '
-                    'the arm, then press H to disable it (it goes limp).'))
+                    'Support the arm, then press H to disable it (it goes limp).'
+                    if dropped
+                    else f'The receiver holds the arm; waiting to re-arm it ({exc.reason}). If it stays held, support '
+                    'the arm, then press H to disable it (it goes limp).'
+                )
             if not self._held():  # The receiver cut the arm's torque: nothing left to lower.
                 self._lowering = False
-                self.message = (f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
-                                'Stop the session and start it again.')
+                self.message = (
+                    f'{self._receiver_name} FAULT · {self.fault} · Lowering stopped: {exc}. '
+                    'Stop the session and start it again.'
+                )
 
     def _pauses_left(self, now):
         """Whether fewer than PAUSE_ATTEMPTS pauses took the arm back in the last PAUSE_WINDOW_S."""
@@ -1585,8 +1966,11 @@ class TeleopCore:
         that stopped them, was a joint over its speed (HOLD_TRIPS), and fewer than PAUSE_ATTEMPTS pauses took the
         arm back in the last PAUSE_WINDOW_S."""
         trip = (status or {}).get('last_trip') or {}
-        return (trip.get('check') in HOLD_TRIPS and trip.get('reason') == (status or {}).get('reason')
-                and self._pauses_left(now))
+        return (
+            trip.get('check') in HOLD_TRIPS
+            and trip.get('reason') == (status or {}).get('reason')
+            and self._pauses_left(now)
+        )
 
     def _pause(self, started):
         """After a camera dropped out and the receiver braked the arm for a late cycle, or after it braked the arm
@@ -1600,37 +1984,48 @@ class TeleopCore:
             if session.lifecycle.state == 'FAULT':
                 if not self._pauses_left(started):
                     self._pausing, self._lowering, self._lowerings = False, True, 0
-                    self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arms '
-                                    f'{PAUSE_ATTEMPTS} times in a minute'
-                                    + (' after cameras dropped out' if camera else '')
-                                    + '; lowering to the reference, then disabling…')
+                    self.message = (
+                        f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped the arms '
+                        f'{PAUSE_ATTEMPTS} times in a minute'
+                        + (' after cameras dropped out' if camera else '')
+                        + '; lowering to the reference, then disabling…'
+                    )
                     return
                 if session.recover():
                     self._pauses.append(started)
-                    self.message = (f'{self._receiver_name} PAUSED · {self.fault} · {self._set_aside()}Re-armed '
-                                    'where the receiver held it; holding it there…')
+                    self.message = (
+                        f'{self._receiver_name} PAUSED · {self.fault} · {self._set_aside()}Re-armed '
+                        'where the receiver held it; holding it there…'
+                    )
                 return
             record = session.cycle(action='disengage', target=None, started_at=started)
             self._record(record)
             if session.lifecycle.state == 'HOLD':
                 self._pausing = False
-                self.message = (f'{self._receiver_name} · HOLD · PAUSED: {self._camera_dropped} dropped off USB and '
-                                f'a late cycle stopped the arms ({self.fault}). They hold where the receiver stopped '
-                                'them: Engage (T) follows again once the camera is back.' if camera else
-                                f'{self._receiver_name} · HOLD · PAUSED: the receiver stopped the arms '
-                                f'({self.fault}). They hold where it stopped them: Engage (T) follows again.')
+                self.message = (
+                    f'{self._receiver_name} · HOLD · PAUSED: {self._camera_dropped} dropped off USB and '
+                    f'a late cycle stopped the arms ({self.fault}). They hold where the receiver stopped '
+                    'them: Engage (T) follows again once the camera is back.'
+                    if camera
+                    else f'{self._receiver_name} · HOLD · PAUSED: the receiver stopped the arms '
+                    f'({self.fault}). They hold where it stopped them: Engage (T) follows again.'
+                )
                 self.fault = None
         except Exception as exc:
             self._record(session.last_cycle or {}, failure=str(exc))
             if self._held():  # The next cycle takes it back again, or lowers it once the attempts are spent.
                 if getattr(exc, 'reason', None) in WAIT_TO_REARM:
-                    self.message = (f'{self._receiver_name} PAUSED · {self.fault} · The receiver holds the arm; '
-                                    f'waiting to re-arm it ({exc.reason}). If it stays held, support the arm, then '
-                                    'press H to disable it (it goes limp).')
+                    self.message = (
+                        f'{self._receiver_name} PAUSED · {self.fault} · The receiver holds the arm; '
+                        f'waiting to re-arm it ({exc.reason}). If it stays held, support the arm, then '
+                        'press H to disable it (it goes limp).'
+                    )
                 return
             self._pausing = False
-            self.message = (f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself ({exc}). '
-                            'Stop the session and start it again.')
+            self.message = (
+                f'{self._receiver_name} FAULT · {self.fault} · The receiver stopped itself ({exc}). '
+                'Stop the session and start it again.'
+            )
 
     def _set_aside(self):
         """The grippers the receiver set aside (they stopped answering; the arm is lowered without them), as the
@@ -1663,9 +2058,15 @@ class TeleopCore:
         if self.session is None:
             return False
         head, loop = getattr(self, 'head', None), getattr(self, '_head_loop', None)
-        head = (head is not None and not head.fault
-                and ((loop is not None and loop.pending)  # Return (X), posted to its process, not yet taken.
-                     or head.state == 'SHUTDOWN' or getattr(head, 'returning', None) is not None))
+        head = (
+            head is not None
+            and not head.fault
+            and (
+                (loop is not None and loop.pending)  # Return (X), posted to its process, not yet taken.
+                or head.state == 'SHUTDOWN'
+                or getattr(head, 'returning', None) is not None
+            )
+        )
         if self.fault:
             return self._lowering or head
         return self._land or self.session.lifecycle.state == 'SHUTDOWN' or head
@@ -1674,8 +2075,13 @@ class TeleopCore:
     def _receiver_name(self):
         if self.live_arm == 'both':
             return 'LIVE BOTH ARMS'
-        return (f'LIVE {self.live_arm.upper()} ARM' if self.live_arm
-                else 'SIMULATED MINERVA' if self.simulation else 'VIRTUAL RECEIVER')
+        return (
+            f'LIVE {self.live_arm.upper()} ARM'
+            if self.live_arm
+            else 'SIMULATED MINERVA'
+            if self.simulation
+            else 'VIRTUAL RECEIVER'
+        )
 
     @property
     def _the_arm(self):
@@ -1685,6 +2091,7 @@ class TeleopCore:
         entry = {k: record.get(k) for k in ('started_at', 'completed_at', 'accepted', 'action')}
         if self.collision_mode == 'disabled':
             from robot_platform.teleop.latency import trace_record
+
             entry.update(trace_record(record), **self._input_timing)
             self._pending_latency = entry
         if failure:
@@ -1715,11 +2122,14 @@ class TeleopCore:
         """
         if self.collision_mode != 'disabled':
             return
-        fields = dict(scheduled_at=scheduled, loop_completed_at=completed,
-                      full_loop_ms=(completed-started)*1000,
-                      start_lateness_ms=max(0., (started-scheduled)*1000),
-                      scheduled_deadline_miss=completed > scheduled+self.period_s,
-                      skipped_slots=skipped_slots)
+        fields = dict(
+            scheduled_at=scheduled,
+            loop_completed_at=completed,
+            full_loop_ms=(completed - started) * 1000,
+            start_lateness_ms=max(0.0, (started - scheduled) * 1000),
+            scheduled_deadline_miss=completed > scheduled + self.period_s,
+            skipped_slots=skipped_slots,
+        )
         if self._pending_latency is None:
             self._pending_latency = dict(started_at=started, operation=None, accepted=False)
         self._pending_latency.update(fields)
@@ -1751,54 +2161,86 @@ class TeleopCore:
         positions.update(to_cad(self.derived['joint_map'], measured, self.derived['cad_limits']))
         state = self.session.lifecycle.state
         # `measured`: the real arms' readings, not the virtual follower's (the digital twin corrects readings only).
-        return {'model': self.model.profile.id, 'urdf_sha256': self.model.sha256,
-                'positions': positions, 'live': True, 'measured': bool(self.live_arm), 'rows': [],
-                'stream_id': 'helm-teleop', 'sequence': self.sequence, 'updated_at': time.time(),
-                'source_age_seconds': 0.,
-                'scan_seconds': self.period_s, 'feed_state': 'reading', 'reconnections': 0, 'view': 'fit',
-                'badge': (f'{self._receiver_name} · {state} · foot switch in reach' if self.live_arm
-                          else f'VIRTUAL FOLLOWER · {state} · no motors move'),
-                'message': self.message}
+        return {
+            'model': self.model.profile.id,
+            'urdf_sha256': self.model.sha256,
+            'positions': positions,
+            'live': True,
+            'measured': bool(self.live_arm),
+            'rows': [],
+            'stream_id': 'helm-teleop',
+            'sequence': self.sequence,
+            'updated_at': time.time(),
+            'source_age_seconds': 0.0,
+            'scan_seconds': self.period_s,
+            'feed_state': 'reading',
+            'reconnections': 0,
+            'view': 'fit',
+            'badge': (
+                f'{self._receiver_name} · {state} · foot switch in reach'
+                if self.live_arm
+                else f'VIRTUAL FOLLOWER · {state} · no motors move'
+            ),
+            'message': self.message,
+        }
 
     def status_view(self):
         """Cheap status and tuning ACKs, independent of pose rows and quantiles."""
         receiver = (self.harness.last or {}).get('status', {}).get('state') if self.harness else None
         verdict = getattr(self.compiler, 'last_verdict', None) or {}
         last = (self.harness.last or {}) if self.harness else {}
-        result = {'phase': self.phase, 'message': self.message, 'fault': self.fault,
-                  'recording_fault': self.recording_fault,
-                  'trial': deepcopy(self.profile.get('trial')),
-                  'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
-                  'velocity_feedforward': velocity_feedforward(self.profile),
-                  'state': self.session.lifecycle.state if self.session else None, 'receiver': receiver,
-                  'manual_tuning_ack': self._manual_state,
-                  'manual_tuning_pending': self._tuning_pending is not None or self._tuning_confirm is not None,
-                  'live': {'arm': self.live_arm, 'motors_enabled': last.get('hardware_enabled'),
-                           'watchdog': last.get('watchdog'), 'reference': last.get('reference')}
-                  if self.live_arm else None,
-                  'input_error': self.input_error, 'late_targets': self.late_targets,
-                  'collision': {'mode': self.collision_mode, 'clear': verdict.get('clear'),
-                                'reason': verdict.get('reason'), 'distance_m': verdict.get('distance_m'),
-                                'shapes': verdict.get('shapes'), 'links': verdict.get('links'),
-                                'clearance_m': verdict.get('clearance_lower_bound_m'),
-                                'blocked': getattr(self.compiler, 'blocked', 0),
-                                'holding': self.session.blocked if self.session else None},
-                  'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
-                  'grip_feedback': self._grip_status(),
-                  'replay': self._replay_view(),
-                  'policy': self._policy_view(),
-                  'headset': self._headset_view(),
-                  'head': self._head_status(),
-                  'scheduling': self.scheduling, 'cycle_ms': None, 'joints': []}
+        result = {
+            'phase': self.phase,
+            'message': self.message,
+            'fault': self.fault,
+            'recording_fault': self.recording_fault,
+            'trial': deepcopy(self.profile.get('trial')),
+            'position_only': self.profile['receiver'].get('direct', {}).get('position_only', False),
+            'velocity_feedforward': velocity_feedforward(self.profile),
+            'state': self.session.lifecycle.state if self.session else None,
+            'receiver': receiver,
+            'manual_tuning_ack': self._manual_state,
+            'manual_tuning_pending': self._tuning_pending is not None or self._tuning_confirm is not None,
+            'live': {
+                'arm': self.live_arm,
+                'motors_enabled': last.get('hardware_enabled'),
+                'watchdog': last.get('watchdog'),
+                'reference': last.get('reference'),
+            }
+            if self.live_arm
+            else None,
+            'input_error': self.input_error,
+            'late_targets': self.late_targets,
+            'collision': {
+                'mode': self.collision_mode,
+                'clear': verdict.get('clear'),
+                'reason': verdict.get('reason'),
+                'distance_m': verdict.get('distance_m'),
+                'shapes': verdict.get('shapes'),
+                'links': verdict.get('links'),
+                'clearance_m': verdict.get('clearance_lower_bound_m'),
+                'blocked': getattr(self.compiler, 'blocked', 0),
+                'holding': self.session.blocked if self.session else None,
+            },
+            'task': self.task_capture.snapshot() if getattr(self, 'task_capture', None) is not None else None,
+            'grip_feedback': self._grip_status(),
+            'replay': self._replay_view(),
+            'policy': self._policy_view(),
+            'headset': self._headset_view(),
+            'head': self._head_status(),
+            'scheduling': self.scheduling,
+            'cycle_ms': None,
+            'joints': [],
+        }
         self._pedal_task = result['task']
         result['pedals'] = self.pedals.view(self._pedal_context(), self.clock())
         if self.profile.get('trial'):
             trial = self.profile['trial']
-            result['message'] = (f"TRIAL: {trial['motor']} only, {trial['max_velocity']:g} rad/s, "
-                                 f"±{trial['max_excursion_rad']:g} rad from Enable; other joints hold. "
-                                 + self.message)
+            result['message'] = (
+                f'TRIAL: {trial["motor"]} only, {trial["max_velocity"]:g} rad/s, '
+                f'±{trial["max_excursion_rad"]:g} rad from Enable; other joints hold. ' + self.message
+            )
         return result
-
 
     def _replay_view(self):
         """A replay session's episode and playback position; before its episode is read, just which one."""
@@ -1807,8 +2249,15 @@ class TeleopCore:
         if getattr(self, 'source', None) is not None:
             return self.source.snapshot()
         spec = self.source_spec
-        return dict(episode=spec['episode'], speed=spec['speed'], time_s=None, duration_s=None, frame=None,
-                    frames=None, finished=False)
+        return dict(
+            episode=spec['episode'],
+            speed=spec['speed'],
+            time_s=None,
+            duration_s=None,
+            frame=None,
+            frames=None,
+            finished=False,
+        )
 
     def _policy_view(self):
         """A policy session's policy and chunks; before it has loaded, just which one. With takeover, who drives."""
@@ -1833,12 +2282,17 @@ class TeleopCore:
         self._event('driver', driver=self.driver, lifecycle=previous)
         you = self.driver == 'leaders'
         if previous in ('HOLD', *ENGAGED):
-            notice = ('You drive next: line up the leaders with the arms, then Resume (T or pedal B) aligns the arms '
-                      'to them.' if you else "The policy drives next: Resume (T or pedal B) aligns the arms to its "
-                      'first action.')
+            notice = (
+                'You drive next: line up the leaders with the arms, then Resume (T or pedal B) aligns the arms to them.'
+                if you
+                else 'The policy drives next: Resume (T or pedal B) aligns the arms to its first action.'
+            )
         else:
-            notice = ('You drive: Engage (T) will align the arms to your leaders.' if you
-                      else "The policy drives: Engage (T) will align the arms to its first action.")
+            notice = (
+                'You drive: Engage (T) will align the arms to your leaders.'
+                if you
+                else 'The policy drives: Engage (T) will align the arms to its first action.'
+            )
         return ('disengage' if previous in ENGAGED else None), notice, True
 
     def headset_hands(self, payload):
@@ -1889,10 +2343,12 @@ class TeleopCore:
         commands = dict(zip(names, status.get('joints') or []))
         if any(name not in feedback or name not in commands for name in source.names):
             return  # No complete reading yet: ask next cycle.
-        observation = {'q': [feedback[n]['position'] for n in source.names],
-                       'dq': [feedback[n].get('velocity') for n in source.names],
-                       'effort': [feedback[n].get('effort') for n in source.names],
-                       'qcmd': [commands[n]['position'] for n in source.names]}
+        observation = {
+            'q': [feedback[n]['position'] for n in source.names],
+            'dq': [feedback[n].get('velocity') for n in source.names],
+            'effort': [feedback[n].get('effort') for n in source.names],
+            'qcmd': [commands[n]['position'] for n in source.names],
+        }
         self._policy_requests += 1
         self.policy_worker.ask(self._policy_requests, now, observation)
         source.asked(self._policy_requests, now, purpose)
@@ -1900,26 +2356,41 @@ class TeleopCore:
     def view(self):
         result = self.status_view()
         routes = self.routes()
-        durations = sorted((c['completed_at'] - c['started_at']) * 1000 for c in self.cycles
-                           if c.get('completed_at') is not None)
+        durations = sorted(
+            (c['completed_at'] - c['started_at']) * 1000 for c in self.cycles if c.get('completed_at') is not None
+        )
         if durations:
-            result['cycle_ms'] = {'p50': durations[(len(durations) - 1) // 2],
-                                  'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
-                                  'max': self.slowest_ms, 'overruns': self.overruns,
-                                  'largest_gap': self.largest_gap_ms}
+            result['cycle_ms'] = {
+                'p50': durations[(len(durations) - 1) // 2],
+                'p99': durations[min(len(durations), -(-99 * len(durations) // 100)) - 1],
+                'max': self.slowest_ms,
+                'overruns': self.overruns,
+                'largest_gap': self.largest_gap_ms,
+            }
         if self._loop_timings:
             from robot_platform.teleop.latency import distribution
-            result['full_loop_ms'] = dict(distribution(self._loop_timings), max=self._loop_max_ms,
-                                         scheduled_deadline_misses=self._loop_misses,
-                                         skipped_slots=self._loop_skipped)
+
+            result['full_loop_ms'] = dict(
+                distribution(self._loop_timings),
+                max=self._loop_max_ms,
+                scheduled_deadline_misses=self._loop_misses,
+                skipped_slots=self._loop_skipped,
+            )
         if self.derived is None:
             return result
         # The model's joint telemetry: the receiver's last feedback as it reported it (Helm ages it on arrival).
         from .telemetry import native_packet
-        result['telemetry'] = native_packet(self.harness.last if self.harness is not None else None, self.derived,
-                                            model=self.model.profile.id, urdf_sha256=self.model.sha256,
-                                            joint_types=self.model.by_name, labels=self.labels,
-                                            source='measured' if self.live_arm else 'simulated', stream='teleop')
+
+        result['telemetry'] = native_packet(
+            self.harness.last if self.harness is not None else None,
+            self.derived,
+            model=self.model.profile.id,
+            urdf_sha256=self.model.sha256,
+            joint_types=self.model.by_name,
+            labels=self.labels,
+            source='measured' if self.live_arm else 'simulated',
+            stream='teleop',
+        )
         names = [joint['name'] for joint in self.derived['config']['joints']]
         measured = self._positions() or {}
         command = dict(zip(names, self.session.lifecycle.target or ()))
@@ -1927,12 +2398,25 @@ class TeleopCore:
         for row in self.derived['report']:
             motor = row['motor']
             route = routes.get(motor, {})
-            result['joints'].append({'motor': motor, 'label': self.labels.get(motor, motor),
-                'usable': row['usable'], 'operational': row['operational'],
-                'leader': leader.get(motor), 'command': command.get(motor), 'measured': measured.get(motor),
-                'route': {'sign': route.get('sign'), 'trigger': motor.endswith('gripper'),
-                          'verified': route.get('verified', False), **self.scales.get(motor, {}),
-                          'leader': route.get('leader'), 'channel': route.get('channel')}})
+            result['joints'].append(
+                {
+                    'motor': motor,
+                    'label': self.labels.get(motor, motor),
+                    'usable': row['usable'],
+                    'operational': row['operational'],
+                    'leader': leader.get(motor),
+                    'command': command.get(motor),
+                    'measured': measured.get(motor),
+                    'route': {
+                        'sign': route.get('sign'),
+                        'trigger': motor.endswith('gripper'),
+                        'verified': route.get('verified', False),
+                        **self.scales.get(motor, {}),
+                        'leader': route.get('leader'),
+                        'channel': route.get('channel'),
+                    },
+                }
+            )
         return result
 
 
@@ -1958,7 +2442,7 @@ def run_loop(commands, views, core, *, silence_s=None):
     outbox = {'view': None, 'pose': None, 'replies': [], 'closing': False}
     cached_view = None
     published_status = None
-    view_cost_s = .003
+    view_cost_s = 0.003
     next_view_at = None
     sent_at = None  # When the last view of either kind was queued.
     pose_at = None  # When the 3D views' pose last went, with a full view or alone.
@@ -1967,8 +2451,14 @@ def run_loop(commands, views, core, *, silence_s=None):
     def sender():
         while True:
             with ready:
-                ready.wait_for(lambda: outbox['view'] is not None or outbox['pose'] is not None or outbox['replies']
-                               or outbox['closing'])
+                ready.wait_for(
+                    lambda: (
+                        outbox['view'] is not None
+                        or outbox['pose'] is not None
+                        or outbox['replies']
+                        or outbox['closing']
+                    )
+                )
                 view, pose, replies = outbox['view'], outbox['pose'], outbox['replies']
                 outbox['view'], outbox['pose'], outbox['replies'] = None, None, []
                 finished = outbox['closing'] and view is None and pose is None and not replies
@@ -1992,9 +2482,14 @@ def run_loop(commands, views, core, *, silence_s=None):
     def status_key(view):
         tuning = view.get('manual_tuning_ack') or {}
         # Compare immutable revision values, not a reference to a mutable payload.
-        return (tuple(view.get(k) for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error'))
-                + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending'))
-                + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc'))
+        return (
+            tuple(
+                view.get(k)
+                for k in ('phase', 'state', 'fault', 'recording_fault', 'message', 'receiver', 'input_error')
+            )
+            + (tuning.get('session_id'), tuning.get('revision'), view.get('manual_tuning_pending'))
+            + tuple((view.get('pedals') or {}).get('actions', {}).get(p, {}).get('revision') for p in 'abc')
+        )
 
     def publish(guide=True):
         nonlocal cached_view, published_status, sent_at, pose_at
@@ -2026,13 +2521,13 @@ def run_loop(commands, views, core, *, silence_s=None):
     def publish_in_budget(deadline, changed):
         nonlocal next_view_at, view_cost_s
         now = clock()
-        if (changed or now >= next_view_at) and deadline-now >= view_cost_s + .0005:
+        if (changed or now >= next_view_at) and deadline - now >= view_cost_s + 0.0005:
             publish()
             completed = clock()
             # An unforeseen spike remains in full-loop deadline accounting and
             # raises future admission cost. No command/recorder work is skipped.
-            view_cost_s = max(view_cost_s, completed-now)
-            next_view_at = completed + .1
+            view_cost_s = max(view_cost_s, completed - now)
+            next_view_at = completed + 0.1
 
     def reply(request, error, result=None):
         with ready:
@@ -2054,7 +2549,7 @@ def run_loop(commands, views, core, *, silence_s=None):
             from robot_platform.teleop.latency import next_scheduled_slot
         scheduled = clock()
         budget_views = direct and hasattr(core, 'status_view')
-        next_view_at = scheduled + .1
+        next_view_at = scheduled + 0.1
         heard = clock()
         while True:
             started = clock()
@@ -2101,9 +2596,13 @@ def run_loop(commands, views, core, *, silence_s=None):
                 elif message[0] == 'pedal':
                     view_changed = True
                     _, request, payload = message
-                    if (pedal_request is not None and isinstance(payload, dict)
-                            and payload.get('pedal') in ('b', 'c')
-                            and isinstance(pedal_request[1], dict) and pedal_request[1].get('pedal') == 'a'):
+                    if (
+                        pedal_request is not None
+                        and isinstance(payload, dict)
+                        and payload.get('pedal') in ('b', 'c')
+                        and isinstance(pedal_request[1], dict)
+                        and pedal_request[1].get('pedal') == 'a'
+                    ):
                         # Never put a pause/return behind an undispatched record edge.
                         # The record edge is rejected, not deferred until after motion.
                         reply(pedal_request[0], 'Motion pedal superseded the recording edge')
@@ -2161,8 +2660,16 @@ def run_loop(commands, views, core, *, silence_s=None):
                     if pedal_intent['pedal'] == 'a':
                         pedal_command = core.task_action(action)['id']
                     else:
-                        key = {'idle': 'I', 'enable': 'E', 'engage': 'T', 'pause': 'T', 'resume': 'T',
-                               'take_over': 'O', 'hand_back': 'O', 'shutdown': 'X'}[action]
+                        key = {
+                            'idle': 'I',
+                            'enable': 'E',
+                            'engage': 'T',
+                            'pause': 'T',
+                            'resume': 'T',
+                            'take_over': 'O',
+                            'hand_back': 'O',
+                            'shutdown': 'X',
+                        }[action]
                 except Exception as exc:
                     if pedal_intent is not None:
                         core.finish_pedal(pedal_intent, error=str(exc))
@@ -2179,12 +2686,20 @@ def run_loop(commands, views, core, *, silence_s=None):
                 tuning_request = None
             if budget_views:
                 status = core.status_view()
-                if (key is not None or view_changed or status_key(status) != published_status
-                        or sent_at is None or clock() - sent_at >= STATUS_HEARTBEAT_S):
+                if (
+                    key is not None
+                    or view_changed
+                    or status_key(status) != published_status
+                    or sent_at is None
+                    or clock() - sent_at >= STATUS_HEARTBEAT_S
+                ):
                     publish_status(status)
                 publish_in_budget(scheduled + core.period_s, view_changed)
-                if (pose_view is not None and (pose_at is None or clock() - pose_at >= POSE_INTERVAL_S)
-                        and scheduled + core.period_s - clock() >= POSE_COST_S):
+                if (
+                    pose_view is not None
+                    and (pose_at is None or clock() - pose_at >= POSE_INTERVAL_S)
+                    and scheduled + core.period_s - clock() >= POSE_COST_S
+                ):
                     publish_pose()
             else:
                 publish()
@@ -2213,6 +2728,7 @@ def run_loop(commands, views, core, *, silence_s=None):
 
 def _process_main(commands, views, bundle):
     from .head_only import HeadOnlyCore, head_only
+
     core = (HeadOnlyCore if head_only(bundle.get('receiver')) else TeleopCore)(bundle)
     core.scheduling['loop'] = prefer_responsive()
     run_loop(commands, views, core)
@@ -2223,9 +2739,13 @@ def policy_context(derived, period_s):
     its motor-to-model map, and each joint's usable range and reference pose, in its joint order."""
     report = {row['motor']: row for row in derived['report']}
     names = [joint['name'] for joint in derived['config']['joints']]
-    return {'joint_map': deepcopy(derived['joint_map']), 'period_s': period_s,
-            'lower': [report[n]['usable'][0] for n in names], 'upper': [report[n]['usable'][1] for n in names],
-            'home': [report[n]['home'] for n in names]}
+    return {
+        'joint_map': deepcopy(derived['joint_map']),
+        'period_s': period_s,
+        'lower': [report[n]['usable'][0] for n in names],
+        'upper': [report[n]['usable'][1] for n in names],
+        'home': [report[n]['home'] for n in names],
+    }
 
 
 class TeleopSession:
@@ -2237,8 +2757,22 @@ class TeleopSession:
 
     TARGETS = ('jetson', 'pc')
 
-    def __init__(self, helm, profile_path, *, runs, leaders=None, core_factory=None, leader_factory=None,
-                 target='pc', edge_factory=None, simulation=None, capture_profile=None, episodes=None, bridge=None):
+    def __init__(
+        self,
+        helm,
+        profile_path,
+        *,
+        runs,
+        leaders=None,
+        core_factory=None,
+        leader_factory=None,
+        target='pc',
+        edge_factory=None,
+        simulation=None,
+        capture_profile=None,
+        episodes=None,
+        bridge=None,
+    ):
         self.helm, self.leaders = helm, leaders  # leaders: the Leaders workspace holding saved ranges.
         # Helm on Minerva (helm.bridge.BridgeHub): the operator PC's GELLO bridge serves each session's leader link.
         self.bridge = bridge
@@ -2255,6 +2789,7 @@ class TeleopSession:
         # switch itself is off at each session start.
         self.grip_settings_path = Path(runs) / (helm.asset_id + '-teleop') / 'grip-feedback.json'
         from robot_platform.teleop.grip_feedback import GripFeedback
+
         self.grip_defaults = GripFeedback(self.profile.get('grip_feedback')).settings()
         self.grip_saved = self._load_grip_settings()
         self.grip_settings = dict(self.grip_defaults, **self.grip_saved)
@@ -2283,10 +2818,18 @@ class TeleopSession:
         self._conn = self._views = self._worker = self._reader = None
         self._replies, self._ids = {}, itertools.count(1)
         self._reply_ready = threading.Condition(self._lock)
-        stopped = {'phase': 'stopped', 'message': 'Teleop is not running. Choose the receiver, then start a session.',
-                   'fault': None, 'state': None, 'receiver': None, 'input_error': None, 'late_targets': 0,
-                   'collision': {'mode': self.profile['receiver'].get('collision_mode', 'enforced')},
-                   'cycle_ms': None, 'joints': []}
+        stopped = {
+            'phase': 'stopped',
+            'message': 'Teleop is not running. Choose the receiver, then start a session.',
+            'fault': None,
+            'state': None,
+            'receiver': None,
+            'input_error': None,
+            'late_targets': 0,
+            'collision': {'mode': self.profile['receiver'].get('collision_mode', 'enforced')},
+            'cycle_ms': None,
+            'joints': [],
+        }
         self._view, self._guide = stopped, None
         self._view_received_at = time.perf_counter()
         self._tuning_lock = threading.Lock()
@@ -2305,6 +2848,7 @@ class TeleopSession:
         if self.profile.get('manual_tuning') is True and self.manual is None:
             try:
                 from .manual_tuning import ManualTuning
+
                 self.manual, self.manual_error = ManualTuning(self.helm, self.profile, self._runs, self._servo()), None
             except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
                 self.manual, self.manual_error = None, f'Manual tuning is unavailable: {exc}'
@@ -2313,6 +2857,7 @@ class TeleopSession:
             return
         try:
             from .settings import OperatorSettings
+
             self.settings = OperatorSettings(self.helm, self.profile, self._runs, self._servo(), self.manual)
             self.settings_error = None
         except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
@@ -2325,19 +2870,30 @@ class TeleopSession:
 
     def _bundle(self):
         helm = self.helm
-        return {'calibration_profile': str(helm.profile_path), 'bindings': deepcopy(helm.bindings),
-                **calibration_reference(helm),
-                'directions': deepcopy(helm.mapping), 'limits': deepcopy(helm.saved_limits),
-                'teleop_profile': str(self.profile_path), 'routes_path': str(self.routes_path),
-                'asset_id': helm.asset_id, 'leader_factory': self.leader_factory, 'receiver': dict(self.receiver),
-                'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
-                'servo': self._servo(),
-                **({'task_capture': deepcopy(self.task_capture_config)} if self.task_capture_config is not None else {}),
-                **({'simulation': dict(self.simulation, directory=str(self.sim_directory))}
-                   if self.simulation is not None and self.receiver['mode'] == 'virtual' else {}),
-                **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
-                **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {}),
-                'grip_feedback': dict(self.grip_settings), 'head': self._head_bundle()}
+        return {
+            'calibration_profile': str(helm.profile_path),
+            'bindings': deepcopy(helm.bindings),
+            **calibration_reference(helm),
+            'directions': deepcopy(helm.mapping),
+            'limits': deepcopy(helm.saved_limits),
+            'teleop_profile': str(self.profile_path),
+            'routes_path': str(self.routes_path),
+            'asset_id': helm.asset_id,
+            'leader_factory': self.leader_factory,
+            'receiver': dict(self.receiver),
+            'leader_ranges': deepcopy(self.leaders.saved) if self.leaders is not None else None,
+            'servo': self._servo(),
+            **({'task_capture': deepcopy(self.task_capture_config)} if self.task_capture_config is not None else {}),
+            **(
+                {'simulation': dict(self.simulation, directory=str(self.sim_directory))}
+                if self.simulation is not None and self.receiver['mode'] == 'virtual'
+                else {}
+            ),
+            **({'manual_tuning': self.manual.bundle()} if self.manual else {}),
+            **({'operator_settings': self.settings.bundle()} if self.settings and self.settings.enabled else {}),
+            'grip_feedback': dict(self.grip_settings),
+            'head': self._head_bundle(),
+        }
 
     def _head_bundle(self):
         """The head's files for this session (helm.head_teleop), or None: a virtual session always has a head (its
@@ -2347,29 +2903,40 @@ class TeleopSession:
         from robot_platform.neck import clearance, head
         from robot_platform.ops.release import ROOT
         from robot_platform.vision.twin import path as twin_path
+
         try:
             profile = head.load_profile(ROOT / head.PROFILE)
-            directory = servo_path(self.helm.profile_path, self.helm.asset_id,
-                                   getattr(self.helm, 'operator_files', None)).parent
+            directory = servo_path(
+                self.helm.profile_path, self.helm.asset_id, getattr(self.helm, 'operator_files', None)
+            ).parent
             paths = head.files(directory, self.helm.asset_id)
             reference, limits = head.load_document(paths['reference']), head.load_document(paths['limits'])
-            if self.receiver['mode'] == 'live' and (reference is None or limits is None
-                                                    or not profile['bus'].get('usb_serial')
-                                                    or clearance.from_limits(limits, reference) is None):
+            if self.receiver['mode'] == 'live' and (
+                reference is None
+                or limits is None
+                or not profile['bus'].get('usb_serial')
+                or clearance.from_limits(limits, reference) is None
+            ):
                 return None
             reference = reference or head.virtual_reference(profile)
             try:  # The digital twin's correction (helm.twin): its head part turns the camera's poses by the pan zero.
                 twin = head.load_document(twin_path(directory, self.helm.asset_id))
             except (OSError, ValueError):
                 twin = None  # Unreadable, it is left out: the head runs as before, and Helm's twin card says why.
-            return {'teleop_profile': str(ROOT / head.PROFILE), 'head_reference': reference,
-                    'limits': limits or head.virtual_limits(reference), 'servo': load_servo(paths['servo']),
-                    'camera': head.load_document(paths['camera']), 'twin': twin}
+            return {
+                'teleop_profile': str(ROOT / head.PROFILE),
+                'head_reference': reference,
+                'limits': limits or head.virtual_limits(reference),
+                'servo': load_servo(paths['servo']),
+                'camera': head.load_document(paths['camera']),
+                'twin': twin,
+            }
         except (OSError, ValueError, KeyError):
             return None
 
     def _load_grip_settings(self):
         from robot_platform.teleop.grip_feedback import SETTINGS, validate_settings
+
         try:
             saved = json.loads(self.grip_settings_path.read_text(encoding='utf-8'))
             # An earlier law's settings (contact push, full force, smoothing) no longer apply: dropped, not fatal.
@@ -2384,6 +2951,7 @@ class TeleopSession:
         (teleop.grip_feedback.SETTINGS), which apply live and are saved for every later session. `reset` puts
         the defaults back."""
         from robot_platform.teleop.grip_feedback import SETTINGS, validate_settings
+
         if not isinstance(payload, dict) or not payload or set(payload) - {'enabled', 'reset', *SETTINGS}:
             raise ValueError('Force feedback takes enabled, reset and ' + ', '.join(SETTINGS))
         if 'reset' in payload and payload['reset'] is not True:
@@ -2406,10 +2974,12 @@ class TeleopSession:
     def _servo(self):
         """The saved servo calibration (Helm's Tune tab), if any: the receiver takes its settings from it."""
         from robot_platform.control.servo_calibration import load_servo, servo_path
+
         if not hasattr(self.helm, 'profile_path') or not hasattr(self.helm, 'asset_id'):
             return None
-        return load_servo(servo_path(self.helm.profile_path, self.helm.asset_id,
-                                     getattr(self.helm, 'operator_files', None)))
+        return load_servo(
+            servo_path(self.helm.profile_path, self.helm.asset_id, getattr(self.helm, 'operator_files', None))
+        )
 
     def task_action(self, action):
         if action == 'setup':
@@ -2422,9 +2992,14 @@ class TeleopSession:
                     if self.receiver != {'mode': 'live', 'arm': 'both'}:
                         raise ValueError('Select Live both arms before task setup')
                     if self.capture_profile is None:
-                        raise ValueError('Live capture needs --capture-profile with verified camera identities and clocks')
+                        raise ValueError(
+                            'Live capture needs --capture-profile with verified camera identities and clocks'
+                        )
                     from .task_capture import validate_config
-                    self.task_capture_config = validate_config(json.loads(self.capture_profile.read_text(encoding='utf-8')))
+
+                    self.task_capture_config = validate_config(
+                        json.loads(self.capture_profile.read_text(encoding='utf-8'))
+                    )
                 self.task_configured = True
             return
         if action not in ('reset', 'start_record', 'stop_record'):
@@ -2442,16 +3017,24 @@ class TeleopSession:
             if target != 'pc' and self.simulation is not None:
                 raise ValueError('The simulated Minerva runs on this PC (Helm was started with --sim)')
             if target == 'pc' and getattr(self.helm, 'on_robot', False):
-                raise ValueError("Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm")
+                raise ValueError(
+                    "Helm runs on Minerva: the loop runs in its own process on the control CPUs, as on Minerva's Jetson, never inside Helm"
+                )
             self.target = target
 
     def set_receiver(self, mode, arm=None, collision=None):
         """The virtual receiver (`collision` 'motion': enforcing the two-arm bound), or the live one driving one arm's
         motors or both arms', or the head's alone (helm.head_only; all on Minerva's Jetson only)."""
-        if (mode not in ('virtual', 'live') or (mode == 'live') != (arm in ('left', 'right', 'both', 'head'))
-                or collision not in (None, 'motion') or (collision and mode != 'virtual')):
-            raise ValueError('Choose the virtual receiver (the two-arm bound enforced or not), or live on the left, '
-                             'right or both arms, or the head alone')
+        if (
+            mode not in ('virtual', 'live')
+            or (mode == 'live') != (arm in ('left', 'right', 'both', 'head'))
+            or collision not in (None, 'motion')
+            or (collision and mode != 'virtual')
+        ):
+            raise ValueError(
+                'Choose the virtual receiver (the two-arm bound enforced or not), or live on the left, '
+                'right or both arms, or the head alone'
+            )
         if self.simulation is not None and mode != 'virtual':
             raise ValueError('Simulation mode cannot select a physical receiver')
         with self._lock:
@@ -2466,12 +3049,16 @@ class TeleopSession:
                 raise ValueError("Live teleop needs the profile's live block and the loop on Minerva's Jetson")
             if mode == 'live' and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
-            self.receiver = ({'mode': 'live', 'arm': arm} if mode == 'live'
-                             else dict({'mode': 'virtual'}, **({'collision': collision} if collision else {})))
+            self.receiver = (
+                {'mode': 'live', 'arm': arm}
+                if mode == 'live'
+                else dict({'mode': 'virtual'}, **({'collision': collision} if collision else {}))
+            )
 
     def _edge_bundle(self):
         """The bundle for the robot: release-relative profiles, and route edits Helm keeps on this PC."""
         from robot_platform.ops.release import ROOT
+
         bundle = self._bundle()
         for key in ('calibration_profile', 'teleop_profile'):
             path = Path(bundle[key]).resolve()
@@ -2480,14 +3067,20 @@ class TeleopSession:
             bundle[key] = path.relative_to(ROOT).as_posix()
         if 'calibration_reference' in bundle:
             bundle['calibration_reference'] = edge_reference(bundle['calibration_reference'], self.helm)
-        bundle.update(routes_path=None, leader_factory=None,
-                      route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id))
+        bundle.update(
+            routes_path=None,
+            leader_factory=None,
+            route_edits=load_route_edits(self.routes_path, self.profile, self.helm.asset_id),
+        )
         if bundle.get('head') is not None:
-            bundle['head'] = dict(bundle['head'], teleop_profile=Path(bundle['head']['teleop_profile']).resolve()
-                                  .relative_to(ROOT).as_posix())
+            bundle['head'] = dict(
+                bundle['head'],
+                teleop_profile=Path(bundle['head']['teleop_profile']).resolve().relative_to(ROOT).as_posix(),
+            )
         if self.receiver['mode'] == 'live' or self.manual:
             # Motor models live in the hardware profiles, which stay on this PC.
             from robot_platform.control.commissioning import motor_models
+
             bundle['receiver'] = dict(self.receiver, motor_models=motor_models(self.helm.device, ROOT))
         return bundle
 
@@ -2504,13 +3097,16 @@ class TeleopSession:
             source = {'kind': 'headset'}
         if replay is not None:
             from robot_platform.teleop.episode_source import validate_request
+
             source = validate_request(replay)
         if policy is not None:
             from robot_platform.teleop.policy_source import validate_request
+
             source = validate_request(policy, live=self.receiver['mode'] == 'live')
         # Without a source the leaders drive; a policy session with takeover connects them too, to take over.
         leaders = source is None or bool(source.get('takeover'))
         from .head_only import head_only
+
         head = head_only(self.receiver)  # The head alone: no arms, so no leaders, bridge, task or arm limits.
         with self._lock:
             if self.active:
@@ -2519,20 +3115,28 @@ class TeleopSession:
                 raise ValueError('A replay, a policy or the headset drives the arms: choose Left, Right or Both for it')
             if self.simulation is not None and (self.target != 'pc' or self.receiver['mode'] != 'virtual'):
                 raise ValueError('Simulation mode needs the virtual receiver on this PC')
-            if (source is None and not head and self.task_capture_config is not None
-                    and self.receiver != {'mode': 'live', 'arm': 'both'}):
+            if (
+                source is None
+                and not head
+                and self.task_capture_config is not None
+                and self.receiver != {'mode': 'live', 'arm': 'both'}
+            ):
                 raise ValueError('Configured task capture requires Live both arms')
             if self._tuning_lock.locked():
                 raise ValueError('Wait for the tuning operation before starting')
             if self.receiver['mode'] == 'live' and getattr(self.helm, 'connection', 'tether') not in WIRED:
                 raise ValueError('Live teleop runs over the wired tether: choose Tether at the top first')
             if head and confirm is not True:
-                raise ValueError("Confirm the live session: the head's servos will be powered, nothing is in the "
-                                 "head's way and the arms are left as they are")
+                raise ValueError(
+                    "Confirm the live session: the head's servos will be powered, nothing is in the "
+                    "head's way and the arms are left as they are"
+                )
             if self.receiver['mode'] == 'live' and not head and confirm is not True:
-                arms = 'both arms\'' if self.receiver['arm'] == 'both' else f"the {self.receiver['arm']} arm's"
-                raise ValueError(f'Confirm the live session: {arms} motors will be powered, the foot switch is in '
-                                 'reach and the arms hang in their reference pose')
+                arms = "both arms'" if self.receiver['arm'] == 'both' else f"the {self.receiver['arm']} arm's"
+                raise ValueError(
+                    f'Confirm the live session: {arms} motors will be powered, the foot switch is in '
+                    'reach and the arms hang in their reference pose'
+                )
             if self.helm.saved_limits is None and not head:
                 raise ValueError('Save joint limits for every motor in the Limits workspace first')
             if self.profile.get('manual_tuning') is True and self.manual is None and not head:
@@ -2540,17 +3144,27 @@ class TeleopSession:
                 if self.manual is None:
                     raise ValueError(self.manual_error or 'Manual tuning is unavailable')
             if self.bridge is not None and leaders and not head and not self.bridge.connected:
-                raise ValueError('The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
-                                 'PC the leader arms are plugged into')
+                raise ValueError(
+                    'The GELLO bridge is not connected: Helm runs on Minerva, so start the bridge on the '
+                    'PC the leader arms are plugged into'
+                )
             if self.leaders is not None and leaders and not head:
                 missing = self.leaders.missing(self.profile['routes'])
                 if missing:
-                    raise ValueError('Sweep and save the leader ranges in the Leaders tab first; missing: '
-                                     + ', '.join(missing))
+                    raise ValueError(
+                        'Sweep and save the leader ranges in the Leaders tab first; missing: ' + ', '.join(missing)
+                    )
             local = self.target == 'pc' or self.core_factory is not None
-            if source is not None and source['kind'] == 'episode' and self.target == 'pc' and self.episodes_root is None:
-                raise ValueError("A replay on this PC reads its episode from a local copy (start Helm with "
-                                 "--episodes); or run the loop on Minerva's Jetson")
+            if (
+                source is not None
+                and source['kind'] == 'episode'
+                and self.target == 'pc'
+                and self.episodes_root is None
+            ):
+                raise ValueError(
+                    'A replay on this PC reads its episode from a local copy (start Helm with '
+                    "--episodes); or run the loop on Minerva's Jetson"
+                )
             if self.manual:
                 self.manual.new_session()
             if self.settings:
@@ -2558,8 +3172,10 @@ class TeleopSession:
             bundle = self._bundle() if local else self._edge_bundle()
             if head:
                 if bundle.get('head') is None:
-                    raise ValueError('The head is not set up: save its reference, limits and shoulder clearance in '
-                                     'Limits → Head first')
+                    raise ValueError(
+                        'The head is not set up: save its reference, limits and shoulder clearance in '
+                        'Limits → Head first'
+                    )
                 bundle.pop('task_capture', None)  # Nothing is recorded: the arms are not in the session.
             if source is not None and source['kind'] == 'episode':
                 # The episode on this PC from Helm's --episodes; on the robot from its own recordings.
@@ -2573,72 +3189,142 @@ class TeleopSession:
                     bundle.pop('task_capture', None)
                 if source['kind'] == 'policy' and not local and self.capture_profile is not None:
                     from .task_capture import validate_config
+
                     bundle['policy_cameras'] = validate_config(
-                        json.loads(self.capture_profile.read_text(encoding='utf-8')))
+                        json.loads(self.capture_profile.read_text(encoding='utf-8'))
+                    )
             if local:
                 context = multiprocessing.get_context('spawn')
                 # One-way pipes: commands to the loop, state back from it.
                 command_reader, command_writer = context.Pipe(duplex=False)
                 view_reader, view_writer = context.Pipe(duplex=False)
                 if self.core_factory is None:
-                    worker = context.Process(target=_process_main, args=(command_reader, view_writer, bundle),
-                                             daemon=True, name='helm-teleop')
+                    worker = context.Process(
+                        target=_process_main,
+                        args=(command_reader, view_writer, bundle),
+                        daemon=True,
+                        name='helm-teleop',
+                    )
                 else:
-                    worker = threading.Thread(target=run_loop, daemon=True, name='helm-teleop',
-                                              args=(command_reader, view_writer, self.core_factory(bundle)))
-                opening = (OPENING[source['kind']] + (' and opening the leaders' if leaders else '')
-                           if source is not None else 'opening the leaders')
-                message = ('Starting the head: its receiver…' if head else
-                           f'Starting: loading the simulated Minerva and its window; {opening}…'
-                           if 'simulation' in bundle else
-                           f'Starting: loading the collision model and virtual receiver; {opening}…')
+                    worker = threading.Thread(
+                        target=run_loop,
+                        daemon=True,
+                        name='helm-teleop',
+                        args=(command_reader, view_writer, self.core_factory(bundle)),
+                    )
+                opening = (
+                    OPENING[source['kind']] + (' and opening the leaders' if leaders else '')
+                    if source is not None
+                    else 'opening the leaders'
+                )
+                message = (
+                    'Starting the head: its receiver…'
+                    if head
+                    else f'Starting: loading the simulated Minerva and its window; {opening}…'
+                    if 'simulation' in bundle
+                    else f'Starting: loading the collision model and virtual receiver; {opening}…'
+                )
             else:
                 from .edge import EdgeWorker
-                leader_profile = json.loads((self.profile_path.parent / self.profile['leader_profile'])
-                                            .read_text(encoding='utf-8'))
-                worker = (self.edge_factory or EdgeWorker)(bundle, leader_profile, base_view=dict(self._view),
-                                                           real_leaders=self.leader_factory is None,
-                                                           address=getattr(self.helm, 'address', None),
-                                                           evidence=self.link_evidence,
-                                                           **({'name': {'episode': 'The replay', 'policy': 'The policy',
-                                                                        'headset': 'The headset'}[source['kind']]}
-                                                              if source else {}),
-                                                           # The leader link where the bridge reached Minerva: the
-                                                           # tether or access point's 10.42.0.1, or a network address.
-                                                           **({'serve_link': self.bridge.serve_link,
-                                                               'link_bind': getattr(self.bridge, 'robot_address', None)
-                                                               or TETHER} if self.bridge is not None else {}))
+
+                leader_profile = json.loads(
+                    (self.profile_path.parent / self.profile['leader_profile']).read_text(encoding='utf-8')
+                )
+                worker = (self.edge_factory or EdgeWorker)(
+                    bundle,
+                    leader_profile,
+                    base_view=dict(self._view),
+                    real_leaders=self.leader_factory is None,
+                    address=getattr(self.helm, 'address', None),
+                    evidence=self.link_evidence,
+                    **(
+                        {
+                            'name': {'episode': 'The replay', 'policy': 'The policy', 'headset': 'The headset'}[
+                                source['kind']
+                            ]
+                        }
+                        if source
+                        else {}
+                    ),
+                    # The leader link where the bridge reached Minerva: the
+                    # tether or access point's 10.42.0.1, or a network address.
+                    **(
+                        {
+                            'serve_link': self.bridge.serve_link,
+                            'link_bind': getattr(self.bridge, 'robot_address', None) or TETHER,
+                        }
+                        if self.bridge is not None
+                        else {}
+                    ),
+                )
                 command_writer, view_reader = worker.commands, worker.views
-                opening = (OPENING[source['kind']] + (' and linking the leaders' if leaders else '') if source
-                           else 'linking the leaders')
-                message = ("Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
-                           f"receiver, {opening}…") if self.receiver['mode'] == 'virtual' else (
-                    "Starting LIVE on the head: its receiver, the servos limp until Idle; the arms are left as "
-                    'they are…') if head else (
-                    ('Starting LIVE on both arms: checking they are still and in their reference pose, then '
-                     'starting the receiver (the motors stay disabled until Idle)…') if self.receiver['arm'] == 'both'
-                    else f"Starting LIVE on the {self.receiver['arm']} arm: checking it is still and in its reference "
-                    'pose, then starting the receiver (its motors stay disabled until Idle)…')
-                if (leaders and not head and self.bridge is not None
-                        and getattr(self.bridge, 'path', None) == 'wifi'):
+                opening = (
+                    OPENING[source['kind']] + (' and linking the leaders' if leaders else '')
+                    if source
+                    else 'linking the leaders'
+                )
+                message = (
+                    (
+                        "Starting on Minerva's Jetson: connecting, loading the collision model and virtual "
+                        f'receiver, {opening}…'
+                    )
+                    if self.receiver['mode'] == 'virtual'
+                    else (
+                        'Starting LIVE on the head: its receiver, the servos limp until Idle; the arms are left as '
+                        'they are…'
+                    )
+                    if head
+                    else (
+                        (
+                            'Starting LIVE on both arms: checking they are still and in their reference pose, then '
+                            'starting the receiver (the motors stay disabled until Idle)…'
+                        )
+                        if self.receiver['arm'] == 'both'
+                        else f'Starting LIVE on the {self.receiver["arm"]} arm: checking it is still and in its reference '
+                        'pose, then starting the receiver (its motors stay disabled until Idle)…'
+                    )
+                )
+                if leaders and not head and self.bridge is not None and getattr(self.bridge, 'path', None) == 'wifi':
                     # Allowed (the user's choice, 2026-10-25), and said: samples late over the air make the arms hold.
                     message += ' The leader link runs over Wi-Fi: expect holds when samples arrive late.'
             # A replay or policy session says which from the start; the loop's views then carry its progress.
-            pending = None if source is None or source['kind'] != 'episode' else dict(
-                episode=source['episode'], speed=source['speed'], time_s=None, duration_s=None, frame=None,
-                frames=None, finished=False)
-            policy_view = (dict(spec=source['policy'], policy=None, loading=True)
-                           if source is not None and source['kind'] == 'policy' else None)
-            self._view = dict(self._view, phase='starting', fault=None, joints=[], message=message, replay=pending,
-                              policy=policy_view, headset=dict(loading=True) if source == {'kind': 'headset'} else None)
+            pending = (
+                None
+                if source is None or source['kind'] != 'episode'
+                else dict(
+                    episode=source['episode'],
+                    speed=source['speed'],
+                    time_s=None,
+                    duration_s=None,
+                    frame=None,
+                    frames=None,
+                    finished=False,
+                )
+            )
+            policy_view = (
+                dict(spec=source['policy'], policy=None, loading=True)
+                if source is not None and source['kind'] == 'policy'
+                else None
+            )
+            self._view = dict(
+                self._view,
+                phase='starting',
+                fault=None,
+                joints=[],
+                message=message,
+                replay=pending,
+                policy=policy_view,
+                headset=dict(loading=True) if source == {'kind': 'headset'} else None,
+            )
             self._guide = None
             self._conn, self._views, self._worker = command_writer, view_reader, worker
             worker.start()
             if local and self.core_factory is None:
                 command_reader.close()  # The child owns its ends; EOF then means it exited.
                 view_writer.close()
-            self._reader = threading.Thread(target=self._read, args=(view_reader,), daemon=True,
-                                            name='helm-teleop-reader')
+            self._reader = threading.Thread(
+                target=self._read, args=(view_reader,), daemon=True, name='helm-teleop-reader'
+            )
             self._reader.start()
 
     def _read(self, conn):
@@ -2664,8 +3350,12 @@ class TeleopSession:
         except (EOFError, OSError):
             with self._lock:
                 if self._view.get('phase') in ('starting', 'running'):
-                    self._view = dict(self._view, phase='fault', fault='Teleop process ended unexpectedly',
-                                      message='Teleop stopped: the loop process ended unexpectedly.')
+                    self._view = dict(
+                        self._view,
+                        phase='fault',
+                        fault='Teleop process ended unexpectedly',
+                        message='Teleop stopped: the loop process ended unexpectedly.',
+                    )
                 self._guide = None
 
     def _send(self, message):
@@ -2705,8 +3395,13 @@ class TeleopSession:
         with self._lock:
             conn, quiet = self._conn, time.perf_counter() - self._view_received_at
             following = self._view.get('headset') is not None
-        if (conn is None or not self.active or not following or self._view.get('phase') != 'running'
-                or quiet > HEAD_POSE_ANSWER_S):
+        if (
+            conn is None
+            or not self.active
+            or not following
+            or self._view.get('phase') != 'running'
+            or quiet > HEAD_POSE_ANSWER_S
+        ):
             return False
         if not self._send_lock.acquire(blocking=False):
             return False
@@ -2751,8 +3446,7 @@ class TeleopSession:
         if self._view.get('state') == 'HOLD' and self.still_busy():
             raise ValueError(STILL_PENDING)
 
-
-    def _request(self, kind, *arguments, timeout=5.):
+    def _request(self, kind, *arguments, timeout=5.0):
         request = next(self._ids)
         self._send((kind, request, *arguments))
         with self._lock:
@@ -2763,20 +3457,20 @@ class TeleopSession:
             raise ValueError(error)
         return result
 
-    def route(self, action, motor, timeout=5.):
+    def route(self, action, motor, timeout=5.0):
         edits = self._request('route', action, motor, timeout=timeout)
         if self.target == 'jetson' and self.core_factory is None:
             # The loop on the robot keeps no files; Helm saves the operator's edits here.
             save_route_edits(self.routes_path, self.profile, self.helm.asset_id, edits)
 
-    def set_zero(self, timeout=5.):
+    def set_zero(self, timeout=5.0):
         """The leaders' pose now becomes the zero; saved through the Leaders workspace."""
         zero = self._request('zero', timeout=timeout)
         if self.leaders is not None:
             self.leaders.store_reference(zero)
         return zero
 
-    def stop(self, timeout=45.):
+    def stop(self, timeout=45.0):
         # The loop lowers an enabled arm before it closes the receiver: seconds at the shutdown speed.
         with self._lock:
             conn, views, worker, reader = self._conn, self._views, self._worker, self._reader
@@ -2806,11 +3500,23 @@ class TeleopSession:
         with self._lock:
             self._sync_tuning()
             allowed, reason = self._tuning_gate()
-            choices = ['virtual'] + ([self.profile['trial']['motor'].split('_')[0]] if self.profile.get('trial') else
-                                     ['left', 'right', 'both', 'head'])
+            choices = ['virtual'] + (
+                [self.profile['trial']['motor'].split('_')[0]]
+                if self.profile.get('trial')
+                else ['left', 'right', 'both', 'head']
+            )
             observed = self._view.get('observed_at')
-            age = (max(observed, self._view.get('status_at', observed)) - observed
-                   + time.perf_counter() - self._view_received_at) * 1000 if observed is not None else None
+            age = (
+                (
+                    max(observed, self._view.get('status_at', observed))
+                    - observed
+                    + time.perf_counter()
+                    - self._view_received_at
+                )
+                * 1000
+                if observed is not None
+                else None
+            )
             # How old the loop's latest word is, status or observation: it sends status at least every
             # STATUS_HEARTBEAT_S, so this stays small while the loop runs even when no cycle has time to observe.
             heard = observed is not None or self._view.get('status_at') is not None
@@ -2819,16 +3525,24 @@ class TeleopSession:
             if view.get('telemetry') is not None:
                 # Aged since it was observed; a cached packet never looks fresher than its source.
                 from .telemetry import age_packet
+
                 view['telemetry'] = age_packet(view['telemetry'], age / 1000 if age is not None else None)
             law, upcoming = self._control_law(view)
-            return dict(view, target=self.target, receiver_choice=dict(self.receiver),
-                        live_available=self.simulation is None and 'live' in self.profile,
-                        receiver_choices=choices if self.simulation is None else ['virtual'],
-                        simulation=self.simulation is not None, task_configured=self.task_configured,
-                        observation_age_ms=age, status_age_ms=status_age, control_law=law,
-                        control_law_next=upcoming, grip_settings=dict(self.grip_settings),
-                        tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else
-                        {'enabled': False})
+            return dict(
+                view,
+                target=self.target,
+                receiver_choice=dict(self.receiver),
+                live_available=self.simulation is None and 'live' in self.profile,
+                receiver_choices=choices if self.simulation is None else ['virtual'],
+                simulation=self.simulation is not None,
+                task_configured=self.task_configured,
+                observation_age_ms=age,
+                status_age_ms=status_age,
+                control_law=law,
+                control_law_next=upcoming,
+                grip_settings=dict(self.grip_settings),
+                tuning=self.manual.snapshot(can_apply=allowed, reason=reason) if self.manual else {'enabled': False},
+            )
 
     def _control_law(self, view):
         """The receiver's law for the status row, and whether it is the next session's: a running session's as
@@ -2842,9 +3556,14 @@ class TeleopSession:
     def _sync_tuning(self):
         """Recover an applied acknowledgement even if the HTTP caller timed out."""
         ack = self._view.get('manual_tuning_ack')
-        if (self.manual and ack and ack['session_id'] == self.manual.session_id
-                and ack['revision'] > self.manual.revision):
+        if (
+            self.manual
+            and ack
+            and ack['session_id'] == self.manual.session_id
+            and ack['revision'] > self.manual.revision
+        ):
             from .manual_tuning import validate
+
             self.manual.active = validate(ack['joints'], self.manual.rows)
             self.manual.revision = ack['revision']
 
@@ -2866,9 +3585,12 @@ class TeleopSession:
     def manual_tuning(self, action, payload):
         """Serialize edits without blocking emergency keys or the receive thread."""
         expected = {'session_id', 'revision'} | ({'joints'} if action == 'apply' else set())
-        if (action not in ('apply', 'save', 'restore') or not isinstance(payload, dict)
-                or set(payload) - ({'velocity_feedforward'} if action == 'apply' else set()) != expected
-                or type(payload.get('velocity_feedforward', False)) is not bool):
+        if (
+            action not in ('apply', 'save', 'restore')
+            or not isinstance(payload, dict)
+            or set(payload) - ({'velocity_feedforward'} if action == 'apply' else set()) != expected
+            or type(payload.get('velocity_feedforward', False)) is not bool
+        ):
             raise ValueError('Invalid manual tuning request')
         with self._lock:
             self._sync_tuning()
@@ -2880,20 +3602,25 @@ class TeleopSession:
                 raise ValueError('A tuning change is already in progress')
         try:
             from .manual_tuning import validate
+
             if action == 'save':
                 self.manual.save()
                 return
             if action == 'restore' and self.manual.saved is None:
                 raise ValueError('No manual preset has been saved')
             rows = validate(payload['joints'] if action == 'apply' else self.manual.saved['joints'], self.manual.rows)
-            feedforward = (payload.get('velocity_feedforward') if action == 'apply'
-                           else self.manual.saved.get('velocity_feedforward') is True)
+            feedforward = (
+                payload.get('velocity_feedforward')
+                if action == 'apply'
+                else self.manual.saved.get('velocity_feedforward') is True
+            )
             if self.settings:
                 self.settings.validate_manual(rows)  # Within the operator's following-speed ceilings.
             if self.active:
                 if feedforward is not None and feedforward != self.manual.feedforward:
-                    raise ValueError('Velocity feed-forward switches at the next session start; '
-                                     'stop the session to change it')
+                    raise ValueError(
+                        'Velocity feed-forward switches at the next session start; stop the session to change it'
+                    )
                 ack = self._request('manual_tuning', dict(self.manual.bundle(), joints=rows))
                 with self._lock:
                     self.manual.active = validate(ack['joints'], self.manual.rows)
@@ -2908,11 +3635,20 @@ class TeleopSession:
         """The Settings workspace: every setting with its value, default, bounds and when it takes effect."""
         with self._lock:
             if self.settings is None:
-                return {'enabled': False, 'session_id': None, 'revision': 0, 'can_apply': False,
-                        'reason': self.settings_error or 'Settings are unavailable', 'sections': []}
+                return {
+                    'enabled': False,
+                    'session_id': None,
+                    'revision': 0,
+                    'can_apply': False,
+                    'reason': self.settings_error or 'Settings are unavailable',
+                    'sections': [],
+                }
             active = self.active
-            reason = ('Stop the teleop session to change settings; they apply from the next Start' if active
-                      else 'Applied values are saved for the next session; no motor commands are sent')
+            reason = (
+                'Stop the teleop session to change settings; they apply from the next Start'
+                if active
+                else 'Applied values are saved for the next session; no motor commands are sent'
+            )
             return self.settings.snapshot(can_apply=not active, reason=reason, manual=self.manual)
 
     def settings_update(self, action, payload):

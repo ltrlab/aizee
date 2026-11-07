@@ -12,31 +12,31 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-_DEFAULT_PATH = Path.home() / ".aizee" / "minerva_collector.json"
+_DEFAULT_PATH = Path.home() / '.aizee' / 'minerva_collector.json'
 
 # Keys default to None where "not customized -> fall back to the CLI flag / constant",
 # so a persisted preference overrides the CLI default only once the user sets it in the
 # Settings dialog. Arm gains are 6-vectors (j1..j6, applied to BOTH arms) or None = use
 # the minerva_constants defaults.
 DEFAULTS: Dict[str, Any] = {
-    "mic_device": None,        # sounddevice input-device index; None = system default
-    "voice_model": "base.en",  # faster-whisper / whisper model name
-    "voice_seconds": 5.0,      # record window per voice capture
-    "leader_swap": False,      # True = LEFT leader drives RIGHT arm and vice versa
+    'mic_device': None,  # sounddevice input-device index; None = system default
+    'voice_model': 'base.en',  # faster-whisper / whisper model name
+    'voice_seconds': 5.0,  # record window per voice capture
+    'leader_swap': False,  # True = LEFT leader drives RIGHT arm and vice versa
     # --- teleop defaults (None => use the CLI flag) ---
-    "kp_scale": None,          # arm tracking-gain scale (the Speed slider)
-    "grip_strength": None,     # gripper KP multiplier (decoupled from arm speed)
+    'kp_scale': None,  # arm tracking-gain scale (the Speed slider)
+    'grip_strength': None,  # gripper KP multiplier (decoupled from arm speed)
     # --- gravity feedforward defaults ---
-    "grav_comp": None,         # bool: start with gravity FF on
-    "grav_scale": None,        # global gravity FF trim (0..1.2)
+    'grav_comp': None,  # bool: start with gravity FF on
+    'grav_scale': None,  # global gravity FF trim (0..1.2)
     # --- gripper force-feedback defaults ---
-    "grip_ff": None,           # bool: start with leader gripper FF on
-    "grip_ff_gain": None,      # leader mA per Nm of grasp torque
-    "grip_ff_invert": None,    # bool: flip FF current polarity
+    'grip_ff': None,  # bool: start with leader gripper FF on
+    'grip_ff_gain': None,  # leader mA per Nm of grasp torque
+    'grip_ff_invert': None,  # bool: flip FF current polarity
     # --- per-joint arm tuning (6-vectors j1..j6, both arms) or None = constants ---
-    "arm_kp": None,
-    "arm_kd": None,
-    "arm_sat": None,
+    'arm_kp': None,
+    'arm_kd': None,
+    'arm_sat': None,
 }
 
 
@@ -48,7 +48,7 @@ class CollectorSettings:
         self.data: Dict[str, Any] = dict(DEFAULTS)
         self.load()
 
-    def load(self) -> "CollectorSettings":
+    def load(self) -> 'CollectorSettings':
         try:
             if self.path.exists():
                 loaded = json.loads(self.path.read_text())
@@ -81,11 +81,14 @@ def list_input_devices() -> List[Tuple[int, str]]:
     """[(index, name)] of audio INPUT devices; [] if sounddevice is unavailable."""
     try:
         import sounddevice as sd
-        return [(i, str(d.get("name", f"device {i}")))
-                for i, d in enumerate(sd.query_devices())
-                if int(d.get("max_input_channels", 0)) > 0]
+
+        return [
+            (i, str(d.get('name', f'device {i}')))
+            for i, d in enumerate(sd.query_devices())
+            if int(d.get('max_input_channels', 0)) > 0
+        ]
     except Exception:
         return []
 
 
-__all__ = ["CollectorSettings", "list_input_devices", "DEFAULTS"]
+__all__ = ['CollectorSettings', 'list_input_devices', 'DEFAULTS']

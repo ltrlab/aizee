@@ -17,6 +17,7 @@ What the arms do, by lifecycle state:
 The loop sees an ordinary target: every move still goes through the lifecycle (alignment, speed limits) and the
 receiver's limits; the operator's Hold, Return, Disable and the foot switch stay in charge.
 """
+
 import math
 
 ROLLING = ('TELEOP',)
@@ -29,21 +30,27 @@ CHECKPOINTS = ('checkpoint:', 'lerobot:')
 def validate_request(payload, *, live):
     """Helm's policy request: {'policy': a spec for evaluation.policies.load_policy, 'takeover': true when the
     operator's leaders stay connected to take over from it (policy corrections, helm.teleop)}."""
-    if (not isinstance(payload, dict) or set(payload) - {'kind', 'policy', 'takeover'}
-            or payload.get('kind', 'policy') != 'policy' or not isinstance(payload.get('policy'), str)
-            or type(payload.get('takeover', False)) is not bool):
+    if (
+        not isinstance(payload, dict)
+        or set(payload) - {'kind', 'policy', 'takeover'}
+        or payload.get('kind', 'policy') != 'policy'
+        or not isinstance(payload.get('policy'), str)
+        or type(payload.get('takeover', False)) is not bool
+    ):
         raise ValueError('A policy session names its policy')
     spec = payload['policy'].strip()
     if not spec or len(spec) > 1000:
         raise ValueError('A policy session names its policy')
     if live and not (spec in LIVE_REFERENCE or spec.startswith(CHECKPOINTS)):
-        raise ValueError('On the arms a policy session runs a trained checkpoint (checkpoint:<path> or '
-                         "lerobot:<path>) or hold_still; the harness's other policies are for the simulation")
+        raise ValueError(
+            'On the arms a policy session runs a trained checkpoint (checkpoint:<path> or '
+            "lerobot:<path>) or hold_still; the harness's other policies are for the simulation"
+        )
     return {'kind': 'policy', 'policy': spec, **({'takeover': True} if payload.get('takeover') else {})}
 
 
 class PolicySource:
-    def __init__(self, names, *, action_dt, max_age_s=1., blend_s=.2, policy=None):
+    def __init__(self, names, *, action_dt, max_age_s=1.0, blend_s=0.2, policy=None):
         if not names:
             raise ValueError('A policy drives at least one joint')
         for value, label in ((action_dt, 'action_dt'), (max_age_s, 'max_age_s')):
@@ -53,10 +60,10 @@ class PolicySource:
             raise ValueError('blend_s must be zero or a positive number of seconds')
         self.names, self.policy = tuple(names), policy
         self.action_dt, self.max_age_s, self.blend_s = float(action_dt), float(max_age_s), float(blend_s)
-        self.chunk = None        # The newest chunk: {'obs_time', 'rows', 'received_at', 'request'}.
-        self.previous = None     # The chunk it replaced, faded out over blend_s from the new one's arrival.
-        self.pending = None      # The request awaiting its chunk: {'request', 'obs_time', 'purpose'}.
-        self.aligned = None      # HOLD/ENGAGING: the row the arms align to, from the preview chunk.
+        self.chunk = None  # The newest chunk: {'obs_time', 'rows', 'received_at', 'request'}.
+        self.previous = None  # The chunk it replaced, faded out over blend_s from the new one's arrival.
+        self.pending = None  # The request awaiting its chunk: {'request', 'obs_time', 'purpose'}.
+        self.aligned = None  # HOLD/ENGAGING: the row the arms align to, from the preview chunk.
         self.requests = self.chunks = self.stale_cycles = 0
         self.sequence = 0
         self.last_error = None
@@ -85,6 +92,7 @@ class PolicySource:
         """A chunk answering `request`. One answering anything but the pending request is dropped (the session
         paused or the request was replaced); a malformed one raises."""
         import numpy as np
+
         pending = self.pending
         if pending is None or request != pending['request']:
             return False
@@ -120,7 +128,7 @@ class PolicySource:
 
     def _row(self, chunk, now):
         rows = chunk['rows']
-        f = max(0., (now - chunk['obs_time']) / self.action_dt)
+        f = max(0.0, (now - chunk['obs_time']) / self.action_dt)
         k = int(math.floor(f + 1e-9))
         if k >= len(rows) - 1:
             return rows[-1]
@@ -135,7 +143,7 @@ class PolicySource:
         if self.previous is not None and self.blend_s > 0:
             w = (now - self.chunk['received_at']) / self.blend_s
             if w < 1 and self._fresh(self.previous, now):
-                q = self._row(self.previous, now) * (1 - max(w, 0.)) + q * max(w, 0.)
+                q = self._row(self.previous, now) * (1 - max(w, 0.0)) + q * max(w, 0.0)
             else:
                 self.previous = None
         return q
@@ -164,8 +172,12 @@ class PolicySource:
         self._state = state
         if state in ROLLING:
             q = self.position(now)
-            if (q is None and self.chunk is None and self.aligned is not None
-                    and now - self._rolling_since <= self.max_age_s):
+            if (
+                q is None
+                and self.chunk is None
+                and self.aligned is not None
+                and now - self._rolling_since <= self.max_age_s
+            ):
                 q = self.aligned  # Following has just begun: hold the aligned row until the first chunk.
             if q is None:
                 self.stale_cycles += 1
@@ -178,14 +190,21 @@ class PolicySource:
             self.pause()
             return None
         self.sequence += 1
-        return [dict(name=name, position=float(value), sampled_at=now, sequence=self.sequence)
-                for name, value in zip(self.names, q)]
+        return [
+            dict(name=name, position=float(value), sampled_at=now, sequence=self.sequence)
+            for name, value in zip(self.names, q)
+        ]
 
     def snapshot(self, now=None):
         chunk = self.chunk
-        return dict(policy=getattr(self.policy, 'name', None) if self.policy is not None else None,
-                    requests=self.requests, chunks=self.chunks, stale_cycles=self.stale_cycles,
-                    pending=self.pending['purpose'] if self.pending else None,
-                    aligned=self.aligned is not None, inference_ms=self.inference_ms,
-                    chunk_age_s=None if chunk is None or now is None else round(now - chunk['obs_time'], 3),
-                    error=self.last_error)
+        return dict(
+            policy=getattr(self.policy, 'name', None) if self.policy is not None else None,
+            requests=self.requests,
+            chunks=self.chunks,
+            stale_cycles=self.stale_cycles,
+            pending=self.pending['purpose'] if self.pending else None,
+            aligned=self.aligned is not None,
+            inference_ms=self.inference_ms,
+            chunk_age_s=None if chunk is None or now is None else round(now - chunk['obs_time'], 3),
+            error=self.last_error,
+        )

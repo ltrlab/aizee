@@ -7,6 +7,7 @@ the receiver refusing or faulting on realistic feedback, which the harness's ide
 joints never show: a joint settling a hair past a command at the edge of its range
 (2026-09-29), a speed held down by the lead, a pose past the model's range.
 """
+
 import json
 import math
 from pathlib import Path
@@ -28,22 +29,33 @@ from robot_platform.teleop.openrb import LeaderSample
 ROOT = Path(__file__).resolve().parents[2]
 DEVICES = ROOT / 'config/devices'
 SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
-LIVE = {'reference_tolerance_rad': .1, 'period_us': 2500, 'maximum_lateness_us': 10000}
+LIVE = {'reference_tolerance_rad': 0.1, 'period_us': 2500, 'maximum_lateness_us': 10000}
 # Inertia (kg m2), friction and static friction (Nm) per joint: rough, not measured.
-SPECS = {'j1': (.3, .33, .45), 'j2': (.25, .67, .9), 'j3': (.08, .41, .55), 'j4': (.01, .19, .25),
-         'j5': (.004, .15, .2), 'j6': (.003, .11, .15), 'gripper': (.002, .1, .15)}
-CENTERS = {'left': [4.67, 3.07, 1.2, 2.2, 3.2, .4, 5.1], 'right': [1.69, 4.76, 2.1, .9, 5.9, 3.3, 6.2]}
-SPANS = [2., 2., 2., 2., 2., 2., .8]
-HANG = .3
+SPECS = {
+    'j1': (0.3, 0.33, 0.45),
+    'j2': (0.25, 0.67, 0.9),
+    'j3': (0.08, 0.41, 0.55),
+    'j4': (0.01, 0.19, 0.25),
+    'j5': (0.004, 0.15, 0.2),
+    'j6': (0.003, 0.11, 0.15),
+    'gripper': (0.002, 0.1, 0.15),
+}
+CENTERS = {'left': [4.67, 3.07, 1.2, 2.2, 3.2, 0.4, 5.1], 'right': [1.69, 4.76, 2.1, 0.9, 5.9, 3.3, 6.2]}
+SPANS = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.8]
+HANG = 0.3
 
-pytestmark = [pytest.mark.integration, pytest.mark.skipif(
-    not default_binary().is_file() or not library_path().is_file(),
-    reason='Build control_harness and the robot_collision library first')]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not default_binary().is_file() or not library_path().is_file(),
+        reason='Build control_harness and the robot_collision library first',
+    ),
+]
 
 
 class Clock:
     def __init__(self):
-        self.now = 100.
+        self.now = 100.0
 
     def __call__(self):
         return self.now
@@ -57,8 +69,12 @@ def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None, 
     0.6 or more, made up by the gearbox where the gains' damping falls short (left J3's kd 3.5 alone is 0.21,
     and it rang at 4 Hz)."""
     truth = {motor: dict(fit, A=fit['A'] * 1.1) for motor, fit in ((servo or {}).get('gravity') or {}).items()}
-    terms = gravity_model(helm.model, helm.mapping, [m for m in helm.reference['motors']
-                                                     if arm is None or m['name'].startswith(arm)], truth)
+    terms = gravity_model(
+        helm.model,
+        helm.mapping,
+        [m for m in helm.reference['motors'] if arm is None or m['name'].startswith(arm)],
+        truth,
+    )
     opened = []
 
     def open_receiver(config, device, reference):
@@ -66,34 +82,63 @@ def plant_receiver(helm, servo, clock, directory, disturbance=None, start=None, 
         spec = {name: SPECS[name.split('_')[-1]] for name in names}
         viscous = {}
         for name in names if measured else ():
-            saved = (((servo or {}).get('joints') or {}).get(name) or {})
+            saved = ((servo or {}).get('joints') or {}).get(name) or {}
             torque = (saved.get('measured') or {}).get('torque') or {}
             inertia, friction = torque.get('inertia') or spec[name][0], torque.get('friction') or spec[name][1]
             spec[name] = (inertia, friction, max(spec[name][2], 4 / 3 * friction))
             if saved.get('hold_kp') and saved.get('hold_kd') is not None:
-                viscous[name] = max(0., 2 * .6 * math.sqrt(saved['hold_kp'] * inertia) - saved['hold_kd'])
-        plant = ArmPlant([dict(name=n, inertia=spec[n][0], friction=spec[n][1], static=spec[n][2],
-                               viscous=viscous.get(n, 0.), q=(start or {}).get(n, 0.)) for n in names],
-                         gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
-                         position_noise=.0006, disturbance=disturbance)
+                viscous[name] = max(0.0, 2 * 0.6 * math.sqrt(saved['hold_kp'] * inertia) - saved['hold_kd'])
+        plant = ArmPlant(
+            [
+                dict(
+                    name=n,
+                    inertia=spec[n][0],
+                    friction=spec[n][1],
+                    static=spec[n][2],
+                    viscous=viscous.get(n, 0.0),
+                    q=(start or {}).get(n, 0.0),
+                )
+                for n in names
+            ],
+            gravity={n: (lambda pose, t=terms[n]: gravity_effort(t, pose)) for n in names if n in terms},
+            position_noise=0.0006,
+            disturbance=disturbance,
+        )
         opened.append(PlantReceiver(config, plant, clock=clock, directory=directory))
         return opened[-1]
+
     return open_receiver, opened
 
 
 @pytest.fixture
 def helm(tmp_path):
-    session = HelmSession(DEVICES / 'minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                          limits=DEVICES / 'minerva-production-01-joint-limits.json', seed=SEED)
+    session = HelmSession(
+        DEVICES / 'minerva-joint-calibration.json',
+        runs=tmp_path / 'runs',
+        limits=DEVICES / 'minerva-production-01-joint-limits.json',
+        seed=SEED,
+    )
     yield session
     session.close()
 
 
 def test_a_sweep_runs_to_the_edges_of_a_joints_range_on_a_simulated_arm(helm, tmp_path):
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.5, 2.], 'kp_ladder': [1.], 'damping': [1., .5], 'speeds': [.8, 2.], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.5, 2.0],
+                'kp_ladder': [1.0],
+                'damping': [1.0, 0.5],
+                'speeds': [0.8, 2.0],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -127,9 +172,21 @@ def test_a_swept_joints_commanded_speed_never_drops_to_zero_between_its_commands
     # velocity every 20 ms command: damping turned it into a 50 Hz judder (right J2 kicked by about 37 Nm
     # per command in the sweeps and checks of 2026-10-16). The plant moves under what each tick drove.
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.5], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.8], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.5],
+                'kp_ladder': [1.0],
+                'damping': [1.0],
+                'speeds': [0.8],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -152,7 +209,7 @@ def test_a_swept_joints_commanded_speed_never_drops_to_zero_between_its_commands
     columns = json.loads((recording / 'columns.json').read_text(encoding='utf-8'))['columns']
     rows = np.fromfile(recording / 'samples.f32', dtype=np.float32).reshape(-1, len(columns))
     velocity = rows[:, columns.index('right_arm_j6.command_velocity')]
-    moving = np.abs(velocity) > .2
+    moving = np.abs(velocity) > 0.2
     stalled = (velocity[1:-1] == 0) & moving[:-2] & moving[2:]
     assert moving.sum() > 400, moving.sum()
     assert not stalled.any(), f'{stalled.sum()} zero-velocity ticks among {moving.sum()} moving ticks'
@@ -163,9 +220,21 @@ def test_a_trip_with_the_arm_raised_holds_it_and_lowers_it_to_the_reference(helm
     # J2 past its command while it is raised: the receiver brakes it to a hold, and the sweep takes it
     # back there and lowers it to the reference before disabling; it never falls.
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.6],
+                'kp_ladder': [1.0],
+                'damping': [1.0],
+                'speeds': [0.4],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -176,29 +245,30 @@ def test_a_trip_with_the_arm_raised_holds_it_and_lowers_it_to_the_reference(helm
 
     def disturbance(plant):
         q = plant.q[plant.names.index('right_arm_j2')]
-        if 'at' not in push and q > .45:
+        if 'at' not in push and q > 0.45:
             push['at'] = plant.t
-        return {'right_arm_j2': 80.} if 'at' in push and plant.t - push['at'] < .15 else {}
+        return {'right_arm_j2': 80.0} if 'at' in push and plant.t - push['at'] < 0.15 else {}
+
     open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', disturbance)
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     try:
         core.build()
-        states, fastest = set(), 0.
+        states, fastest = set(), 0.0
         for _ in range(20000):
             core.tick(None, clock())
             clock.now += core.period_s
             assert core.fault is None, core.fault
             plant = opened[0].plant
             states.add(opened[0].last['status']['state'])
-            if 'at' in push and plant.t > push['at'] + .6:  # After the push and the braking.
+            if 'at' in push and plant.t > push['at'] + 0.6:  # After the push and the braking.
                 fastest = max(fastest, abs(plant.v[plant.names.index('right_arm_j2')]))
             if core.stage in ('finished', 'disabled', 'held'):
                 break
         assert 'at' in push and 'stopping' in states  # Braked to a hold (re-armed the cycle it stopped).
         assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
         plant = opened[0].plant
-        assert abs(plant.q[plant.names.index('right_arm_j2')]) < .05  # Hanging at the reference.
-        assert fastest < .5  # Lowered at its characterisation speed; never fell.
+        assert abs(plant.q[plant.names.index('right_arm_j2')]) < 0.05  # Hanging at the reference.
+        assert fastest < 0.5  # Lowered at its characterisation speed; never fell.
         assert opened[0].last['status']['state'] == 'disarmed'
         result = core.engine.summary()['right_arm_j2']
         assert result['status'] == 'stopped'
@@ -212,9 +282,21 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
     # dropped the arm (2026-09-30). Here the right gripper goes quiet for 0.1 s with J2 raised: the receiver holds
     # the arm on the drives that answer; once the gripper answers again, the sweep lowers the arm and disables it.
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.6],
+                'kp_ladder': [1.0],
+                'damping': [1.0],
+                'speeds': [0.4],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -225,15 +307,16 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
 
     def silence(plant):  # Rides the disturbance hook, which runs every substep: pushes nothing.
         q = plant.q[plant.names.index('right_arm_j2')]
-        if 'at' not in quiet and q > .45:
+        if 'at' not in quiet and q > 0.45:
             quiet['at'] = plant.t
-        plant.quiet = {'right_gripper'} if 'at' in quiet and plant.t - quiet['at'] < .1 else set()
+        plant.quiet = {'right_gripper'} if 'at' in quiet and plant.t - quiet['at'] < 0.1 else set()
         return {}
+
     open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence)
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     try:
         core.build()
-        reasons, fastest = set(), 0.
+        reasons, fastest = set(), 0.0
         for _ in range(20000):
             core.tick(None, clock())
             clock.now += core.period_s
@@ -247,11 +330,10 @@ def test_a_drive_that_stops_answering_with_the_arm_raised_holds_it_then_lowers_i
         assert 'at' in quiet and 'feedback_stale' in reasons
         assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
         plant = opened[0].plant
-        assert abs(plant.q[plant.names.index('right_arm_j2')]) < .05  # Lowered to hanging.
-        assert fastest < .5  # Held, never fell.
+        assert abs(plant.q[plant.names.index('right_arm_j2')]) < 0.05  # Lowered to hanging.
+        assert fastest < 0.5  # Held, never fell.
     finally:
         core.close()
-
 
 
 def test_a_gripper_that_stops_answering_for_good_is_set_aside_and_the_sweep_lowers_the_arm(helm, tmp_path):
@@ -259,9 +341,21 @@ def test_a_gripper_that_stops_answering_for_good_is_set_aside_and_the_sweep_lowe
     # power-cycled. Here the right gripper goes quiet for good with J2 raised: the receiver holds the arm, sets the
     # gripper aside, and the sweep lowers the arm without it, then disables it.
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.6],
+                'kp_ladder': [1.0],
+                'damping': [1.0],
+                'speeds': [0.4],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -271,15 +365,16 @@ def test_a_gripper_that_stops_answering_for_good_is_set_aside_and_the_sweep_lowe
     quiet = {}
 
     def silence(plant):  # Rides the disturbance hook, which runs every substep: pushes nothing.
-        if 'at' not in quiet and plant.q[plant.names.index('right_arm_j2')] > .45:
+        if 'at' not in quiet and plant.q[plant.names.index('right_arm_j2')] > 0.45:
             quiet['at'] = plant.t
         plant.quiet = {'right_gripper'} if 'at' in quiet else set()
         return {}
+
     open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence)
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     try:
         core.build()
-        aside, fastest = set(), 0.
+        aside, fastest = set(), 0.0
         for _ in range(20000):
             core.tick(None, clock())
             clock.now += core.period_s
@@ -293,19 +388,32 @@ def test_a_gripper_that_stops_answering_for_good_is_set_aside_and_the_sweep_lowe
         assert 'at' in quiet and aside == {'right_gripper'}
         assert core.stage == 'disabled' and 'lowered to the reference and disabled' in core.message, core.message
         plant = opened[0].plant
-        assert abs(plant.q[plant.names.index('right_arm_j2')]) < .05  # Lowered to hanging.
-        assert fastest < .5  # Held, never fell.
+        assert abs(plant.q[plant.names.index('right_arm_j2')]) < 0.05  # Lowered to hanging.
+        assert fastest < 0.5  # Held, never fell.
     finally:
         core.close()
+
 
 def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(helm, tmp_path):
     # A drive that reboots (as left J4 and J6 did after the 2026-09-30 fall) comes back in Reset mode: limp, never
     # re-enabled in the session. The adapter withholds its readings, so the receiver holds the arm on the others,
     # and the sweep says which drive and asks for the arm to be supported, instead of dropping it.
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
-    profile.update(live=LIVE, sweep=dict(profile['sweep'], defaults={
-        'amplitudes': [.6], 'kp_ladder': [1.], 'damping': [1.], 'speeds': [.4], 'decelerations': [16.],
-        'hold_s': .2, 'rest_s': .1}))
+    profile.update(
+        live=LIVE,
+        sweep=dict(
+            profile['sweep'],
+            defaults={
+                'amplitudes': [0.6],
+                'kp_ladder': [1.0],
+                'damping': [1.0],
+                'speeds': [0.4],
+                'decelerations': [16.0],
+                'hold_s': 0.2,
+                'rest_s': 0.1,
+            },
+        ),
+    )
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
@@ -314,14 +422,15 @@ def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(h
     bundle = session._bundle()
 
     def reboot(plant):
-        if plant.q[plant.names.index('right_arm_j2')] > .45:
+        if plant.q[plant.names.index('right_arm_j2')] > 0.45:
             plant.dropped.add('right_arm_j4')
         return {}
+
     open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', reboot)
     core = TuneCore(bundle, open_receiver=open_receiver, clock=clock, evidence_root=tmp_path / 'evidence')
     try:
         core.build()
-        fastest = 0.
+        fastest = 0.0
         for _ in range(20000):
             core.tick(None, clock())
             clock.now += core.period_s
@@ -337,7 +446,7 @@ def test_a_drive_that_reboots_with_the_arm_raised_leaves_it_held_on_the_others(h
             clock.now += core.period_s
         plant = opened[0].plant
         assert opened[0].last['status']['state'] == 'stopped' and opened[0].last['hardware_enabled']
-        assert plant.q[plant.names.index('right_arm_j2')] > .4 and fastest < .5
+        assert plant.q[plant.names.index('right_arm_j2')] > 0.4 and fastest < 0.5
     finally:
         core.close()
 
@@ -351,8 +460,8 @@ def test_an_arm_resting_off_its_reference_is_returned_there_slowly(helm, tmp_pat
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
     session = TuneSession(helm, path)
-    pose = {m['name']: 0. for m in helm.reference['motors'] if m['name'].startswith('right_')}
-    pose.update(right_arm_j1=1.22, right_arm_j6=.58)
+    pose = {m['name']: 0.0 for m in helm.reference['motors'] if m['name'].startswith('right_')}
+    pose.update(right_arm_j1=1.22, right_arm_j6=0.58)
     session.receiver, session.joints, session.mode = {'mode': 'live', 'arm': 'right'}, None, 'return'
     session._start_pose = pose
     clock = Clock()
@@ -368,13 +477,15 @@ def test_an_arm_resting_off_its_reference_is_returned_there_slowly(helm, tmp_pat
             assert core.fault is None, core.fault
             plant = opened[0].plant
             for name, v in zip(plant.names, plant.v):
-                fastest[name] = max(fastest.get(name, 0.), abs(v))
+                fastest[name] = max(fastest.get(name, 0.0), abs(v))
             if core.stage in ('finished', 'disabled', 'held'):
                 break
-        assert core.stage == 'finished' and core.message == 'Returned: the arm is at its reference and disabled.',             core.message
+        assert core.stage == 'finished' and core.message == 'Returned: the arm is at its reference and disabled.', (
+            core.message
+        )
         plant = opened[0].plant
-        assert all(abs(q) < .02 for q in plant.q), dict(zip(plant.names, plant.q))
-        assert fastest['right_arm_j1'] < .3 and fastest['right_arm_j6'] < .3  # Slow, about 0.15 rad/s.
+        assert all(abs(q) < 0.02 for q in plant.q), dict(zip(plant.names, plant.q))
+        assert fastest['right_arm_j1'] < 0.3 and fastest['right_arm_j6'] < 0.3  # Slow, about 0.15 rad/s.
         assert opened[0].last['status']['state'] == 'disarmed'
     finally:
         core.close()
@@ -382,7 +493,7 @@ def test_an_arm_resting_off_its_reference_is_returned_there_slowly(helm, tmp_pat
 
 class Leaders:
     class inputs:
-        max_age_s, max_skew_s = .05, .02
+        max_age_s, max_skew_s = 0.05, 0.02
 
     def __init__(self, clock):
         self.clock, self.sequence, self.closed = clock, 0, False
@@ -391,9 +502,19 @@ class Leaders:
     def poll(self):
         self.sequence += 1
         now = self.clock()
-        return {name: LeaderSample(tuple((c + d) % (2 * math.pi) for c, d in zip(CENTERS[name], self.offsets[name])),
-                                   (0,) * 7, self.sequence, now - .005, now - .002, (0, 0, 1, 1), 1, 2)
-                for name in CENTERS}
+        return {
+            name: LeaderSample(
+                tuple((c + d) % (2 * math.pi) for c, d in zip(CENTERS[name], self.offsets[name])),
+                (0,) * 7,
+                self.sequence,
+                now - 0.005,
+                now - 0.002,
+                (0, 0, 1, 1),
+                1,
+                2,
+            )
+            for name in CENTERS
+        }
 
     def close(self):
         self.closed = True
@@ -401,21 +522,38 @@ class Leaders:
 
 def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated_arm(helm, tmp_path):
     leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
-    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
-              'units': UNITS, 'runtime_approved': False, 'leaders': {
-                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
-                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
-                  for name, item in leader_profile['leaders'].items()},
-              'reference': {'captured_at': 'fixture', 'leaders': {
-                  name: {joint['name']: (center + HANG) % (2 * math.pi)
-                         for joint, center in zip(item['joints'], CENTERS[name])}
-                  for name, item in leader_profile['leaders'].items()}}}
+    ranges = {
+        'schema': SCHEMA,
+        'kind': KIND,
+        'profile': leader_profile['id'],
+        'pins': pins(leader_profile),
+        'units': UNITS,
+        'runtime_approved': False,
+        'leaders': {
+            name: {
+                joint['name']: {'center_rad': center, 'span_rad': span}
+                for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)
+            }
+            for name, item in leader_profile['leaders'].items()
+        },
+        'reference': {
+            'captured_at': 'fixture',
+            'leaders': {
+                name: {
+                    joint['name']: (center + HANG) % (2 * math.pi)
+                    for joint, center in zip(item['joints'], CENTERS[name])
+                }
+                for name, item in leader_profile['leaders'].items()
+            },
+        },
+    }
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
     profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'), live=LIVE)
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
-    bundle = TeleopSession(helm, path, runs=tmp_path / 'runs',
-                           leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
+    bundle = TeleopSession(
+        helm, path, runs=tmp_path / 'runs', leaders=SimpleNamespace(saved=ranges, missing=lambda routes: [])
+    )._bundle()
     bundle = dict(bundle, receiver={'mode': 'live', 'arm': 'right', 'motor_models': {}})
     clock = Clock()
     # Measured inertia: on SPECS' (J2 at a fifth of its 1.3 kg m2) the sweep tripped at J2's top in 2 of 18 noise
@@ -428,6 +566,7 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
         core.tick(key, clock())
         clock.now += core.period_s
         assert core.fault is None, core.fault
+
     try:
         core.build()
         tick('I')
@@ -441,30 +580,29 @@ def test_teleop_sweeps_every_right_arm_joint_to_its_ends_at_speed_on_a_simulated
                 break
         assert core.session.lifecycle.state == 'TELEOP'
         names = [joint['name'] for joint in core.derived['config']['joints']]
-        reached = {name: [0., 0.] for name in names}
+        reached = {name: [0.0, 0.0] for name in names}
         start = clock()
-        while clock() - start < 12.:
+        while clock() - start < 12.0:
             t = clock() - start
             for k in range(6):  # Each channel past both ends of its span, at up to 1.6 rad/s of leader.
-                leaders.offsets['right'][k] = HANG + (1.05 * math.sin(1.5 * t + .7 * k) - HANG) * min(1., t / 2.)
+                leaders.offsets['right'][k] = HANG + (1.05 * math.sin(1.5 * t + 0.7 * k) - HANG) * min(1.0, t / 2.0)
             tick()
             for name, sample in zip(names, opened[0].last['feedback']):
                 reached[name] = [min(reached[name][0], sample['position']), max(reached[name][1], sample['position'])]
         usable = {row['motor']: row['usable'] for row in core.derived['report']}
         # The wrist tilt (J6) crosses its whole range and holds at its ends; the wrist swivel (J5) goes past the
         # model's +-pi.
-        assert reached['right_arm_j6'][0] == pytest.approx(usable['right_arm_j6'][0], abs=.01)
-        assert reached['right_arm_j6'][1] == pytest.approx(usable['right_arm_j6'][1], abs=.01)
+        assert reached['right_arm_j6'][0] == pytest.approx(usable['right_arm_j6'][0], abs=0.01)
+        assert reached['right_arm_j6'][1] == pytest.approx(usable['right_arm_j6'][1], abs=0.01)
         assert reached['right_arm_j5'][0] < -math.pi
         # J2 lifts the arm to its end, gravity fed forward.
-        assert reached['right_arm_j2'][1] == pytest.approx(usable['right_arm_j2'][1], abs=.01)
+        assert reached['right_arm_j2'][1] == pytest.approx(usable['right_arm_j2'][1], abs=0.01)
     finally:
         core.close()
 
 
 @pytest.mark.parametrize('arm', ['left', 'right', 'both'])
-def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on_a_simulated_robot(helm, tmp_path,
-                                                                                                 arm):
+def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on_a_simulated_robot(helm, tmp_path, arm):
     # Live, both arms, 2026-10-09: Engage tripped and never reached TELEOP, and Shutdown never disabled, the motors
     # left on. Under the two-arm motion bound a gripper (commanded with no velocity) could move no faster than the
     # 0.5 rad/s floor; and a gripper rests short of its target by its static friction over its stiffness (0.15 / 2
@@ -472,25 +610,43 @@ def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on
     # Here an arm, or both, engages with its trigger pulled, follows, and shuts down to disabled, on noisy 16-bit
     # feedback. Both arms tripped on the motion bound's speed bound until it allowed for the readings' noise.
     leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
-    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
-              'units': UNITS, 'runtime_approved': False, 'leaders': {
-                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
-                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
-                  for name, item in leader_profile['leaders'].items()},
-              'reference': {'captured_at': 'fixture', 'leaders': {
-                  name: {joint['name']: (center + HANG) % (2 * math.pi)
-                         for joint, center in zip(item['joints'], CENTERS[name])}
-                  for name, item in leader_profile['leaders'].items()}}}
+    ranges = {
+        'schema': SCHEMA,
+        'kind': KIND,
+        'profile': leader_profile['id'],
+        'pins': pins(leader_profile),
+        'units': UNITS,
+        'runtime_approved': False,
+        'leaders': {
+            name: {
+                joint['name']: {'center_rad': center, 'span_rad': span}
+                for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)
+            }
+            for name, item in leader_profile['leaders'].items()
+        },
+        'reference': {
+            'captured_at': 'fixture',
+            'leaders': {
+                name: {
+                    joint['name']: (center + HANG) % (2 * math.pi)
+                    for joint, center in zip(item['joints'], CENTERS[name])
+                }
+                for name, item in leader_profile['leaders'].items()
+            },
+        },
+    }
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
     profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'), live=LIVE)
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
-    bundle = TeleopSession(helm, path, runs=tmp_path / 'runs',
-                           leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
+    bundle = TeleopSession(
+        helm, path, runs=tmp_path / 'runs', leaders=SimpleNamespace(saved=ranges, missing=lambda routes: [])
+    )._bundle()
     bundle = dict(bundle, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}})
     clock = Clock()
-    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver',
-                                           arm=None if arm == 'both' else arm, measured=True)
+    open_receiver, opened = plant_receiver(
+        helm, bundle.get('servo'), clock, tmp_path / 'receiver', arm=None if arm == 'both' else arm, measured=True
+    )
     leaders = Leaders(clock)
     core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_receiver=open_receiver, clock=clock)
 
@@ -502,28 +658,29 @@ def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on
             if until is not None and core.session.lifecycle.state == until:
                 return
         assert until is None, f'still {core.session.lifecycle.state}, expected {until}: {core.message}'
+
     try:
         core.build()
         assert core.collision_mode == ('motion' if arm == 'both' else 'advisory')
-        run('I', seconds=.1)
-        run('E', seconds=.4)
+        run('I', seconds=0.1)
+        run('E', seconds=0.4)
         for name in CENTERS:  # Triggers pulled part way: the grippers open toward it.
-            leaders.offsets[name][6] = HANG + .15
+            leaders.offsets[name][6] = HANG + 0.15
         run('T', until='TELEOP', seconds=20)
         start = clock()
-        while clock() - start < 4.:  # Follow the leaders a little (shoulders and elbows), then let go.
+        while clock() - start < 4.0:  # Follow the leaders a little (shoulders and elbows), then let go.
             t = clock() - start
             for name in CENTERS:
                 for k in range(4):
-                    leaders.offsets[name][k] = HANG + .25 * math.sin(1.2 * t + .5 * k) * min(1., t)
+                    leaders.offsets[name][k] = HANG + 0.25 * math.sin(1.2 * t + 0.5 * k) * min(1.0, t)
             run(seconds=core.period_s)
         for name in CENTERS:
             leaders.offsets[name] = [HANG] * 7
-        run(seconds=2.)
+        run(seconds=2.0)
         run('X', until='DISABLED', seconds=40)
         plant = opened[0].plant
         arms = {n: q for n, q in zip(plant.names, plant.q) if 'gripper' not in n}
-        assert all(abs(q) < .05 for q in arms.values()), arms
+        assert all(abs(q) < 0.05 for q in arms.values()), arms
     finally:
         core.close()
     # The session's evidence: every receiver tick, and its keys and lifecycle states.
@@ -537,39 +694,57 @@ def test_an_arm_engages_follows_and_shuts_down_with_its_gripper_resting_short_on
     assert {'TELEOP', 'SHUTDOWN', 'DISABLED'} <= set(states) and events[-1]['kind'] == 'closed'
 
 
-
 def test_a_gripper_that_stops_answering_mid_move_is_set_aside_and_the_arm_lowered(helm, tmp_path):
     # live-20261015T234712Z: the right gripper stopped answering while it moved and never answered again. Its last
     # reading (0.84 rad/s) kept the receiver braking, the arm held up, for 7 minutes until the motors were
     # power-cycled. Here the right gripper, pushed into motion, goes quiet for good while it moves: the receiver holds
     # the arm and sets the gripper aside, and the loop lowers the arm to the reference without it and disables it.
     leader_profile = json.loads((DEVICES / 'gello-dual-viewer.json').read_text(encoding='utf-8'))
-    ranges = {'schema': SCHEMA, 'kind': KIND, 'profile': leader_profile['id'], 'pins': pins(leader_profile),
-              'units': UNITS, 'runtime_approved': False, 'leaders': {
-                  name: {joint['name']: {'center_rad': center, 'span_rad': span}
-                         for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)}
-                  for name, item in leader_profile['leaders'].items()},
-              'reference': {'captured_at': 'fixture', 'leaders': {
-                  name: {joint['name']: (center + HANG) % (2 * math.pi)
-                         for joint, center in zip(item['joints'], CENTERS[name])}
-                  for name, item in leader_profile['leaders'].items()}}}
+    ranges = {
+        'schema': SCHEMA,
+        'kind': KIND,
+        'profile': leader_profile['id'],
+        'pins': pins(leader_profile),
+        'units': UNITS,
+        'runtime_approved': False,
+        'leaders': {
+            name: {
+                joint['name']: {'center_rad': center, 'span_rad': span}
+                for joint, center, span in zip(item['joints'], CENTERS[name], SPANS)
+            }
+            for name, item in leader_profile['leaders'].items()
+        },
+        'reference': {
+            'captured_at': 'fixture',
+            'leaders': {
+                name: {
+                    joint['name']: (center + HANG) % (2 * math.pi)
+                    for joint, center in zip(item['joints'], CENTERS[name])
+                }
+                for name, item in leader_profile['leaders'].items()
+            },
+        },
+    }
     profile = json.loads((DEVICES / 'minerva-teleop.json').read_text(encoding='utf-8'))
     profile.update(leader_profile=str(DEVICES / 'gello-dual-viewer.json'), live=LIVE)
     path = tmp_path / 'teleop.json'
     path.write_text(json.dumps(profile))
-    bundle = TeleopSession(helm, path, runs=tmp_path / 'runs',
-                           leaders=SimpleNamespace(saved=ranges, missing=lambda routes: []))._bundle()
+    bundle = TeleopSession(
+        helm, path, runs=tmp_path / 'runs', leaders=SimpleNamespace(saved=ranges, missing=lambda routes: [])
+    )._bundle()
     bundle = dict(bundle, receiver={'mode': 'live', 'arm': 'right', 'motor_models': {}})
     clock = Clock()
     quiet = {}
 
     def silence(plant):  # Rides the disturbance hook, which runs every substep: a push moves the gripper.
-        if quiet.get('armed') and 'at' not in quiet and abs(plant.v[plant.names.index('right_gripper')]) > .3:
+        if quiet.get('armed') and 'at' not in quiet and abs(plant.v[plant.names.index('right_gripper')]) > 0.3:
             quiet['at'] = plant.t
         plant.quiet = {'right_gripper'} if 'at' in quiet else set()
-        return {'right_gripper': -1.} if quiet.get('armed') and 'at' not in quiet else {}
-    open_receiver, opened = plant_receiver(helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence,
-                                           arm='right', measured=True)
+        return {'right_gripper': -1.0} if quiet.get('armed') and 'at' not in quiet else {}
+
+    open_receiver, opened = plant_receiver(
+        helm, bundle.get('servo'), clock, tmp_path / 'receiver', silence, arm='right', measured=True
+    )
     leaders = Leaders(clock)
     core = TeleopCore(bundle, open_leaders=lambda _profile: leaders, open_receiver=open_receiver, clock=clock)
 
@@ -581,17 +756,18 @@ def test_a_gripper_that_stops_answering_mid_move_is_set_aside_and_the_arm_lowere
             if until is not None and core.session.lifecycle.state == until:
                 return
         assert until is None, f'still {core.session.lifecycle.state}, expected {until}: {core.message}'
+
     try:
         core.build()
-        run('I', seconds=.1)
-        run('E', seconds=.4)
-        leaders.offsets['right'][6] = HANG + .15
+        run('I', seconds=0.1)
+        run('E', seconds=0.4)
+        leaders.offsets['right'][6] = HANG + 0.15
         run('T', until='TELEOP', seconds=20)
         for k in range(4):  # Shoulder and elbow raised a little.
-            leaders.offsets['right'][k] = HANG + .25
-        run(seconds=2.)
+            leaders.offsets['right'][k] = HANG + 0.25
+        run(seconds=2.0)
         quiet['armed'] = True
-        aside, fastest = set(), 0.
+        aside, fastest = set(), 0.0
         for _ in range(round(40 / core.period_s)):
             core.tick(None, clock())
             clock.now += core.period_s
@@ -606,8 +782,8 @@ def test_a_gripper_that_stops_answering_mid_move_is_set_aside_and_the_arm_lowere
         assert 'set aside' in core.message and 'lowered to the reference and disabled' in core.message, core.message
         plant = opened[0].plant
         arms = {n: q for n, q in zip(plant.names, plant.q) if 'gripper' not in n}
-        assert all(abs(q) < .05 for q in arms.values()), arms
-        assert fastest < .5  # Held, then lowered; never fell.
+        assert all(abs(q) < 0.05 for q in arms.values()), arms
+        assert fastest < 0.5  # Held, then lowered; never fell.
         assert opened[0].last['status']['state'] == 'disarmed'
     finally:
         core.close()

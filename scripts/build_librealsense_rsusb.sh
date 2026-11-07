@@ -13,7 +13,7 @@
 
 set -eo pipefail
 LOG="$HOME/librealsense_build.log"
-VERSION="v2.56.2"   # Match the version currently installed
+VERSION="v2.56.2" # Match the version currently installed
 
 echo "[$(date)] Starting librealsense2 RSUSB backend build ($VERSION)" | tee -a $LOG
 
@@ -82,8 +82,8 @@ echo "[$(date)] Installing Python bindings..." | tee -a $LOG
 PYVER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 SITE="/usr/local/lib/python${PYVER}/dist-packages"
 sudo mkdir -p "$SITE/pyrealsense2"
-sudo cp "$HOME/librealsense/build/wrappers/python/pyrealsense2"*.so "$SITE/pyrealsense2/" 2>/dev/null || \
-sudo cp "$HOME/librealsense/build/Release/pyrealsense2"*.so "$SITE/" 2>/dev/null || true
+sudo cp "$HOME/librealsense/build/wrappers/python/pyrealsense2"*.so "$SITE/pyrealsense2/" 2>/dev/null ||
+    sudo cp "$HOME/librealsense/build/Release/pyrealsense2"*.so "$SITE/" 2>/dev/null || true
 # pyrealsense2 __init__.py
 if [ ! -f "$SITE/pyrealsense2/__init__.py" ]; then
     echo "from .pyrealsense2 import *" | sudo tee "$SITE/pyrealsense2/__init__.py"

@@ -6,6 +6,7 @@ with the torque off and exactly the expected servo answering. Each verifies what
 not read back as intended is put back and the step fails. The EEPROM is locked again afterwards, so later gain
 writes (the receiver's) never persist.
 """
+
 import uuid
 
 from .feetech import BROADCAST, FeetechError, RESOLUTION
@@ -25,45 +26,45 @@ def only_servo(bus, ids=range(0, 254)):
     """The id of the single servo on the bus; anything else (none, several) fails."""
     found = scan(bus, ids)
     if len(found) != 1:
-        raise SetupError(f"Expected exactly one servo on the bus, found {found or 'none'}: connect one at a time")
+        raise SetupError(f'Expected exactly one servo on the bus, found {found or "none"}: connect one at a time')
     return found[0]
 
 
 def _torque_off(bus, servo_id):
-    if bus.read(servo_id, "Torque_Enable"):
-        raise SetupError(f"Servo {servo_id} holds torque: disable it first (setup writes only a limp servo)")
+    if bus.read(servo_id, 'Torque_Enable'):
+        raise SetupError(f'Servo {servo_id} holds torque: disable it first (setup writes only a limp servo)')
 
 
 def _locked(bus, servo_id, writes):
     """Unlock the EEPROM, apply `writes` [(register, value)], lock it again even if a write failed."""
-    bus.write(servo_id, "Lock", 0)
+    bus.write(servo_id, 'Lock', 0)
     try:
         for name, value in writes:
             bus.write(servo_id, name, value, allow_eeprom=True)
     finally:
-        bus.write(servo_id, "Lock", 1)
-    if bus.read(servo_id, "Lock") != 1:
-        raise SetupError(f"Servo {servo_id}: the EEPROM did not lock again")
+        bus.write(servo_id, 'Lock', 1)
+    if bus.read(servo_id, 'Lock') != 1:
+        raise SetupError(f'Servo {servo_id}: the EEPROM did not lock again')
 
 
 def set_id(bus, new_id, ids=range(0, 254)):
     """Give the only servo on the bus `new_id`. Returns (old id, new id)."""
     if not 1 <= new_id <= 253:
-        raise ValueError("Servo ids are 1..253")
+        raise ValueError('Servo ids are 1..253')
     old = only_servo(bus, ids)
     if old == new_id:
         return old, new_id
     _torque_off(bus, old)
-    bus.write(old, "Lock", 0)
+    bus.write(old, 'Lock', 0)
     try:
-        bus.write(old, "ID", new_id, allow_eeprom=True)
+        bus.write(old, 'ID', new_id, allow_eeprom=True)
     except FeetechError:
         pass  # The servo may acknowledge from its new id; the pings below decide.
     if not bus.ping(new_id) or bus.ping(old):
-        raise SetupError(f"Servo {old} did not move to id {new_id}")
-    bus.write(new_id, "Lock", 1)
-    if bus.read(new_id, "Lock") != 1:
-        raise SetupError(f"Servo {new_id}: the EEPROM did not lock again")
+        raise SetupError(f'Servo {old} did not move to id {new_id}')
+    bus.write(new_id, 'Lock', 1)
+    if bus.read(new_id, 'Lock') != 1:
+        raise SetupError(f'Servo {new_id}: the EEPROM did not lock again')
     return old, new_id
 
 
@@ -71,39 +72,39 @@ def centre(bus, servo_id, target=CENTRE):
     """With the joint held at its reference pose, set the servo's Homing_Offset so it reads `target` there
     (Present_Position = actual - Homing_Offset). Returns the offset written."""
     _torque_off(bus, servo_id)
-    previous = bus.read(servo_id, "Homing_Offset")
-    _locked(bus, servo_id, [("Homing_Offset", 0)])
-    actual = bus.read(servo_id, "Present_Position")
+    previous = bus.read(servo_id, 'Homing_Offset')
+    _locked(bus, servo_id, [('Homing_Offset', 0)])
+    actual = bus.read(servo_id, 'Present_Position')
     offset = actual - target
     if abs(offset) > 2047:  # The offset holds +-2047 (sign-magnitude): only a reading of 0 lands outside.
-        _locked(bus, servo_id, [("Homing_Offset", previous)])
-        raise SetupError(f"Servo {servo_id} reads {actual}: turn the joint a little and centre again")
+        _locked(bus, servo_id, [('Homing_Offset', previous)])
+        raise SetupError(f'Servo {servo_id} reads {actual}: turn the joint a little and centre again')
     try:
-        _locked(bus, servo_id, [("Homing_Offset", offset)])
-        reading = bus.read(servo_id, "Present_Position")
+        _locked(bus, servo_id, [('Homing_Offset', offset)])
+        reading = bus.read(servo_id, 'Present_Position')
     except FeetechError:
-        _locked(bus, servo_id, [("Homing_Offset", previous)])
+        _locked(bus, servo_id, [('Homing_Offset', previous)])
         raise
     if abs(reading - target) > 2:
-        _locked(bus, servo_id, [("Homing_Offset", previous)])
-        raise SetupError(f"Servo {servo_id} read {reading} after centring, not {target}: offset {previous} restored")
+        _locked(bus, servo_id, [('Homing_Offset', previous)])
+        raise SetupError(f'Servo {servo_id} read {reading} after centring, not {target}: offset {previous} restored')
     return offset
 
 
 def restore_offset(bus, servo_id, offset):
     """Put back a servo's Homing_Offset (a step that centred several servos failed part way)."""
-    _locked(bus, servo_id, [("Homing_Offset", offset)])
+    _locked(bus, servo_id, [('Homing_Offset', offset)])
 
 
 def set_limits(bus, servo_id, low, high):
     """The servo's own position limits (steps): it refuses goals outside them, a backstop under the receiver's."""
     if not 0 <= low < high <= RESOLUTION - 1:
-        raise ValueError("Position limits are steps, 0 <= low < high <= 4095")
+        raise ValueError('Position limits are steps, 0 <= low < high <= 4095')
     _torque_off(bus, servo_id)
-    _locked(bus, servo_id, [("Min_Position_Limit", low), ("Max_Position_Limit", high)])
-    read = (bus.read(servo_id, "Min_Position_Limit"), bus.read(servo_id, "Max_Position_Limit"))
+    _locked(bus, servo_id, [('Min_Position_Limit', low), ('Max_Position_Limit', high)])
+    read = (bus.read(servo_id, 'Min_Position_Limit'), bus.read(servo_id, 'Max_Position_Limit'))
     if read != (low, high):
-        raise SetupError(f"Servo {servo_id} reads limits {read}, not {(low, high)}")
+        raise SetupError(f'Servo {servo_id} reads limits {read}, not {(low, high)}')
     return read
 
 
@@ -112,48 +113,80 @@ def reference_document(bus, profile, *, asset_id, usb_serial, device, now):
     per servo its identity (the adapter's USB serial and its id, so `uid`; model; firmware) and its raw reading.
     Each servo must be limp, its EEPROM locked and its reading near mid-turn (it was centred there)."""
     import math
+
     if not usb_serial or not usb_serial.isalnum():
         raise SetupError("The adapter's USB serial is needed (robot-platform neck ports shows it)")
     motors = []
-    for servo in profile["motors"]:
-        values = bus.read_many(servo["id"], ["Firmware_Major_Version", "Firmware_Minor_Version", "Model_Number"])
-        if values["Model_Number"] != servo["model"]:
-            raise SetupError(f"{servo['name']}: id {servo['id']} is model {values['Model_Number']}, not {servo['model']}")
-        _torque_off(bus, servo["id"])
-        if bus.read(servo["id"], "Lock") != 1:
-            raise SetupError(f"{servo['name']}: its EEPROM is unlocked; lock it (centre does) before saving")
-        steps = bus.read(servo["id"], "Present_Position")
+    for servo in profile['motors']:
+        values = bus.read_many(servo['id'], ['Firmware_Major_Version', 'Firmware_Minor_Version', 'Model_Number'])
+        if values['Model_Number'] != servo['model']:
+            raise SetupError(
+                f'{servo["name"]}: id {servo["id"]} is model {values["Model_Number"]}, not {servo["model"]}'
+            )
+        _torque_off(bus, servo['id'])
+        if bus.read(servo['id'], 'Lock') != 1:
+            raise SetupError(f'{servo["name"]}: its EEPROM is unlocked; lock it (centre does) before saving')
+        steps = bus.read(servo['id'], 'Present_Position')
         if abs(steps - CENTRE) > 100:
-            raise SetupError(f"{servo['name']} reads {steps}, not near {CENTRE}: centre it at the reference pose first")
-        motors.append({"name": servo["name"], "joint": servo["joint"], "id": servo["id"],
-                       "uid": f"{usb_serial}/{servo['id']}", "model": servo["model"],
-                       "firmware": f"{values['Firmware_Major_Version']}.{values['Firmware_Minor_Version']}",
-                       "raw_reference_steps": steps, "raw_reference_rad": steps * 2 * math.pi / RESOLUTION,
-                       "sign": 1, "direction_verified": False})
-    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+            raise SetupError(f'{servo["name"]} reads {steps}, not near {CENTRE}: centre it at the reference pose first')
+        motors.append(
+            {
+                'name': servo['name'],
+                'joint': servo['joint'],
+                'id': servo['id'],
+                'uid': f'{usb_serial}/{servo["id"]}',
+                'model': servo['model'],
+                'firmware': f'{values["Firmware_Major_Version"]}.{values["Firmware_Minor_Version"]}',
+                'raw_reference_steps': steps,
+                'raw_reference_rad': steps * 2 * math.pi / RESOLUTION,
+                'sign': 1,
+                'direction_verified': False,
+            }
+        )
+    stamp = now.strftime('%Y%m%dT%H%M%SZ')
     # Unique even within a second: the head's limits name the reference they were swept from.
-    return {"schema": 1, "kind": "head_reference", "id": f"{asset_id}-head-{stamp}-{uuid.uuid4().hex[:6]}",
-            "asset_id": asset_id,
-            "created_at": now.isoformat(), "bus": {"usb_serial": usb_serial, "device": device}, "motors": motors}
+    return {
+        'schema': 1,
+        'kind': 'head_reference',
+        'id': f'{asset_id}-head-{stamp}-{uuid.uuid4().hex[:6]}',
+        'asset_id': asset_id,
+        'created_at': now.isoformat(),
+        'bus': {'usb_serial': usb_serial, 'device': device},
+        'motors': motors,
+    }
 
 
-def limits_document(seen, profile, reference, *, now, minimum_span_rad=.1):
+def limits_document(seen, profile, reference, *, now, minimum_span_rad=0.1):
     """The head's joint limits from a hand sweep with the torque off ({id: (min steps, max steps)}), in the arms'
     format: each joint's swept range must span at least `minimum_span_rad` and contain its reference reading."""
     import math
-    by_name = {m["name"]: m for m in reference["motors"]}
+
+    by_name = {m['name']: m for m in reference['motors']}
     joints = {}
-    for servo in profile["motors"]:
-        if servo["id"] not in seen:
-            raise SetupError(f"{servo['name']} was not read during the sweep")
-        low, high = (steps * 2 * math.pi / RESOLUTION for steps in seen[servo["id"]])
-        home = by_name[servo["name"]]["raw_reference_rad"]
+    for servo in profile['motors']:
+        if servo['id'] not in seen:
+            raise SetupError(f'{servo["name"]} was not read during the sweep')
+        low, high = (steps * 2 * math.pi / RESOLUTION for steps in seen[servo['id']])
+        home = by_name[servo['name']]['raw_reference_rad']
         if high - low < minimum_span_rad:
-            raise SetupError(f"{servo['name']} swept only {high - low:.3f} rad: turn it to both ends by hand")
+            raise SetupError(f'{servo["name"]} swept only {high - low:.3f} rad: turn it to both ends by hand')
         if not low <= home <= high:
             raise SetupError(f"{servo['name']}'s swept range does not contain its reference: sweep it again")
-        joints[servo["name"]] = {"id": servo["id"], "min_rad": low, "max_rad": high, "span_rad": high - low,
-                                 "min_steps": seen[servo["id"]][0], "max_steps": seen[servo["id"]][1]}
-    return {"schema": 1, "kind": "joint_limit_calibration", "units": "servo_rad_from_centred_zero",
-            "asset_id": reference["asset_id"], "reference_id": reference["id"], "runtime_approved": False,
-            "created_at": now.isoformat(), "joints": joints}
+        joints[servo['name']] = {
+            'id': servo['id'],
+            'min_rad': low,
+            'max_rad': high,
+            'span_rad': high - low,
+            'min_steps': seen[servo['id']][0],
+            'max_steps': seen[servo['id']][1],
+        }
+    return {
+        'schema': 1,
+        'kind': 'joint_limit_calibration',
+        'units': 'servo_rad_from_centred_zero',
+        'asset_id': reference['asset_id'],
+        'reference_id': reference['id'],
+        'runtime_approved': False,
+        'created_at': now.isoformat(),
+        'joints': joints,
+    }

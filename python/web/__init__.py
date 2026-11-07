@@ -18,4 +18,4 @@ from .server import (
     start_server_in_thread,
 )
 
-__all__ = ["QuestWebServer", "SharedState", "start_server_in_thread"]
+__all__ = ['QuestWebServer', 'SharedState', 'start_server_in_thread']

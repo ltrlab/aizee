@@ -79,7 +79,7 @@ echo ""
 echo "5. Installing scripts, service, sudoers, restarting, and checking status..."
 {
     echo "$JETSON_PASS"
-    cat << 'SUDO_CMDS'
+    cat <<'SUDO_CMDS'
 # Install USB-CAN reset helper script (fix CRLF from Windows git)
 sed 's/\r$//' /home/ltr/aizee/scripts/aizee-reset-usb-can > /usr/local/bin/aizee-reset-usb-can
 chmod 755 /usr/local/bin/aizee-reset-usb-can

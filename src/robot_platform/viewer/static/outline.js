@@ -56,13 +56,26 @@ void main() {
 export class Outline {
   constructor(renderer) {
     this.renderer = renderer;
-    this.target = new THREE.WebGLRenderTarget(1, 1, {depthTexture: new THREE.DepthTexture(1, 1)});
-    this.normals = new THREE.MeshNormalMaterial({side: THREE.DoubleSide});
+    this.target = new THREE.WebGLRenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1) });
+    this.normals = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
     this.material = new THREE.ShaderMaterial({
-      uniforms: {tNormal: {value: this.target.texture}, tDepth: {value: this.target.depthTexture},
-        stride: {value: new THREE.Vector2()}, near: {value: .1}, far: {value: 100}, depthEdge: {value: .02},
-        normalEdge: {value: .5}, opacity: {value: 1}, color: {value: new THREE.Color()}},
-      vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, depthTest: false, depthWrite: false});
+      uniforms: {
+        tNormal: { value: this.target.texture },
+        tDepth: { value: this.target.depthTexture },
+        stride: { value: new THREE.Vector2() },
+        near: { value: 0.1 },
+        far: { value: 100 },
+        depthEdge: { value: 0.02 },
+        normalEdge: { value: 0.5 },
+        opacity: { value: 1 },
+        color: { value: new THREE.Color() },
+      },
+      vertexShader: VERTEX,
+      fragmentShader: FRAGMENT,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
     quad.frustumCulled = false;
     this.overlay = new THREE.Scene();
@@ -70,7 +83,7 @@ export class Outline {
     this.flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.size = new THREE.Vector2();
     this.clear = new THREE.Color();
-    this.view = new THREE.Matrix4();  // The camera the target was drawn from.
+    this.view = new THREE.Matrix4(); // The camera the target was drawn from.
     this.projection = new THREE.Matrix4();
     this.stale = true;
   }
@@ -82,11 +95,16 @@ export class Outline {
 
   // After the picture is drawn: the outline over it. `settings`: {color, width (CSS px), depth, normal, opacity}.
   render(scene, camera, settings) {
-    const {renderer, target, material} = this;
+    const { renderer, target, material } = this;
     renderer.getDrawingBufferSize(this.size);
     const resized = target.width !== this.size.x || target.height !== this.size.y;
     if (resized) target.setSize(this.size.x, this.size.y);
-    if (this.stale || resized || !same(this.view, camera.matrixWorld) || !same(this.projection, camera.projectionMatrix)) {
+    if (
+      this.stale ||
+      resized ||
+      !same(this.view, camera.matrixWorld) ||
+      !same(this.projection, camera.projectionMatrix)
+    ) {
       this.draw(scene, camera);
       this.view.copy(camera.matrixWorld);
       this.projection.copy(camera.projectionMatrix);
@@ -109,8 +127,10 @@ export class Outline {
 
   // The visual meshes' view-space normals and depth, into the target.
   draw(scene, camera) {
-    const {renderer, target} = this;
-    const mask = camera.layers.mask, override = scene.overrideMaterial, background = scene.background;
+    const { renderer, target } = this;
+    const mask = camera.layers.mask,
+      override = scene.overrideMaterial,
+      background = scene.background;
     const clearAlpha = renderer.getClearAlpha();
     renderer.getClearColor(this.clear);
     camera.layers.set(OUTLINE_LAYER);
@@ -126,5 +146,4 @@ export class Outline {
     scene.overrideMaterial = override;
     scene.background = background;
   }
-
 }

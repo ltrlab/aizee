@@ -24,6 +24,7 @@ fitted to its depth: centre and yaw). Writes depth_check.json, the registered de
 (registered_depth.npy, metres, on the colour pixel grid) and depth_check.png, and prints a summary. Needs numpy and
 OpenCV.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,15 +47,15 @@ from robot_platform.simulation.workcell import head_pinhole, load_workcell  # no
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
 CALIBRATION = ROOT / 'build/fiducials-check/intrinsics/d435-calibration-copy.txt'  # rs-enumerate-devices -c
 MIN_FRAMES = 10  # A depth pixel counts with at least this many valid frames of the median.
-PLANE_TOLERANCE_M = .004
-OBJECT_HEIGHT_M = .012
-CUBE_CAP_M = .015  # A point's depth error counts at most this much in a block's fit.
+PLANE_TOLERANCE_M = 0.004
+OBJECT_HEIGHT_M = 0.012
+CUBE_CAP_M = 0.015  # A point's depth error counts at most this much in a block's fit.
 
 
 def extrinsics(text, source, target):
     """(R, t) taking a point in `source`'s optical frame into `target`'s, as rs-enumerate-devices prints them (the
     matrix as it reads, row by row; target = R @ source + t)."""
-    block = text[text.index(f'Extrinsic from "{source}"\t  To\t  "{target}"'):]
+    block = text[text.index(f'Extrinsic from "{source}"\t  To\t  "{target}"') :]
     numbers = [float(v) for v in re.findall(r'-?\d+\.?\d*(?:e-?\d+)?', block.split('Translation Vector:')[0])[0:9]]
     translation = [float(v) for v in re.findall(r'-?\d+\.?\d*(?:e-?\d+)?', block.split('Translation Vector:')[1])[:3]]
     return np.array(numbers).reshape(3, 3), np.array(translation)
@@ -118,7 +119,7 @@ def cube_depths(origin, directions, centres, turn, edge):
     """For rays origin + s d (the frame's, d with camera z 1, n x 3), the s (camera z) where each first meets a cube of
     `edge` resting on the frame's z = 0 at each of `centres` (m x 2), turned `turn` about z, else the table: m x n."""
     c, s = math.cos(turn), math.sin(turn)
-    into = np.array([[c, s, 0.], [-s, c, 0.], [0., 0., 1.]])  # The frame into the cube's axes.
+    into = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])  # The frame into the cube's axes.
     d = directions @ into.T
     o = (origin - np.column_stack([centres, np.full(len(centres), edge / 2)])) @ into.T
     with np.errstate(divide='ignore', invalid='ignore'):
@@ -140,7 +141,7 @@ def fit_cube(points, R, t, start, edge):
 
     def scores(centres, turn, size):
         model = cube_depths(origin, directions, centres, turn, size)
-        return np.minimum((model - z) ** 2, CUBE_CAP_M ** 2).sum(axis=1)
+        return np.minimum((model - z) ** 2, CUBE_CAP_M**2).sum(axis=1)
 
     def search(centre, turns, reach, step):
         offsets = np.arange(-reach, reach + step / 2, step)
@@ -153,13 +154,17 @@ def fit_cube(points, R, t, start, edge):
                 best = (float(values[k]), grid[k], turn)
         return best[1:]
 
-    centre, turn = search(np.asarray(start, float), np.radians(np.arange(0., 90., 2.)), .012, .002)
-    centre, turn = search(centre, turn + np.radians(np.arange(-2., 2.01, .25)), .002, .00025)
+    centre, turn = search(np.asarray(start, float), np.radians(np.arange(0.0, 90.0, 2.0)), 0.012, 0.002)
+    centre, turn = search(centre, turn + np.radians(np.arange(-2.0, 2.01, 0.25)), 0.002, 0.00025)
     error = cube_depths(origin, directions, centre[None, :], turn, edge)[0] - z
     within = np.abs(error) < CUBE_CAP_M
-    return {'centre_m': centre, 'turn_deg': (math.degrees(turn) + 45) % 90 - 45,
-            'rms_mm': round(float(np.sqrt(np.mean(error[within] ** 2)) * 1000), 2),
-            'within_cap': round(float(within.mean()), 3), 'points': int(len(z))}
+    return {
+        'centre_m': centre,
+        'turn_deg': (math.degrees(turn) + 45) % 90 - 45,
+        'rms_mm': round(float(np.sqrt(np.mean(error[within] ** 2)) * 1000), 2),
+        'within_cap': round(float(within.mean()), 3),
+        'points': int(len(z)),
+    }
 
 
 def footprint(xy):
@@ -172,7 +177,7 @@ def footprint(xy):
     return np.array([cx, cy]), (w, h), math.atan2(math.sin(angle), math.cos(angle))
 
 
-def wall_lines(xy, rng, tolerance=.004, minimum=250, count=5):
+def wall_lines(xy, rng, tolerance=0.004, minimum=250, count=5):
     """Up to `count` straight runs of points in the table plane (walls seen edge-on from above), strongest first:
     RANSAC, then a least-squares line through the inliers. Each is its centre, unit direction, point count and length
     (1-99% of its points along it)."""
@@ -184,7 +189,7 @@ def wall_lines(xy, rng, tolerance=.004, minimum=250, count=5):
         for _ in range(600):
             a, b = remaining[rng.choice(len(remaining), 2, replace=False)]
             d = b - a
-            if np.linalg.norm(d) < .02:
+            if np.linalg.norm(d) < 0.02:
                 continue
             d /= np.linalg.norm(d)
             inliers = np.abs((remaining - a) @ np.array([-d[1], d[0]])) < tolerance
@@ -200,8 +205,14 @@ def wall_lines(xy, rng, tolerance=.004, minimum=250, count=5):
         points = remaining[best]
         centre = points.mean(axis=0)
         along = (points - centre) @ direction
-        lines.append({'centre': centre, 'direction': direction, 'points': int(best.sum()),
-                      'length': float(np.percentile(along, 99) - np.percentile(along, 1))})
+        lines.append(
+            {
+                'centre': centre,
+                'direction': direction,
+                'points': int(best.sum()),
+                'length': float(np.percentile(along, 99) - np.percentile(along, 1)),
+            }
+        )
         remaining = remaining[~best]
     return lines
 
@@ -235,10 +246,16 @@ def box_from_walls(lines, wall):
         (n0, a0, b0), (n1, a1, b1) = (n1, a1, b1), (n0, a0, b0)
     axis = n0 if n0[1] < 0 else -n0  # Along the length, toward the robot (-y).
     centre = n0 * (a0 + b0) / 2 + n1 * (a1 + b1) / 2
-    return {'axis_toward_robot': axis, 'yaw_deg': math.degrees(math.atan2(axis[0], -axis[1])),
-            'length_faces_apart_m': b0 - a0, 'width_faces_apart_m': b1 - a1,
-            'outer_length_m': b0 - a0 + wall, 'outer_width_m': b1 - a1 + wall,
-            'centre_m': centre, 'front_face_along_axis_m': max(a0, b0) if n0 @ axis > 0 else -min(a0, b0)}
+    return {
+        'axis_toward_robot': axis,
+        'yaw_deg': math.degrees(math.atan2(axis[0], -axis[1])),
+        'length_faces_apart_m': b0 - a0,
+        'width_faces_apart_m': b1 - a1,
+        'outer_length_m': b0 - a0 + wall,
+        'outer_width_m': b1 - a1 + wall,
+        'centre_m': centre,
+        'front_face_along_axis_m': max(a0, b0) if n0 @ axis > 0 else -min(a0, b0),
+    }
 
 
 def box_from_faces(points, rng, wall):
@@ -261,7 +278,7 @@ def box_from_faces(points, rng, wall):
     offsets = sorted((float(line['centre'] @ normal), line) for line in across)
     faces = []
     for offset, line in offsets:
-        if faces and offset - faces[-1]['offsets'][-1] < .02:
+        if faces and offset - faces[-1]['offsets'][-1] < 0.02:
             faces[-1]['offsets'].append(offset)
         else:
             faces.append({'offsets': [offset]})
@@ -269,34 +286,48 @@ def box_from_faces(points, rng, wall):
         return {'faces_found': len(faces), 'runs': len(lines)}
     front_offset, back_offset = max(f['offsets'][-1] for f in faces), min(f['offsets'][0] for f in faces)
     fitted = {}
-    for name, low, high in (('front', front_offset - .025, front_offset + .012),
-                            ('back', back_offset - .012, back_offset + .025)):
+    for name, low, high in (
+        ('front', front_offset - 0.025, front_offset + 0.012),
+        ('back', back_offset - 0.012, back_offset + 0.025),
+    ):
         on = points[((points[:, :2] @ normal) > low) & ((points[:, :2] @ normal) < high)]
         centre = on.mean(axis=0)
         plane = np.linalg.svd(on - centre, full_matrices=False)[2][2]
         if plane[:2] @ normal < 0:
             plane = -plane  # Facing the robot.
         at = {}
-        side = np.array([-normal[1], normal[0], 0.])
+        side = np.array([-normal[1], normal[0], 0.0])
         middle = float(centre[:2] @ side[:2])
-        for label, z in (('table', 0.), ('mid', .09), ('tags', .147)):
+        for label, z in (('table', 0.0), ('mid', 0.09), ('tags', 0.147)):
             # Where the face is along the axis at height z, at its own middle across: plane . p = plane . centre
             # with p = s n + middle side + z e_z.
             at[label] = float((plane @ centre - middle * (plane @ side) - plane[2] * z) / (plane[:2] @ normal))
         along = (on[:, :2] - centre[:2]) @ np.array([-normal[1], normal[0]])
-        fitted[name] = {'points': int(len(on)), 'lean_deg': math.degrees(math.asin(np.clip(-plane[2], -1, 1))),
-                        'along_axis_m': at, 'extent_m': float(np.percentile(along, 99) - np.percentile(along, 1)),
-                        'centre': centre, 'top_m': float(np.percentile(on[:, 2], 98))}
+        fitted[name] = {
+            'points': int(len(on)),
+            'lean_deg': math.degrees(math.asin(np.clip(-plane[2], -1, 1))),
+            'along_axis_m': at,
+            'extent_m': float(np.percentile(along, 99) - np.percentile(along, 1)),
+            'centre': centre,
+            'top_m': float(np.percentile(on[:, 2], 98)),
+        }
     front, back = fitted['front'], fitted['back']
     middle_across = front['centre'][:2] @ np.array([-normal[1], normal[0]])
     length_mid = front['along_axis_m']['mid'] - back['along_axis_m']['mid']
     centre_along = (front['along_axis_m']['mid'] + back['along_axis_m']['mid'] - wall) / 2
     centre = centre_along * normal + middle_across * np.array([-normal[1], normal[0]])
-    return {'axis_toward_robot': normal, 'yaw_deg': math.degrees(math.atan2(normal[0], -normal[1])),
-            'front': front, 'back': back, 'runs': len(lines),
-            'faces_apart_at_tags_m': front['along_axis_m']['tags'] - back['along_axis_m']['tags'],
-            'faces_apart_mid_m': length_mid, 'outer_length_mid_m': length_mid + wall,
-            'outer_width_m': front['extent_m'], 'centre_m': centre}
+    return {
+        'axis_toward_robot': normal,
+        'yaw_deg': math.degrees(math.atan2(normal[0], -normal[1])),
+        'front': front,
+        'back': back,
+        'runs': len(lines),
+        'faces_apart_at_tags_m': front['along_axis_m']['tags'] - back['along_axis_m']['tags'],
+        'faces_apart_mid_m': length_mid,
+        'outer_length_mid_m': length_mid + wall,
+        'outer_width_m': front['extent_m'],
+        'centre_m': centre,
+    }
 
 
 def main() -> int:
@@ -305,9 +336,13 @@ def main() -> int:
     parser.add_argument('--workcell', type=Path, default=WORKCELL)
     parser.add_argument('--calibration', type=Path, default=CALIBRATION)
     parser.add_argument('--seed', type=int, default=20261018)
-    parser.add_argument('--wall', type=float, default=.004,
-                        help="the box wall's thickness, added once to each span of its faces (default .004 m, the "
-                             "workcell's placeholder)")
+    parser.add_argument(
+        '--wall',
+        type=float,
+        default=0.004,
+        help="the box wall's thickness, added once to each span of its faces (default .004 m, the "
+        "workcell's placeholder)",
+    )
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
     workcell = load_workcell(args.workcell)
@@ -324,17 +359,17 @@ def main() -> int:
     z = depth[v, u]
     sensor = np.column_stack([(u - intr['cx']) / intr['fx'] * z, (v - intr['cy']) / intr['fy'] * z, z])
     R_dc, t_dc = extrinsics(args.calibration.read_text(encoding='utf-8'), 'Depth', 'Color')
-    points = (sensor @ R_dc.T + t_dc) * (-1., -1., 1.)
+    points = (sensor @ R_dc.T + t_dc) * (-1.0, -1.0, 1.0)
     camera = workcell.head_camera
     fx, fy, cx, cy = head_pinhole(camera)
     K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     # The depth registered onto the colour image's pixels (nearest point wins).
-    pixel = (points @ K.T)
+    pixel = points @ K.T
     cu, cv_ = np.round(pixel[:, 0] / pixel[:, 2]).astype(int), np.round(pixel[:, 1] / pixel[:, 2]).astype(int)
     inside = (cu >= 0) & (cu < width) & (cv_ >= 0) & (cv_ < height)
     registered = np.full((height, width), np.inf)
     np.minimum.at(registered, (cv_[inside], cu[inside]), points[inside, 2])
-    registered[~np.isfinite(registered)] = 0.
+    registered[~np.isfinite(registered)] = 0.0
     np.save(args.grab / 'registered_depth.npy', registered)
 
     # The tag rectangle in this colour frame (the workcell's tag places and intrinsics).
@@ -345,7 +380,7 @@ def main() -> int:
     found, how, _, _ = check.detect(gray, f['family'], {tag[0] for tag in f['tags']})
     tags = {tag[0]: tag for tag in f['tags']}
     flat = [i for i in sorted(found) if tags[i][5] == 0]
-    objects = np.concatenate([np.array(corners(f['square'], *plane.point(tags[i][1:4])[:2], 0., 0.)) for i in flat])
+    objects = np.concatenate([np.array(corners(f['square'], *plane.point(tags[i][1:4])[:2], 0.0, 0.0)) for i in flat])
     pixels = np.concatenate([found[i] for i in flat])
     _, rvec, tvec = check.solve(objects, pixels, K, np.zeros(5))
     R, t = cv2.Rodrigues(rvec)[0], tvec.ravel()  # Rectangle frame into the camera frame.
@@ -353,32 +388,49 @@ def main() -> int:
     local = (points - t) @ R  # Every depth point in the rectangle frame, as the tags place it.
 
     # The table plane: points near the tags' plane around the rectangle, then RANSAC.
-    near = (np.abs(local[:, 2]) < .03) & (local[:, 0] > -.10) & (local[:, 0] < .75) & (local[:, 1] > -.10) & \
-        (local[:, 1] < .60)
+    near = (
+        (np.abs(local[:, 2]) < 0.03)
+        & (local[:, 0] > -0.10)
+        & (local[:, 0] < 0.75)
+        & (local[:, 1] > -0.10)
+        & (local[:, 1] < 0.60)
+    )
     normal, offset, inliers = plane_fit(points[near], rng)
     if normal @ (R[:, 2]) < 0:
         normal, offset = -normal, -offset
     tag_normal = R[:, 2]
-    report = {'grab': args.grab.name, 'frames': int(np.median(count[valid])), 'valid_share': round(float(valid.mean()), 3),
-              'depth_mad_median_mm': round(float(np.median(mad[valid]) * 1000), 2),
-              'registered_K': K.tolist(),  # The colour camera registered_depth.npy is on.
-              'tags': {'used': flat, 'rms_px': round(float(np.sqrt((errors ** 2).mean())), 3),
-                       'camera_height_m': round(float(-(tag_normal @ t)), 4)}}
+    report = {
+        'grab': args.grab.name,
+        'frames': int(np.median(count[valid])),
+        'valid_share': round(float(valid.mean()), 3),
+        'depth_mad_median_mm': round(float(np.median(mad[valid]) * 1000), 2),
+        'registered_K': K.tolist(),  # The colour camera registered_depth.npy is on.
+        'tags': {
+            'used': flat,
+            'rms_px': round(float(np.sqrt((errors**2).mean())), 3),
+            'camera_height_m': round(float(-(tag_normal @ t)), 4),
+        },
+    }
     camera_height_depth = -offset  # Signed height of the camera (origin) above the plane, the normal pointing up.
     down_depth = math.degrees(math.asin(-normal[2]))
     down_tags = math.degrees(math.asin(-tag_normal[2]))
     residual = points[near][inliers] @ normal - offset
     report['table'] = {
-        'normal_in_camera': normal.round(5).tolist(), 'inliers': int(inliers.sum()),
-        'fit_rms_mm': round(float(np.sqrt((residual ** 2).mean()) * 1000), 2),
-        'camera_height_m': {'depth': round(camera_height_depth, 4), 'tags': round(float(-(tag_normal @ t)), 4),
-                            'squares_only': None},
+        'normal_in_camera': normal.round(5).tolist(),
+        'inliers': int(inliers.sum()),
+        'fit_rms_mm': round(float(np.sqrt((residual**2).mean()) * 1000), 2),
+        'camera_height_m': {
+            'depth': round(camera_height_depth, 4),
+            'tags': round(float(-(tag_normal @ t)), 4),
+            'squares_only': None,
+        },
         'optical_axis_down_deg': {'depth': round(down_depth, 2), 'tags': round(down_tags, 2)},
-        'planes_angle_deg': round(math.degrees(math.acos(min(1., float(normal @ tag_normal)))), 3),
+        'planes_angle_deg': round(math.degrees(math.acos(min(1.0, float(normal @ tag_normal)))), 3),
     }
     # The tags without the taped rectangle: their squares alone (each 43.18 mm) set the scale.
-    alone = check.free_layout({i: found[i] for i in flat if 'weak' not in how[i]}, f['square'], (width, height),
-                              min(flat), K, np.zeros(5))
+    alone = check.free_layout(
+        {i: found[i] for i in flat if 'weak' not in how[i]}, f['square'], (width, height), min(flat), K, np.zeros(5)
+    )
     if alone:
         report['table']['camera_height_m']['squares_only'] = round(float(alone['camera_m'][2]), 4)
     # The depth plane in the rectangle frame: its height under each taped corner.
@@ -386,7 +438,7 @@ def main() -> int:
     for i in (0, 1, 2, 3):
         x, y = plane.point(tags[i][1:4])[:2]
         # Height of the depth plane above the tags' plane at (x, y): solve n . (R p + t) = offset for p = (x, y, h).
-        p0 = R @ np.array([x, y, 0.]) + t
+        p0 = R @ np.array([x, y, 0.0]) + t
         corner_heights[str(i)] = round(float((offset - normal @ p0) / (normal @ R[:, 2])) * 1000, 2)
     report['table']['depth_plane_above_tag_plane_mm'] = corner_heights
 
@@ -394,62 +446,76 @@ def main() -> int:
     R_a, t_a, anchored_errors = anchored_pose(normal, offset, objects, pixels, K, R, t)
     _, R_sim, _ = check.scene_camera(workcell.head_camera, width, height)
     tag_camera, anchored_camera = -R.T @ t, -R_a.T @ t_a
-    anchored = check.camera_report(anchored_camera, R_a, plane, workcell, R_sim,
-                                   math.degrees(2 * math.atan(height / 2 / K[1, 1])))
+    anchored = check.camera_report(
+        anchored_camera, R_a, plane, workcell, R_sim, math.degrees(2 * math.atan(height / 2 / K[1, 1]))
+    )
     report['anchored'] = {
         'what': 'the rectangle frame on the depth-fitted table plane: the depth sets the camera height and tilt, the '
-                f'tags {flat} its place over the plane and its turn',
-        'rotation': R_a.round(6).tolist(), 'translation_m': t_a.round(5).tolist(),
-        'tags_rms_px': round(float(np.sqrt((anchored_errors ** 2).mean())), 3),
+        f'tags {flat} its place over the plane and its turn',
+        'rotation': R_a.round(6).tolist(),
+        'translation_m': t_a.round(5).tolist(),
+        'tags_rms_px': round(float(np.sqrt((anchored_errors**2).mean())), 3),
         'tags_max_px': round(float(anchored_errors.max()), 3),
         'camera': anchored,
         'versus_tag_pose': {
             'camera_mm': np.round((anchored_camera - tag_camera) * 1000, 1).tolist(),
-            'rotation_deg': round(math.degrees(math.acos(max(-1., min(1., (np.trace(R_a @ R.T) - 1) / 2)))), 3)}}
-    source = (f'estimated from RealSense depth plus tags: head frame {args.grab.name}, the table plane fitted to its '
-              f'depth ({report["table"]["fit_rms_mm"]} mm RMS) sets the camera height and tilt, the flat tags {flat} at '
-              f'their places in the rectangle its place over the plane and its turn '
-              f'({report["anchored"]["tags_rms_px"]} px RMS); with the D435 colour intrinsics')
+            'rotation_deg': round(math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(R_a @ R.T) - 1) / 2)))), 3),
+        },
+    }
+    source = (
+        f'estimated from RealSense depth plus tags: head frame {args.grab.name}, the table plane fitted to its '
+        f'depth ({report["table"]["fit_rms_mm"]} mm RMS) sets the camera height and tilt, the flat tags {flat} at '
+        f'their places in the rectangle its place over the plane and its turn '
+        f'({report["anchored"]["tags_rms_px"]} px RMS); with the D435 colour intrinsics'
+    )
     report['proposed_workcell_head_camera'] = {
         'frame': plane.name,
         'pos': {'value': anchored[plane.name]['position_m'], 'source': source},
-        'xyaxes': {'value': anchored[plane.name]['mujoco_xyaxes'], 'source': source}}
+        'xyaxes': {'value': anchored[plane.name]['mujoco_xyaxes'], 'source': source},
+    }
     local = (points - t_a) @ R_a
 
     # How far the table top runs, as the depth sees it: the plane's inliers in the rectangle frame, and its far edge
     # (where the inliers end, per 50 mm of x) as a line.
     table = local[near][inliers]
     report['table']['visible_extent_rectangle_m'] = {
-        'x': np.round(np.percentile(table[:, 0], [.5, 99.5]), 3).tolist(),
-        'y': np.round(np.percentile(table[:, 1], [.5, 99.5]), 3).tolist()}
+        'x': np.round(np.percentile(table[:, 0], [0.5, 99.5]), 3).tolist(),
+        'y': np.round(np.percentile(table[:, 1], [0.5, 99.5]), 3).tolist(),
+    }
     # The far edge, where the inliers end toward the far side, per 50 mm of x left of the box (the box hides the table
     # behind it); the near and side edges are out of view.
     edge = []
-    for x0 in np.arange(0., .35, .05):
-        column = table[(table[:, 0] >= x0) & (table[:, 0] < x0 + .05)]
+    for x0 in np.arange(0.0, 0.35, 0.05):
+        column = table[(table[:, 0] >= x0) & (table[:, 0] < x0 + 0.05)]
         if len(column) > 200:
-            edge.append((x0 + .025, float(np.percentile(column[:, 1], 99))))
+            edge.append((x0 + 0.025, float(np.percentile(column[:, 1], 99))))
     if len(edge) >= 3:
         edge = np.array(edge)
         slope, intercept = np.polyfit(edge[:, 0], edge[:, 1], 1)
         report['table']['far_edge'] = {
-            'y_at_x0_mm': round(intercept * 1000, 1), 'turn_from_rectangle_deg': round(math.degrees(math.atan(slope)), 2),
-            'fit_rms_mm': round(float(np.sqrt(np.mean((np.polyval([slope, intercept], edge[:, 0]) - edge[:, 1]) ** 2)))
-                                * 1000, 1), 'columns': len(edge)}
+            'y_at_x0_mm': round(intercept * 1000, 1),
+            'turn_from_rectangle_deg': round(math.degrees(math.atan(slope)), 2),
+            'fit_rms_mm': round(
+                float(np.sqrt(np.mean((np.polyval([slope, intercept], edge[:, 0]) - edge[:, 1]) ** 2))) * 1000, 1
+            ),
+            'columns': len(edge),
+        }
 
     # What stands on the table inside its visible extent near the rectangle: height above the depth plane.
     heights = points @ normal - offset
     # Inside the tag rectangle, short of its far side: a shelf behind the table overhangs it from about 30 mm in, about
     # 150 mm up.
     size = workcell.fiducials['rectangle']['size']
-    region = (local[:, 0] > -.02) & (local[:, 0] < size[0] + .02) & (local[:, 1] > -.02) & (local[:, 1] < size[1] - .035)
+    region = (
+        (local[:, 0] > -0.02) & (local[:, 0] < size[0] + 0.02) & (local[:, 1] > -0.02) & (local[:, 1] < size[1] - 0.035)
+    )
     # Objects are connected on the table's own grid (5 mm cells of x, y in the rectangle frame), not in the image,
     # where a box's rim can touch what lies far behind it.
-    keep = np.flatnonzero(region & (heights > OBJECT_HEIGHT_M) & (heights < .30))
-    cell = .005
-    gx = np.floor((local[keep, 0] + .10) / cell).astype(int)
-    gy = np.floor((local[keep, 1] + .10) / cell).astype(int)
-    occupancy = np.zeros((int(.80 / cell) + 2, int(1. / cell) + 2), np.uint8)
+    keep = np.flatnonzero(region & (heights > OBJECT_HEIGHT_M) & (heights < 0.30))
+    cell = 0.005
+    gx = np.floor((local[keep, 0] + 0.10) / cell).astype(int)
+    gy = np.floor((local[keep, 1] + 0.10) / cell).astype(int)
+    occupancy = np.zeros((int(0.80 / cell) + 2, int(1.0 / cell) + 2), np.uint8)
     np.add.at(occupancy, (gy, gx), 1)
     occupied = (occupancy >= 2).astype(np.uint8)  # At least two points in a cell: lone stray points do not join.
     occupied = cv2.morphologyEx(occupied, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
@@ -466,40 +532,57 @@ def main() -> int:
         h, xy = heights[members], local[members, :2]
         entry = {'depth_pixels': int(len(members))}
         # The top: the densest 2 mm of heights above 20 mm (flying pixels at edges stray above it).
-        counts, bins = np.histogram(h[h > .02], bins=np.arange(.02, .30, .002))
-        top = float(bins[int(np.argmax(counts))] + .001) if counts.sum() else float(np.max(h))
-        if not report['objects'] and top > .08:
+        counts, bins = np.histogram(h[h > 0.02], bins=np.arange(0.02, 0.30, 0.002))
+        top = float(bins[int(np.argmax(counts))] + 0.001) if counts.sum() else float(np.max(h))
+        if not report['objects'] and top > 0.08:
             # The box: the largest object. Its rim is where its heights end (99%: edges throw a few points higher).
             # Its walls, seen from above, are straight runs of steady points (flying pixels at its silhouette flicker
             # from frame to frame) between 30 mm up and 20 mm under the rim.
             rim = float(np.percentile(h, 99))
-            steady = mad[v[members], u[members]] < .003
-            selected = (h > .03) & (h < rim - .02) & steady
+            steady = mad[v[members], u[members]] < 0.003
+            selected = (h > 0.03) & (h < rim - 0.02) & steady
             box = box_from_faces(np.column_stack([xy[selected], h[selected]]), rng, args.wall)
-            entry.update(kind='box', rim_mm=round(rim * 1000, 1), rim_p95_mm=round(float(np.percentile(h, 95)) * 1000, 1),
-                         wall_points=int(selected.sum()))
+            entry.update(
+                kind='box',
+                rim_mm=round(rim * 1000, 1),
+                rim_p95_mm=round(float(np.percentile(h, 95)) * 1000, 1),
+                wall_points=int(selected.sum()),
+            )
             if box and 'yaw_deg' in box:
                 mm = lambda value: round(value * 1000, 1)  # noqa: E731
                 entry.update(
-                    yaw_deg=round(box['yaw_deg'], 2), axis_toward_robot=np.round(box['axis_toward_robot'], 4).tolist(),
+                    yaw_deg=round(box['yaw_deg'], 2),
+                    axis_toward_robot=np.round(box['axis_toward_robot'], 4).tolist(),
                     centre_rectangle_mm=np.round(box['centre_m'] * 1000, 1).tolist(),
-                    outer_length_mid_mm=mm(box['outer_length_mid_m']), outer_width_mm=mm(box['outer_width_m']),
-                    faces_apart_at_tags_mm=mm(box['faces_apart_at_tags_m']), faces_apart_mid_mm=mm(box['faces_apart_mid_m']),
-                    faces={name: {'points': face['points'], 'lean_out_deg': round(face['lean_deg'], 2),
-                                  'along_axis_mm': {k: mm(s) for k, s in face['along_axis_m'].items()},
-                                  'extent_mm': mm(face['extent_m']), 'top_mm': mm(face['top_m'])}
-                           for name, face in (('front_outer', box['front']), ('back_inner', box['back']))})
+                    outer_length_mid_mm=mm(box['outer_length_mid_m']),
+                    outer_width_mm=mm(box['outer_width_m']),
+                    faces_apart_at_tags_mm=mm(box['faces_apart_at_tags_m']),
+                    faces_apart_mid_mm=mm(box['faces_apart_mid_m']),
+                    faces={
+                        name: {
+                            'points': face['points'],
+                            'lean_out_deg': round(face['lean_deg'], 2),
+                            'along_axis_mm': {k: mm(s) for k, s in face['along_axis_m'].items()},
+                            'extent_mm': mm(face['extent_m']),
+                            'top_mm': mm(face['top_m']),
+                        }
+                        for name, face in (('front_outer', box['front']), ('back_inner', box['back']))
+                    },
+                )
             elif box:
                 entry['faces_found'] = box
             report['objects'].append(entry)
             continue
-        if not .025 < top < .06:
-            entry.update(kind='other', top_mm=round(top * 1000, 1),
-                         centre_rectangle_mm=np.round(xy.mean(axis=0) * 1000, 1).tolist())
+        if not 0.025 < top < 0.06:
+            entry.update(
+                kind='other',
+                top_mm=round(top * 1000, 1),
+                centre_rectangle_mm=np.round(xy.mean(axis=0) * 1000, 1).tolist(),
+            )
             report['objects'].append(entry)
             continue
         # A block: its top face is the steady points within 5 mm of its top; its extent along its own axes (2-98%).
-        face = xy[(np.abs(h - top) < .005) & (mad[v[members], u[members]] < .003)]
+        face = xy[(np.abs(h - top) < 0.005) & (mad[v[members], u[members]] < 0.003)]
         middle = face.mean(axis=0)
         axes = np.linalg.svd(face - middle, full_matrices=False)[2]
         extent = [float(np.percentile((face - middle) @ a, 98) - np.percentile((face - middle) @ a, 2)) for a in axes]
@@ -507,15 +590,27 @@ def main() -> int:
         turn = (turn + 45) % 90 - 45  # A square's yaw, within +-45 degrees: loose, a square's points barely set it.
         # Its place and turn: the workcell's cube fitted to the steady depth within 60 mm of the top face's middle
         # (the block's sides and the table round it).
-        around = (np.linalg.norm(local[:, :2] - middle, axis=1) < .06) & (heights > -.015) & (heights < .06) & \
-            (mad[v, u] < .003)
+        around = (
+            (np.linalg.norm(local[:, :2] - middle, axis=1) < 0.06)
+            & (heights > -0.015)
+            & (heights < 0.06)
+            & (mad[v, u] < 0.003)
+        )
         fit = fit_cube(points[around], R_a, t_a, middle, 2 * workcell.cube_half)
-        entry.update(kind='block', top_mm=round(top * 1000, 1), top_face_points=int(len(face)),
-                     top_face_centre_rectangle_mm=np.round(middle * 1000, 1).tolist(),
-                     top_face_extent_mm=[round(e * 1000, 1) for e in extent], top_face_yaw_deg=round(turn, 1),
-                     centre_rectangle_mm=np.round(fit['centre_m'] * 1000, 1).tolist(), yaw_deg=round(fit['turn_deg'], 1),
-                     cube_fit={'edge_mm': round(2000 * workcell.cube_half, 1),
-                               **{k: fit[k] for k in ('rms_mm', 'within_cap', 'points')}})
+        entry.update(
+            kind='block',
+            top_mm=round(top * 1000, 1),
+            top_face_points=int(len(face)),
+            top_face_centre_rectangle_mm=np.round(middle * 1000, 1).tolist(),
+            top_face_extent_mm=[round(e * 1000, 1) for e in extent],
+            top_face_yaw_deg=round(turn, 1),
+            centre_rectangle_mm=np.round(fit['centre_m'] * 1000, 1).tolist(),
+            yaw_deg=round(fit['turn_deg'], 1),
+            cube_fit={
+                'edge_mm': round(2000 * workcell.cube_half, 1),
+                **{k: fit[k] for k in ('rms_mm', 'within_cap', 'points')},
+            },
+        )
         report['objects'].append(entry)
     (args.grab / 'depth_check.json').write_text(json.dumps(report, indent=1), encoding='utf-8')
 
@@ -523,11 +618,19 @@ def main() -> int:
     canvas = image.copy()
     sel = inside & region
     heat = np.zeros((height, width), float)
-    np.maximum.at(heat, (cv_[sel], cu[sel]), np.clip(heights[sel], 0, .2))
-    colour = cv2.applyColorMap((heat / .2 * 255).astype(np.uint8), cv2.COLORMAP_TURBO)
-    blend = np.where((heat > OBJECT_HEIGHT_M)[..., None], (.55 * colour + .45 * canvas).astype(np.uint8), canvas)
-    cv2.putText(blend, 'height above the depth-fitted table plane, 0-200 mm (turbo)', (6, height - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, .38, (255, 255, 255), 1, cv2.LINE_AA)
+    np.maximum.at(heat, (cv_[sel], cu[sel]), np.clip(heights[sel], 0, 0.2))
+    colour = cv2.applyColorMap((heat / 0.2 * 255).astype(np.uint8), cv2.COLORMAP_TURBO)
+    blend = np.where((heat > OBJECT_HEIGHT_M)[..., None], (0.55 * colour + 0.45 * canvas).astype(np.uint8), canvas)
+    cv2.putText(
+        blend,
+        'height above the depth-fitted table plane, 0-200 mm (turbo)',
+        (6, height - 8),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.38,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
     cv2.imwrite(str(args.grab / 'depth_check.png'), blend)
     print(json.dumps(report, indent=1))
     return 0

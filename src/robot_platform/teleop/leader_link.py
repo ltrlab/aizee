@@ -13,6 +13,7 @@ each second) and the robot learns the PC's address from it, so the PC never
 has to accept unsolicited inbound traffic. On the PC, LeaderLinkProcess runs the
 server in its own process that Windows does not throttle, next to the leader USB.
 """
+
 from datetime import datetime, timezone
 import hashlib
 import heapq
@@ -28,7 +29,7 @@ from .openrb import LeaderSampleSkipped
 
 TAG = 32
 MAX_DATAGRAM = 4096
-HELLO_S = 1.
+HELLO_S = 1.0
 
 
 def seal(key, body):
@@ -60,8 +61,9 @@ class LinkTiming:
     stalled PC: a gap that ends in a burst of queued requests was held up on the way in (or the PC did not run);
     one that ends without a burst lost them; a slow turnaround is the PC. Bounded: counts and the largest few.
     Times are the PC's own; `utc` only places an event within a session, never against the robot's clock."""
+
     KEEP = 20
-    BURST_S = .005
+    BURST_S = 0.005
 
     def __init__(self, clock=time.perf_counter, wall=time.time):
         self.clock, self.wall = clock, wall
@@ -69,7 +71,7 @@ class LinkTiming:
         self.requests = 0
         self.gaps_over_ms = {'20': 0, '50': 0, '100': 0}
         self.gaps, self.turnarounds = [], []  # Min-heaps of the KEEP largest: (ms, tiebreak, record).
-        self.turnaround_max_ms, self.slow_turnarounds = 0., 0
+        self.turnaround_max_ms, self.slow_turnarounds = 0.0, 0
         self._gap = None  # The last large gap, counting the burst after it.
 
     def _keep(self, heap, ms, record):
@@ -80,8 +82,10 @@ class LinkTiming:
             heapq.heapreplace(heap, entry)
 
     def _at(self, now):
-        return {'elapsed_s': round(now - self.first, 4),
-                'utc': datetime.fromtimestamp(self.wall(), timezone.utc).isoformat(timespec='milliseconds')}
+        return {
+            'elapsed_s': round(now - self.first, 4),
+            'utc': datetime.fromtimestamp(self.wall(), timezone.utc).isoformat(timespec='milliseconds'),
+        }
 
     def arrived(self):
         now = self.clock()
@@ -111,10 +115,15 @@ class LinkTiming:
 
     def summary(self):
         largest = lambda heap: [record for _ms, _n, record in sorted(heap, key=lambda e: -e[0])]
-        return {'requests': self.requests, 'span_s': round(self.last - self.first, 3) if self.requests else 0.,
-                'gaps_over_ms': dict(self.gaps_over_ms), 'largest_gaps': largest(self.gaps),
-                'turnaround_max_ms': round(self.turnaround_max_ms, 3), 'turnarounds_over_2ms': self.slow_turnarounds,
-                'slowest_turnarounds': largest(self.turnarounds)}
+        return {
+            'requests': self.requests,
+            'span_s': round(self.last - self.first, 3) if self.requests else 0.0,
+            'gaps_over_ms': dict(self.gaps_over_ms),
+            'largest_gaps': largest(self.gaps),
+            'turnaround_max_ms': round(self.turnaround_max_ms, 3),
+            'turnarounds_over_2ms': self.slow_turnarounds,
+            'slowest_turnarounds': largest(self.turnarounds),
+        }
 
 
 class LeaderLinkServer:
@@ -126,7 +135,7 @@ class LeaderLinkServer:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.bind(local)
         self.socket.connect(robot)  # Only the robot's address can reach this socket.
-        self.socket.settimeout(.1)
+        self.socket.settimeout(0.1)
         self.served = self.skipped = self.rejected = 0
         self.failure = None
         self.timing = LinkTiming(clock)
@@ -144,7 +153,7 @@ class LeaderLinkServer:
             pass  # The robot is not listening yet; the next hello retries.
 
     def _run(self):
-        hello_at = 0.
+        hello_at = 0.0
         while not self._stop.is_set():
             if self.clock() >= hello_at:
                 self._send({'type': 'hello', 'protocol_version': 1, 'epoch': self.epoch})
@@ -182,7 +191,7 @@ class LeaderLinkServer:
     def close(self):
         self._stop.set()
         if self._thread.is_alive():
-            self._thread.join(1.)
+            self._thread.join(1.0)
         self.socket.close()
 
 
@@ -193,7 +202,7 @@ class LeaderLinkInput(LeaderSnapshotClient):
     a wrong epoch, roster, sequence or an error from the PC faults the input.
     """
 
-    def __init__(self, key, profile, *, bind=('0.0.0.0', 0), timeout_s=.02, clock=time.perf_counter):
+    def __init__(self, key, profile, *, bind=('0.0.0.0', 0), timeout_s=0.02, clock=time.perf_counter):
         super().__init__(self._exchange, profile, clock=clock)
         self.inputs = self  # max_age_s / max_skew_s, like LatestLeaderInputs
         self.key, self.timeout_s = _checked_key(key), timeout_s
@@ -203,7 +212,7 @@ class LeaderLinkInput(LeaderSnapshotClient):
         self.peer = None
         self.late = 0
 
-    def wait_for_pc(self, timeout_s=10.):
+    def wait_for_pc(self, timeout_s=10.0):
         """Learn the PC's address from its signed hello."""
         deadline = self.clock() + timeout_s
         while self.peer is None:
@@ -245,9 +254,9 @@ class LeaderLinkInput(LeaderSnapshotClient):
             if reply is None or reply.get('type') == 'hello' or reply.get('nonce') != request['nonce']:
                 continue  # A hello, a stranger, or a late reply to an earlier request.
             if 'skipped' in reply:
-                raise LeaderSampleSkipped(f"Leader PC: {reply['skipped']}")
+                raise LeaderSampleSkipped(f'Leader PC: {reply["skipped"]}')
             if 'error' in reply:
-                raise RuntimeError(f"Leader PC: {reply['error']}")
+                raise RuntimeError(f'Leader PC: {reply["error"]}')
             return reply
 
     def close(self):
@@ -263,10 +272,15 @@ class SyntheticLeaders:
 
     def poll(self):
         from .openrb import LeaderSample
+
         self.sequence += 1
         now = self.clock()
-        return {name: LeaderSample((0.,) * 7, (0,) * 7, self.sequence, now, now, (0, 0, 0, 0),
-                                   10 * self.sequence, 10 * self.sequence + 1) for name in self.pins}
+        return {
+            name: LeaderSample(
+                (0.0,) * 7, (0,) * 7, self.sequence, now, now, (0, 0, 0, 0), 10 * self.sequence, 10 * self.sequence + 1
+            )
+            for name in self.pins
+        }
 
     def close(self):
         pass
@@ -275,12 +289,14 @@ class SyntheticLeaders:
 def _serve(connection, profile, key, robot, local, real):
     """Child process: open the leaders, answer the robot until told to stop, then report counts."""
     from robot_platform.control.scheduling import prefer_responsive
+
     scheduling = prefer_responsive()
     source = server = None
     try:
         if real:
             from .leader_bridge import SAMPLER_HZ, LatestLeaderInputs
             from .openrb import OpenRBInputs
+
             source = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=SAMPLER_HZ)
             source.connect()
         else:
@@ -292,8 +308,14 @@ def _serve(connection, profile, key, robot, local, real):
         except EOFError:
             pass
         server.close()  # Stopped first, so its counts and timing are final.
-        report = {'served': server.served, 'skipped': server.skipped, 'rejected': server.rejected,
-                  'failure': server.failure, 'usb_skipped': source.skipped, 'timing': server.timing.summary()}
+        report = {
+            'served': server.served,
+            'skipped': server.skipped,
+            'rejected': server.rejected,
+            'failure': server.failure,
+            'usb_skipped': source.skipped,
+            'timing': server.timing.summary(),
+        }
     except Exception as exc:
         report = {'error': f'{type(exc).__name__}: {exc}'}
     finally:
@@ -317,13 +339,18 @@ class LeaderLinkProcess:
 
     def __init__(self, profile, key, robot, *, local=('0.0.0.0', 0), real=True):
         import multiprocessing
+
         context = multiprocessing.get_context('spawn')
         self._connection, self._child = context.Pipe()
-        self._process = context.Process(target=_serve, args=(self._child, profile, _checked_key(key), robot,
-                                                             local, real), daemon=True, name='leader-link')
+        self._process = context.Process(
+            target=_serve,
+            args=(self._child, profile, _checked_key(key), robot, local, real),
+            daemon=True,
+            name='leader-link',
+        )
         self.scheduling, self.report = None, None
 
-    def start(self, timeout=15.):
+    def start(self, timeout=15.0):
         self._process.start()
         self._child.close()
         if not self._connection.poll(timeout):
@@ -331,12 +358,12 @@ class LeaderLinkProcess:
             raise TimeoutError('The leader link process did not start')
         message = self._connection.recv()
         if 'error' in message:
-            self._process.join(2.)
+            self._process.join(2.0)
             raise RuntimeError(message['error'])
         self.scheduling = message['scheduling']
         return self
 
-    def close(self, timeout=5.):
+    def close(self, timeout=5.0):
         """Stop serving; returns the counts (served, skipped, rejected, failure, usb_skipped)."""
         if self.report is None:
             self.report = {}

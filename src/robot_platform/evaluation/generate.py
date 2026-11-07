@@ -16,6 +16,7 @@ cube's size, pose and mass, the bucket's size and pose, the table group's placem
 camera's pose. A layout the demonstrator cannot plan is drawn again, up to the file's cap, and every rejected draw is
 counted in the manifest and the episode's metadata (`layout`).
 """
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,7 @@ from robot_platform.simulation.task_scene import CAMERAS, SIMULATED_HEAD, with_f
 LANGUAGE = 'Pick up the cube, pass it to the other gripper, then drop it into the bucket'
 
 
-APPEARANCE = {'light': .3, 'color': .1, 'camera_shift': .01, 'camera_turn_deg': 2.}
+APPEARANCE = {'light': 0.3, 'color': 0.1, 'camera_shift': 0.01, 'camera_turn_deg': 2.0}
 
 
 class EpisodeRecorder:
@@ -39,7 +40,7 @@ class EpisodeRecorder:
     `appearance` (MinervaTaskScene.randomize_appearance's bounds) varies each episode's lights, colours and camera
     places, from a generator seeded by `seed` and the trial; None keeps the scene's own look."""
 
-    def __init__(self, directory, *, hz=15., camera_roles=CAMERAS, metadata=None, appearance=None, seed=0):
+    def __init__(self, directory, *, hz=15.0, camera_roles=CAMERAS, metadata=None, appearance=None, seed=0):
         if not 0 < hz <= 50:
             raise ValueError('record rate must be in (0, 50] Hz')
         self.directory, self.hz, self.camera_roles = Path(directory), float(hz), tuple(camera_roles)
@@ -47,7 +48,7 @@ class EpisodeRecorder:
         self.appearance, self.seed, self.scene = appearance, int(seed), None
         self.trial_metadata = {}  # annotate(): this trial's own metadata (its drawn layout), cleared by finish().
         self.writer = None
-        self.next_at = 0.
+        self.next_at = 0.0
         self.frames = 0
         self.last_path, self.last_frames = None, 0
 
@@ -57,24 +58,44 @@ class EpisodeRecorder:
 
     def start(self, scene, plant, context, policy):
         from robot_platform.data.task_capture import TaskEpisodeWriter
+
         self.scene = scene
         looks = None
         if self.appearance is not None:
             cube = context.cube_start
-            rng = np.random.default_rng([self.seed, int(context.index), int(round(cube['x'] * 1e6) % 2**31),
-                                         int(round(cube['y'] * 1e6) % 2**31)])
+            rng = np.random.default_rng(
+                [
+                    self.seed,
+                    int(context.index),
+                    int(round(cube['x'] * 1e6) % 2**31),
+                    int(round(cube['y'] * 1e6) % 2**31),
+                ]
+            )
             looks = scene.randomize_appearance(rng, **self.appearance)
-        metadata = dict(self.metadata, **self.trial_metadata, data_source='simulation', evidence='synthetic',
-                        run_id=scene.run_id, appearance=looks,
-                        collection_mode='scripted_demonstrator', language_instruction=LANGUAGE,
-                        scene=scene.capabilities, plant=plant.describe(),
-                        demonstrator=getattr(policy, 'describe', lambda: {})(),
-                        cube_start=dict(context.cube_start), trial=context.index,
-                        head=SIMULATED_HEAD,
-                        sample_policy='receiver feedback and command rows, rendered at the record rate in scene time')
-        self.writer = TaskEpisodeWriter(self.directory, tuple(context.joint_names) + HEAD_AXES,
-                                        json.loads(json.dumps(metadata, default=_plain)), hz=self.hz,
-                                        camera_roles=self.camera_roles)
+        metadata = dict(
+            self.metadata,
+            **self.trial_metadata,
+            data_source='simulation',
+            evidence='synthetic',
+            run_id=scene.run_id,
+            appearance=looks,
+            collection_mode='scripted_demonstrator',
+            language_instruction=LANGUAGE,
+            scene=scene.capabilities,
+            plant=plant.describe(),
+            demonstrator=getattr(policy, 'describe', lambda: {})(),
+            cube_start=dict(context.cube_start),
+            trial=context.index,
+            head=SIMULATED_HEAD,
+            sample_policy='receiver feedback and command rows, rendered at the record rate in scene time',
+        )
+        self.writer = TaskEpisodeWriter(
+            self.directory,
+            tuple(context.joint_names) + HEAD_AXES,
+            json.loads(json.dumps(metadata, default=_plain)),
+            hz=self.hz,
+            camera_roles=self.camera_roles,
+        )
         self.next_at, self.frames = float(scene.data.time), 0
 
     def sample(self, scene, plant):
@@ -88,10 +109,15 @@ class EpisodeRecorder:
         images, stamps = scene.render(self.camera_roles)
         snapshot = scene.snapshot()
         snapshot['events'] = snapshot['events'][-8:]  # The full history stays in the trial record.
-        self.writer.append(**with_fixed_head(dict(q=observation['q'], qcmd=observation['qcmd'],
-                                                  torques=observation['effort'])),
-                           source_time=row[0] / 1000., scene_time=float(scene.data.time), images=images,
-                           camera_times=stamps, task_state=snapshot, authority='policy')
+        self.writer.append(
+            **with_fixed_head(dict(q=observation['q'], qcmd=observation['qcmd'], torques=observation['effort'])),
+            source_time=row[0] / 1000.0,
+            scene_time=float(scene.data.time),
+            images=images,
+            camera_times=stamps,
+            task_state=snapshot,
+            authority='policy',
+        )
         self.frames += 1
         while self.next_at <= scene.data.time + 1e-9:
             self.next_at += 1 / self.hz
@@ -111,8 +137,8 @@ class EpisodeRecorder:
         if record.get('outcome') == 'success' and record.get('eligible') and self.frames >= 2:
             self.last_path = writer.finish()
             return self.last_path
-        writer.abort(f"trial {record.get('outcome')}: {record.get('detail') or 'not a success'}")
-        writer.wait_closed(timeout=30.)
+        writer.abort(f'trial {record.get("outcome")}: {record.get("detail") or "not a success"}')
+        writer.wait_closed(timeout=30.0)
         Path(writer.partial_path).unlink(missing_ok=True)
         return None
 
@@ -134,8 +160,9 @@ class HeadCameraClearance:
     robot a draw can put it against or inside the torso. Rays only, against the robot's collision proxies posed at
     `home`; built once, then a few thousand rays a draw."""
 
-    def __init__(self, stack, *, margin=.02, grid=(48, 36), directions=1000, seed=0):
+    def __init__(self, stack, *, margin=0.02, grid=(48, 36), directions=1000, seed=0):
         from robot_platform.simulation.task_scene import MinervaTaskScene
+
         self.scene = MinervaTaskScene(stack['derived']['joint_map'], stack['names'], width=64, height=48)
         mj = self.scene.mj
         self.scene._pose(np.asarray(stack['derived']['initial'], dtype=float))
@@ -157,6 +184,7 @@ class HeadCameraClearance:
     def __call__(self, workcell):
         """None if the camera is clear, else why not."""
         from robot_platform.simulation.workcell import head_pinhole
+
         head = workcell.head_camera
         start = np.asarray(head['pos'], dtype=float)
         x_axis = np.asarray(head['xyaxes'][:3], dtype=float)
@@ -168,8 +196,11 @@ class HeadCameraClearance:
         width, height = head['intrinsics']['resolution'] if head.get('intrinsics') else (640, 480)
         fx, fy, cx, cy = head_pinhole(head, width, height)
         us, vs = np.meshgrid(np.linspace(0, width - 1, self.grid[0]), np.linspace(0, height - 1, self.grid[1]))
-        rays = (-z_axis[None] + x_axis[None] * ((us.ravel() - cx) / fx)[:, None]
-                - y_axis[None] * ((vs.ravel() - cy) / fy)[:, None])
+        rays = (
+            -z_axis[None]
+            + x_axis[None] * ((us.ravel() - cx) / fx)[:, None]
+            - y_axis[None] * ((vs.ravel() - cy) / fy)[:, None]
+        )
         rays /= np.linalg.norm(rays, axis=1, keepdims=True)
         seen = self._nearest(start, rays)
         if np.isfinite(seen):
@@ -197,6 +228,7 @@ class BucketInView:
         """How far inside the image the opening's nearest corner to an edge is, in pixels (negative: outside; -inf: a
         corner behind the camera)."""
         from robot_platform.simulation.workcell import bucket_opening_pixels
+
         corners = bucket_opening_pixels(workcell, self.width, self.height)
         if any(corner is None for corner in corners):
             return -math.inf
@@ -207,10 +239,17 @@ class BucketInView:
         slack = self.slack(workcell)
         if slack >= self.margin:
             return None
-        where = 'behind the camera' if slack == -math.inf else f'{-slack:.1f} px outside' if slack < 0 else \
-            f'only {slack:.1f} px inside'
-        return (f"head camera: the bucket's opening is not whole in its {self.width} x {self.height} image with "
-                f"{self.margin:g} px to spare (a corner {where})")
+        where = (
+            'behind the camera'
+            if slack == -math.inf
+            else f'{-slack:.1f} px outside'
+            if slack < 0
+            else f'only {slack:.1f} px inside'
+        )
+        return (
+            f"head camera: the bucket's opening is not whole in its {self.width} x {self.height} image with "
+            f'{self.margin:g} px to spare (a corner {where})'
+        )
 
     def close(self):
         pass
@@ -266,8 +305,19 @@ def draw_layout(runner, policy, sampler, seed, camera=None):
     return None, rejections
 
 
-def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=APPEARANCE, progress=None,
-             layouts=None, attempts=None):
+def generate(
+    policy,
+    config,
+    out,
+    *,
+    episodes,
+    stack=None,
+    hz=15.0,
+    appearance=APPEARANCE,
+    progress=None,
+    layouts=None,
+    attempts=None,
+):
     """Run trials until `episodes` succeed or `attempts` (default `max(2 * episodes, 10)`) have been made. Writes the
     episodes and manifest.jsonl under `out`.
 
@@ -280,39 +330,66 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
     from dataclasses import replace
     from .grid import cube_poses
     from .runner import TrialRunner, git_identity
+
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     progress = progress or (lambda line: None)
     if layouts is not None and appearance is not None:
         appearance = dict(appearance, cameras=tuple(role for role in CAMERAS if role != 'head'))
     runner = TrialRunner(config, stack=stack, directory=out / 'receiver', progress=progress)
-    recorder = EpisodeRecorder(out / 'episodes', hz=hz, appearance=appearance, seed=config.grid.seed,
-                               metadata={'generator': {'git': git_identity(), 'run_config': config.describe(),
-                                                       'record_hz': hz, 'appearance_bounds': appearance,
-                                                       'layouts': None if layouts is None else
-                                                       layouts.randomization.describe()}})
+    recorder = EpisodeRecorder(
+        out / 'episodes',
+        hz=hz,
+        appearance=appearance,
+        seed=config.grid.seed,
+        metadata={
+            'generator': {
+                'git': git_identity(),
+                'run_config': config.describe(),
+                'record_hz': hz,
+                'appearance_bounds': appearance,
+                'layouts': None if layouts is None else layouts.randomization.describe(),
+            }
+        },
+    )
     cap = max(2 * episodes, 10) if attempts is None else int(attempts)
     made, attempts, seed = [], 0, config.grid.seed
     manifest = (out / 'manifest.jsonl').open('a', encoding='utf-8')
     camera = layout_checks(runner.stack, layouts.randomization) if layouts is not None else None
 
     def note(entry, record, path):
-        entry.update(outcome=record['outcome'], detail=record.get('detail'), episode=str(path) if path else None,
-                     duration_s=record.get('duration_s'), frames=recorder.last_frames)
+        entry.update(
+            outcome=record['outcome'],
+            detail=record.get('detail'),
+            episode=str(path) if path else None,
+            duration_s=record.get('duration_s'),
+            frames=recorder.last_frames,
+        )
         manifest.write(json.dumps(entry, default=_plain) + '\n')
         manifest.flush()
         if path:
             made.append(path)
-        progress(f"attempt {entry['attempt']}: {record['outcome']}" + (f' -> {Path(path).name}' if path else ''))
+        progress(f'attempt {entry["attempt"]}: {record["outcome"]}' + (f' -> {Path(path).name}' if path else ''))
+
     try:
         while layouts is not None and len(made) < episodes and attempts < cap:
             attempts += 1
             layout, rejections = draw_layout(runner, policy, layouts, [seed, attempts], camera=camera)
-            entry = {'attempt': attempts, 'layout_seed': [seed, attempts], 'rejected_draws': len(rejections),
-                     'rejections': [{'draw': r['draw'], 'reason': r['reason']} for r in rejections]}
+            entry = {
+                'attempt': attempts,
+                'layout_seed': [seed, attempts],
+                'rejected_draws': len(rejections),
+                'rejections': [{'draw': r['draw'], 'reason': r['reason']} for r in rejections],
+            }
             if layout is None:
-                note(entry, {'outcome': 'layout_rejected', 'detail': f'no layout planned in '
-                             f'{layouts.randomization.plan_draws} draws'}, None)
+                note(
+                    entry,
+                    {
+                        'outcome': 'layout_rejected',
+                        'detail': f'no layout planned in {layouts.randomization.plan_draws} draws',
+                    },
+                    None,
+                )
                 continue
             entry.update(cube_start=layout.cube_start, layout=layout.describe())
             runner.use_workcell(layout.workcell)
@@ -328,8 +405,11 @@ def generate(policy, config, out, *, episodes, stack=None, hz=15., appearance=AP
                 attempts += 1
                 runner.config = replace(config, grid=grid)
                 record = runner.run_trial(policy, pose, pose['index'], recorder=recorder)
-                note({'attempt': attempts, 'grid_seed': seed, 'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw')}},
-                     record, recorder.last_path)
+                note(
+                    {'attempt': attempts, 'grid_seed': seed, 'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw')}},
+                    record,
+                    recorder.last_path,
+                )
             seed += 1
     finally:
         manifest.close()

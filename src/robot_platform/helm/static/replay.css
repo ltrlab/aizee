@@ -1,142 +1,583 @@
 /* Replay: the stage takes the 3D view's place while the Replay tab is open. */
-.replay-stage{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;padding:14px 16px;overflow:hidden}
-.replay-stage[hidden]{display:none}
-body[data-tab=replay] .view>:not(#replay-stage):not(#model-view):not(#rec-badge){display:none!important}
-.replay-head{display:flex;align-items:baseline;gap:12px;min-width:0}
-.replay-head .eyebrow{color:var(--screen-accent)}
-.replay-head b{font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
-#replay-status{margin-left:auto;font-size:12px;color:var(--muted)}
-#replay-status[data-tone=bad]{color:#ff9aa8}#replay-list-status[data-tone=bad]{color:var(--bad)}
-#replay-list-status[data-tone=warn]{color:var(--warn)}
-.replay-cameras{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch}
-.replay-empty{grid-column:1/-1;align-self:center;text-align:center;color:var(--muted)}
-.replay-camera{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;background:#000;border:3px solid var(--screen-text);border-image:var(--pix-frame) 1/3px/0 stretch;overflow:hidden}
-.replay-camera img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
-.replay-camera figcaption{padding:4px 9px;font-size:12px;letter-spacing:.06em;color:var(--text);background:rgba(10,12,15,.92)}
-.replay-camera-note{position:absolute;inset:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;pointer-events:none}
-.replay-camera[data-state=missing] img{visibility:hidden}
-.replay-controls{display:flex;align-items:center;gap:10px}
-.replay-controls input[type=range]{flex:1;min-width:120px}
-.replay-controls button{min-width:42px;box-shadow:3px 3px 0 var(--screen-shadow)}
-#replay-play{min-width:78px}
-.replay-time{font:12px var(--mono);color:var(--muted);white-space:nowrap}
-.replay-controls select{padding:4px 6px}
-.replay-timeline{display:block;width:100%;height:150px;flex:none;border:3px solid var(--screen-text);border-image:var(--pix-frame) 1/3px/0 stretch;background:var(--screen);cursor:pointer;touch-action:none}
+.replay-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  overflow: hidden;
+}
+.replay-stage[hidden] {
+  display: none;
+}
+body[data-tab='replay'] .view > :not(#replay-stage):not(#model-view):not(#rec-badge) {
+  display: none !important;
+}
+.replay-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.replay-head .eyebrow {
+  color: var(--screen-accent);
+}
+.replay-head b {
+  font-size: 16px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+#replay-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+#replay-status[data-tone='bad'] {
+  color: #ff9aa8;
+}
+#replay-list-status[data-tone='bad'] {
+  color: var(--bad);
+}
+#replay-list-status[data-tone='warn'] {
+  color: var(--warn);
+}
+.replay-cameras {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+.replay-empty {
+  grid-column: 1/-1;
+  align-self: center;
+  text-align: center;
+  color: var(--muted);
+}
+.replay-camera {
+  position: relative;
+  margin: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border: 3px solid var(--screen-text);
+  border-image: var(--pix-frame) 1/3px/0 stretch;
+  overflow: hidden;
+}
+.replay-camera img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.replay-camera figcaption {
+  padding: 4px 9px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: rgba(10, 12, 15, 0.92);
+}
+.replay-camera-note {
+  position: absolute;
+  inset: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+.replay-camera[data-state='missing'] img {
+  visibility: hidden;
+}
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.replay-controls input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+}
+.replay-controls button {
+  min-width: 42px;
+  box-shadow: 3px 3px 0 var(--screen-shadow);
+}
+#replay-play {
+  min-width: 78px;
+}
+.replay-time {
+  font: 12px var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.replay-controls select {
+  padding: 4px 6px;
+}
+.replay-timeline {
+  display: block;
+  width: 100%;
+  height: 150px;
+  flex: none;
+  border: 3px solid var(--screen-text);
+  border-image: var(--pix-frame) 1/3px/0 stretch;
+  background: var(--screen);
+  cursor: pointer;
+  touch-action: none;
+}
 
 /* The episode list in the side panel. */
-.replay-list-head{display:flex;align-items:center;gap:10px;margin-top:8px}
-#replay-list-status{font-size:12px;color:var(--muted)}
-.replay-session{margin:16px 0 4px;font-size:12px;letter-spacing:.12em;color:var(--muted);font-weight:700;text-transform:uppercase}
-.replay-episode{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;width:100%;text-align:left;margin:8px 0;padding:8px 11px;background:var(--card);box-shadow:3px 3px 0 var(--drop)}
-.replay-episode:hover:not(:disabled){background:var(--btn-hover)}
-.replay-episode[aria-current=true]{--pix:var(--pix-blue);background:var(--blue-soft);box-shadow:3px 3px 0 var(--shadow)}
-.replay-meta{grid-column:1/-1;color:var(--muted);font-size:12px}
-.replay-badge{align-self:center;font-size:12px;padding:0 7px;color:var(--good);background:var(--good-soft);border:2px solid var(--good);border-image:var(--pix-good) 1/2px/0 stretch}
-.replay-badge[data-tone=warn]{color:var(--warn);background:var(--warn-soft);border-image-source:var(--pix-warn)}
-.replay-badge[data-tone=bad]{color:var(--bad);background:var(--bad-soft);border-image-source:var(--pix-bad)}
-.replay-details{border-top:3px solid var(--ink);padding:8px 20px 12px;background:var(--card)}
-.replay-details:empty{display:none}
-.replay-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:4px 0;font-size:12px}
-.replay-details dt{color:var(--muted)}
-.replay-details dd{margin:0;overflow-wrap:anywhere}
+.replay-list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+#replay-list-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.replay-session {
+  margin: 16px 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.replay-episode {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  width: 100%;
+  text-align: left;
+  margin: 8px 0;
+  padding: 8px 11px;
+  background: var(--card);
+  box-shadow: 3px 3px 0 var(--drop);
+}
+.replay-episode:hover:not(:disabled) {
+  background: var(--btn-hover);
+}
+.replay-episode[aria-current='true'] {
+  --pix: var(--pix-blue);
+  background: var(--blue-soft);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+.replay-meta {
+  grid-column: 1/-1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.replay-badge {
+  align-self: center;
+  font-size: 12px;
+  padding: 0 7px;
+  color: var(--good);
+  background: var(--good-soft);
+  border: 2px solid var(--good);
+  border-image: var(--pix-good) 1/2px/0 stretch;
+}
+.replay-badge[data-tone='warn'] {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-image-source: var(--pix-warn);
+}
+.replay-badge[data-tone='bad'] {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-image-source: var(--pix-bad);
+}
+.replay-details {
+  border-top: 3px solid var(--ink);
+  padding: 8px 20px 12px;
+  background: var(--card);
+}
+.replay-details:empty {
+  display: none;
+}
+.replay-details dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+.replay-details dt {
+  color: var(--muted);
+}
+.replay-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 
-body[data-touch=on] .replay-timeline{height:170px}
-body[data-touch=on] .replay-controls select{min-height:48px;font-size:18px}
+body[data-touch='on'] .replay-timeline {
+  height: 170px;
+}
+body[data-touch='on'] .replay-controls select {
+  min-height: 48px;
+  font-size: 18px;
+}
 
 /* Training review: each episode's verdict in the list, and Keep / Discard / Clear for the selected one. */
-.replay-list-head select{font-size:12px;padding:3px 6px}
-.replay-verdict{grid-column:1/-1;justify-self:start;font-size:12px;font-weight:700;letter-spacing:.04em;padding:0 7px;border:2px solid var(--line);border-image:var(--pix-line) 1/2px/0 stretch}
-.replay-verdict[data-verdict=keep]{color:#fff;background:var(--good-fill);border-image-source:var(--pix-good)}
-.replay-verdict[data-verdict=discard]{color:var(--muted);text-decoration:line-through}
-.replay-review{border-top:3px solid var(--ink);padding:10px 20px 14px;display:grid;gap:10px;background:var(--card)}
-.replay-review-head{display:flex;align-items:baseline;gap:10px}
-.replay-verdict-label{font-size:16px}
-.replay-verdict-label[data-verdict=keep]{color:var(--good)}
-.replay-verdict-label[data-verdict=discard]{color:var(--muted)}
-.replay-review input{font-size:16px;padding:5px 9px}
-.replay-review-actions{display:flex;gap:10px}
-.replay-review-actions button{flex:1}
-.replay-review-status{margin:0;min-height:16px;font-size:12px;color:var(--muted)}
-.replay-review-status[data-tone=bad]{color:var(--bad)}
-body[data-touch=on] .replay-review-actions button{min-height:48px;font-size:18px}
-body[data-touch=on] .replay-list-head select{min-height:44px;font-size:16px}
+.replay-list-head select {
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.replay-verdict {
+  grid-column: 1/-1;
+  justify-self: start;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 7px;
+  border: 2px solid var(--line);
+  border-image: var(--pix-line) 1/2px/0 stretch;
+}
+.replay-verdict[data-verdict='keep'] {
+  color: #fff;
+  background: var(--good-fill);
+  border-image-source: var(--pix-good);
+}
+.replay-verdict[data-verdict='discard'] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.replay-review {
+  border-top: 3px solid var(--ink);
+  padding: 10px 20px 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--card);
+}
+.replay-review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.replay-verdict-label {
+  font-size: 16px;
+}
+.replay-verdict-label[data-verdict='keep'] {
+  color: var(--good);
+}
+.replay-verdict-label[data-verdict='discard'] {
+  color: var(--muted);
+}
+.replay-review input {
+  font-size: 16px;
+  padding: 5px 9px;
+}
+.replay-review-actions {
+  display: flex;
+  gap: 10px;
+}
+.replay-review-actions button {
+  flex: 1;
+}
+.replay-review-status {
+  margin: 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.replay-review-status[data-tone='bad'] {
+  color: var(--bad);
+}
+body[data-touch='on'] .replay-review-actions button {
+  min-height: 48px;
+  font-size: 18px;
+}
+body[data-touch='on'] .replay-list-head select {
+  min-height: 44px;
+  font-size: 16px;
+}
 
 /* Replay on Minerva: the Replay tab's box for the selected episode, and Teleop's card while it drives the arms. */
-.replay-live-note{margin:0;font-size:12px;color:var(--muted)}
-#replay-live-receiver{font-size:16px}
-#replay-live-receiver[data-live=true]{color:var(--bad)}
-.replay-live select{font-size:16px;padding:3px 6px;flex:none}
-.live-replay{margin:12px 20px 4px;padding:10px 12px 12px;border:3px solid var(--blue);border-image:var(--pix-blue) 1/3px/0 stretch;background:var(--blue-soft);box-shadow:3px 3px 0 var(--shadow);display:grid;gap:8px}
-.live-replay[hidden]{display:none}
-.live-replay-head{display:flex;align-items:baseline;gap:10px;min-width:0}
-.live-replay-head b{font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live-replay-head .replay-time{margin-left:auto}
-.live-replay-track{height:14px;border:2px solid var(--ink);border-image:var(--pix-ink) 1/2px/0 stretch;background:var(--card);overflow:hidden}
-#t-replay-fill{height:100%;width:0;background:var(--blue);transition:width .2s linear}
-.live-replay-frames{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.live-replay-frames .replay-camera{border-color:var(--ink);border-image-source:var(--pix-ink)}
-.live-replay-frames .replay-camera img{aspect-ratio:4/3;flex:none}
-.live-replay p{margin:0;font-size:12px}
+.replay-live-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+#replay-live-receiver {
+  font-size: 16px;
+}
+#replay-live-receiver[data-live='true'] {
+  color: var(--bad);
+}
+.replay-live select {
+  font-size: 16px;
+  padding: 3px 6px;
+  flex: none;
+}
+.live-replay {
+  margin: 12px 20px 4px;
+  padding: 10px 12px 12px;
+  border: 3px solid var(--blue);
+  border-image: var(--pix-blue) 1/3px/0 stretch;
+  background: var(--blue-soft);
+  box-shadow: 3px 3px 0 var(--shadow);
+  display: grid;
+  gap: 8px;
+}
+.live-replay[hidden] {
+  display: none;
+}
+.live-replay-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.live-replay-head b {
+  font-size: 16px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-replay-head .replay-time {
+  margin-left: auto;
+}
+.live-replay-track {
+  height: 14px;
+  border: 2px solid var(--ink);
+  border-image: var(--pix-ink) 1/2px/0 stretch;
+  background: var(--card);
+  overflow: hidden;
+}
+#t-replay-fill {
+  height: 100%;
+  width: 0;
+  background: var(--blue);
+  transition: width 0.2s linear;
+}
+.live-replay-frames {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.live-replay-frames .replay-camera {
+  border-color: var(--ink);
+  border-image-source: var(--pix-ink);
+}
+.live-replay-frames .replay-camera img {
+  aspect-ratio: 4/3;
+  flex: none;
+}
+.live-replay p {
+  margin: 0;
+  font-size: 12px;
+}
 
-body[data-touch=on] .replay-live select{min-height:48px;font-size:18px}
+body[data-touch='on'] .replay-live select {
+  min-height: 48px;
+  font-size: 18px;
+}
 
 /* Policy mode: Teleop's box to start one, and its card while it drives the arms. */
-.policy-start{margin:0 0 14px;padding:10px 12px 12px;background:var(--card);border:3px solid var(--ink);border-image:var(--pix-ink) 1/3px/0 stretch;box-shadow:3px 3px 0 var(--drop);display:grid;gap:8px}
-.policy-start[hidden]{display:none}
-.policy-start-head{display:flex;align-items:baseline;gap:10px}
-.policy-start-head b{font-size:16px;font-weight:400}
-.policy-start p{margin:0;font-size:12px}
-.policy-start-actions{display:flex;gap:10px;min-width:0}
-.policy-start-actions select{flex:1;min-width:0;font-size:16px;padding:3px 6px}
-.live-policy{border-color:var(--warn);border-image-source:var(--pix-warn);background:var(--warn-soft)}
-.live-policy p{margin:0;font-size:12px}
-body[data-touch=on] .policy-start-actions select,body[data-touch=on] .policy-start-actions button{min-height:48px;font-size:18px}
+.policy-start {
+  margin: 0 0 14px;
+  padding: 10px 12px 12px;
+  background: var(--card);
+  border: 3px solid var(--ink);
+  border-image: var(--pix-ink) 1/3px/0 stretch;
+  box-shadow: 3px 3px 0 var(--drop);
+  display: grid;
+  gap: 8px;
+}
+.policy-start[hidden] {
+  display: none;
+}
+.policy-start-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.policy-start-head b {
+  font-size: 16px;
+  font-weight: 400;
+}
+.policy-start p {
+  margin: 0;
+  font-size: 12px;
+}
+.policy-start-actions {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.policy-start-actions select {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  padding: 3px 6px;
+}
+.live-policy {
+  border-color: var(--warn);
+  border-image-source: var(--pix-warn);
+  background: var(--warn-soft);
+}
+.live-policy p {
+  margin: 0;
+  font-size: 12px;
+}
+body[data-touch='on'] .policy-start-actions select,
+body[data-touch='on'] .policy-start-actions button {
+  min-height: 48px;
+  font-size: 18px;
+}
 
 /* The Headset input's card: each arm's grip and how it follows the hand. */
-.headset-arms{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.headset-arm{display:grid;gap:2px;min-width:0;padding:6px 8px;background:var(--panel);border:2px solid var(--line)}
-.headset-arm span{font-size:12px;color:var(--muted)}
-.headset-arm b{font-size:16px;font-weight:400}
-.headset-arm small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
-.headset-arm[data-tone=near] b{color:var(--warn)}
-.headset-arm[data-tone=bad] b{color:var(--bad)}
-@media (max-width:520px){.headset-arms{grid-template-columns:1fr}}
+.headset-arms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.headset-arm {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+}
+.headset-arm span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.headset-arm b {
+  font-size: 16px;
+  font-weight: 400;
+}
+.headset-arm small {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.headset-arm[data-tone='near'] b {
+  color: var(--warn);
+}
+.headset-arm[data-tone='bad'] b {
+  color: var(--bad);
+}
+@media (max-width: 520px) {
+  .headset-arms {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* Replay: the episode's cameras stacked in a full-height column on the left; in the centre the 3D model at the
    playhead, above the playback controls and the joint timeline. The model is Helm's one viewer (#model-view), laid
    over the stage's empty model cell, so the sizes below are shared by both. */
-body{--replay-pad:14px;--replay-gap:12px;--replay-head:28px;--replay-controls:44px;--replay-timeline:150px}
-.replay-stage{display:grid;grid-template-columns:var(--camera-column) minmax(0,1fr);
-  grid-template-rows:var(--replay-head) minmax(0,1fr) var(--replay-controls) var(--replay-timeline);
-  grid-template-areas:"cameras head" "cameras model" "cameras controls" "cameras timeline";gap:var(--replay-gap);padding:var(--replay-pad)}
-.replay-head{grid-area:head;align-items:center}
-.replay-cameras{grid-area:cameras;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(0,1fr)}
-.replay-model{grid-area:model;min-height:0}
-.replay-controls{grid-area:controls}
-.replay-timeline{grid-area:timeline;height:100%;min-height:0}
+body {
+  --replay-pad: 14px;
+  --replay-gap: 12px;
+  --replay-head: 28px;
+  --replay-controls: 44px;
+  --replay-timeline: 150px;
+}
+.replay-stage {
+  display: grid;
+  grid-template-columns: var(--camera-column) minmax(0, 1fr);
+  grid-template-rows: var(--replay-head) minmax(0, 1fr) var(--replay-controls) var(--replay-timeline);
+  grid-template-areas: 'cameras head' 'cameras model' 'cameras controls' 'cameras timeline';
+  gap: var(--replay-gap);
+  padding: var(--replay-pad);
+}
+.replay-head {
+  grid-area: head;
+  align-items: center;
+}
+.replay-cameras {
+  grid-area: cameras;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+}
+.replay-model {
+  grid-area: model;
+  min-height: 0;
+}
+.replay-controls {
+  grid-area: controls;
+}
+.replay-timeline {
+  grid-area: timeline;
+  height: 100%;
+  min-height: 0;
+}
 /* An iframe does not stretch between its offsets (it is a replaced element): its size is given too. */
-body[data-tab=replay] #model-view{position:absolute;z-index:2;margin:0;
-  left:calc(var(--replay-pad) + var(--camera-column) + var(--replay-gap));
-  top:calc(var(--replay-pad) + var(--replay-head) + var(--replay-gap));
-  width:calc(100% - 2 * var(--replay-pad) - var(--camera-column) - var(--replay-gap));
-  height:calc(100% - 2 * var(--replay-pad) - var(--replay-head) - var(--replay-controls) - var(--replay-timeline) - 3 * var(--replay-gap))}
+body[data-tab='replay'] #model-view {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  left: calc(var(--replay-pad) + var(--camera-column) + var(--replay-gap));
+  top: calc(var(--replay-pad) + var(--replay-head) + var(--replay-gap));
+  width: calc(100% - 2 * var(--replay-pad) - var(--camera-column) - var(--replay-gap));
+  height: calc(
+    100% - 2 * var(--replay-pad) - var(--replay-head) - var(--replay-controls) - var(--replay-timeline) - 3 *
+      var(--replay-gap)
+  );
+}
 
 /* By day Replay's screen is white like the page (the pixel frames in ink); by night it keeps the dark screen. */
-.replay-stage{--camera-letterbox:#000;--camera-caption:rgba(10,12,15,.92)}
-:root:not([data-theme=dark]) .replay-stage{--screen:#ffffff;--screen-glow:#ffffff;--screen-text:var(--page-text);
-  --screen-muted:var(--page-muted);--screen-line:var(--page-line);--screen-accent:var(--blue);--camera-letterbox:#e9edf2;
-  --camera-caption:rgba(255,255,255,.9)}
-:root:not([data-theme=dark]) :is(.replay-camera,.replay-timeline){border-color:var(--ink);border-image-source:var(--pix-ink)}
-.replay-camera,.replay-camera img{background:var(--camera-letterbox)}
-.replay-camera figcaption{background:var(--camera-caption)}
+.replay-stage {
+  --camera-letterbox: #000;
+  --camera-caption: rgba(10, 12, 15, 0.92);
+}
+:root:not([data-theme='dark']) .replay-stage {
+  --screen: #ffffff;
+  --screen-glow: #ffffff;
+  --screen-text: var(--page-text);
+  --screen-muted: var(--page-muted);
+  --screen-line: var(--page-line);
+  --screen-accent: var(--blue);
+  --camera-letterbox: #e9edf2;
+  --camera-caption: rgba(255, 255, 255, 0.9);
+}
+:root:not([data-theme='dark']) :is(.replay-camera, .replay-timeline) {
+  border-color: var(--ink);
+  border-image-source: var(--pix-ink);
+}
+.replay-camera,
+.replay-camera img {
+  background: var(--camera-letterbox);
+}
+.replay-camera figcaption {
+  background: var(--camera-caption);
+}
 
 /* Replay's stacked pictures take their whole tiles too: the caption sits over the picture's bottom edge. */
-.replay-stage .replay-camera figcaption{position:absolute;left:0;bottom:0;max-width:100%}
-.replay-stage .replay-camera-note{inset:0}
+.replay-stage .replay-camera figcaption {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  max-width: 100%;
+}
+.replay-stage .replay-camera-note {
+  inset: 0;
+}
 
 /* With a session running, the centre column stops above the session controls (they start right of the cameras). */
-body.has-controls[data-tab=replay] .replay-stage{grid-template-rows:var(--replay-head) minmax(0,1fr) var(--replay-controls)
-  var(--replay-timeline) 52px;grid-template-areas:"cameras head" "cameras model" "cameras controls" "cameras timeline" "cameras ."}
-body.has-controls[data-tab=replay] #model-view{height:calc(100% - 2 * var(--replay-pad) - var(--replay-head)
-  - var(--replay-controls) - var(--replay-timeline) - 52px - 4 * var(--replay-gap))}
-.replay-stage .replay-cameras{gap:8px}
+body.has-controls[data-tab='replay'] .replay-stage {
+  grid-template-rows:
+    var(--replay-head) minmax(0, 1fr) var(--replay-controls)
+    var(--replay-timeline) 52px;
+  grid-template-areas: 'cameras head' 'cameras model' 'cameras controls' 'cameras timeline' 'cameras .';
+}
+body.has-controls[data-tab='replay'] #model-view {
+  height: calc(
+    100% - 2 * var(--replay-pad) - var(--replay-head) - var(--replay-controls) - var(--replay-timeline) - 52px - 4 *
+      var(--replay-gap)
+  );
+}
+.replay-stage .replay-cameras {
+  gap: 8px;
+}

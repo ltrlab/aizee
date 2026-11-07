@@ -8,6 +8,7 @@ clearance to the table and bucket. '#': plans and clears by more than 1 mm; 'c':
 Use it to choose a workcell's cube region (docs/simulation/SIM_DEMONSTRATOR.md). With --yaws, one map per cube yaw
 (degrees). Each worker samples the arms' poses once (about 10 s); keep the workers within memory (8 ran out on 16 GB).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,34 +29,48 @@ def _init(workcell):
     from robot_platform.evaluation import demonstrator
     from robot_platform.evaluation.plants import _Stack, derive_stack
     from robot_platform.simulation.workcell import resolve
+
     stack = derive_stack()
-    _state.update(demonstrator=demonstrator, workcell=resolve(workcell), stack=stack, limits=_Stack(stack),
-                  demo=demonstrator.HandoffDemonstrator(), context=SimpleNamespace)
+    _state.update(
+        demonstrator=demonstrator,
+        workcell=resolve(workcell),
+        stack=stack,
+        limits=_Stack(stack),
+        demo=demonstrator.HandoffDemonstrator(),
+        context=SimpleNamespace,
+    )
 
 
 def _plan(item):
     (x, y), yaw = item
     stack, limits = _state['stack'], _state['limits']
-    context = _state['context'](joint_names=stack['names'], joint_map=stack['derived']['joint_map'],
-                                lower=limits.lower, upper=limits.upper, home=limits.home, workcell=_state['workcell'],
-                                period_s=limits.period_s, lead=limits.lead,
-                                cube_start={'x': x, 'y': y, 'yaw': math.radians(yaw)})
+    context = _state['context'](
+        joint_names=stack['names'],
+        joint_map=stack['derived']['joint_map'],
+        lower=limits.lower,
+        upper=limits.upper,
+        home=limits.home,
+        workcell=_state['workcell'],
+        period_s=limits.period_s,
+        lead=limits.lead,
+        cube_start={'x': x, 'y': y, 'yaw': math.radians(yaw)},
+    )
     try:
         _state['demo'].reset(context)
     except _state['demonstrator'].PlanningError:
         return item, '.'
     worst = min(distance for _, distance, _, _ in _state['demo'].plan_clearance())
-    return item, '#' if worst > .001 else 'c'
+    return item, '#' if worst > 0.001 else 'c'
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--workcell', default=str(DEFAULT), help="a workcell file or 'synthetic'")
-    parser.add_argument('--x', type=float, nargs=2, default=(0., .28), help='x range, m (default 0 0.28)')
-    parser.add_argument('--y', type=float, nargs=2, default=(-.52, -.20), help='y range, m (default -0.52 -0.20)')
-    parser.add_argument('--step', type=float, default=.04, help='grid step, m (default 0.04)')
+    parser.add_argument('--x', type=float, nargs=2, default=(0.0, 0.28), help='x range, m (default 0 0.28)')
+    parser.add_argument('--y', type=float, nargs=2, default=(-0.52, -0.20), help='y range, m (default -0.52 -0.20)')
+    parser.add_argument('--step', type=float, default=0.04, help='grid step, m (default 0.04)')
     parser.add_argument('--workers', type=int, default=6)
-    parser.add_argument('--yaws', type=float, nargs='+', default=[0.], help='cube yaws, degrees (default 0)')
+    parser.add_argument('--yaws', type=float, nargs='+', default=[0.0], help='cube yaws, degrees (default 0)')
     args = parser.parse_args(argv)
     xs = np.round(np.arange(args.x[0], args.x[1] + 1e-9, args.step), 3)
     ys = np.round(np.arange(args.y[1], args.y[0] - 1e-9, -args.step), 3)
@@ -65,7 +80,7 @@ def main(argv=None):
     with ProcessPoolExecutor(max_workers=args.workers, initializer=_init, initargs=(args.workcell,)) as pool:
         marks = dict(pool.map(_plan, items))
     for yaw in args.yaws:
-        if args.yaws != [0.]:
+        if args.yaws != [0.0]:
             print(f'yaw {yaw:+.0f} degrees')
         print('x:     ' + ' '.join(f'{x:+.2f}' for x in xs))
         for y in ys:

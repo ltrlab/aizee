@@ -12,8 +12,14 @@ let _video = null;
 let _state = 'disconnected';
 let _onState = () => {};
 
-export function onCamState(cb) { _onState = cb; cb(_state); }
-function _set(s) { _state = s; _onState(s); }
+export function onCamState(cb) {
+  _onState = cb;
+  cb(_state);
+}
+function _set(s) {
+  _state = s;
+  _onState(s);
+}
 
 function _waitIce(pc) {
   // aiortc waits for ICE gathering before returning the local description,
@@ -33,9 +39,9 @@ function _waitIce(pc) {
 }
 
 export async function startCameraWebRTC() {
-  if (_pc) return _pc;  // idempotent — caller may invoke once per session
+  if (_pc) return _pc; // idempotent — caller may invoke once per session
   _set('connecting');
-  const pc = new RTCPeerConnection({ iceServers: [] });  // LAN host candidates
+  const pc = new RTCPeerConnection({ iceServers: [] }); // LAN host candidates
   _pc = pc;
 
   pc.addEventListener('connectionstatechange', () => {
@@ -56,8 +62,9 @@ export async function startCameraWebRTC() {
   video.muted = true;
   video.playsInline = true;
   video.style.position = 'absolute';
-  video.style.left = '-9999px';  // off-screen but in DOM (some browsers need this)
-  video.style.width = '2px'; video.style.height = '2px';
+  video.style.left = '-9999px'; // off-screen but in DOM (some browsers need this)
+  video.style.width = '2px';
+  video.style.height = '2px';
   document.body.appendChild(video);
   _video = video;
 
@@ -102,7 +109,9 @@ export function getCameraVideo() {
 
 export async function stopCameraWebRTC() {
   if (_pc) {
-    try { _pc.close(); } catch {}
+    try {
+      _pc.close();
+    } catch {}
     _pc = null;
   }
   if (_video) {

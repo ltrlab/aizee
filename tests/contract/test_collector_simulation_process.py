@@ -1,4 +1,5 @@
 """Start the real application main loops against loopback simulation."""
+
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ from robot_platform.simulation.server import ProtocolServer
 REPO = Path(__file__).resolve().parents[2]
 # Interrupt after receiving live data so the applications exercise their normal
 # finally/shutdown paths. An independent timeout also covers startup failures.
-WRAPPER = r'''
+WRAPPER = r"""
 import _thread, json, os, runpy, sys, threading
 from robot_platform.control import RobotSession
 import serial
@@ -44,29 +45,34 @@ finally:
     timeout.cancel()
     for timer in timers:
         timer.cancel()
-'''
+"""
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("robot", ["minerva", "aizee"])
+@pytest.mark.parametrize('robot', ['minerva', 'aizee'])
 def test_real_collector_connects_without_hardware_and_shuts_down(robot, tmp_path, monkeypatch):
-    for dependency in ("cv2", "serial", "zmq", "PIL", "h5py", "yaml"):
+    for dependency in ('cv2', 'serial', 'zmq', 'PIL', 'h5py', 'yaml'):
         pytest.importorskip(dependency)
-    monkeypatch.setattr("robot_platform.simulation.server.source_identity", lambda: {"test": True})
+    monkeypatch.setattr('robot_platform.simulation.server.source_identity', lambda: {'test': True})
     with ProtocolServer(robot, tmp_path / robot) as server:
-        server.settings["applications"]["collect"]["gui"] = False
+        server.settings['applications']['collect']['gui'] = False
         # The Aizee collector otherwise starts a Rerun viewer even with GUI off.
         # This smoke test exercises the session lifecycle without an external UI.
-        extra_args = ["--no-rerun"] if robot == "aizee" else []
-        plan = build_launch_plan(server.spec, server.settings, "collect", repo=REPO,
-                                 extra_args=extra_args)
-        env = {**os.environ, "ROBOT_PLATFORM_SETTINGS_JSON": plan.settings_json,
-               "SMOKE_ARGV": json.dumps(plan.argv[1:]), "PYTHONIOENCODING": "utf-8",
-               "SDL_VIDEODRIVER": "dummy", "SDL_AUDIODRIVER": "dummy"}
-        path = tmp_path / "collector.log"
-        with path.open("w", encoding="utf-8") as log:
-            process = subprocess.Popen([sys.executable, "-u", "-c", WRAPPER], cwd=REPO, env=env,
-                                       stdout=log, stderr=subprocess.STDOUT)
+        extra_args = ['--no-rerun'] if robot == 'aizee' else []
+        plan = build_launch_plan(server.spec, server.settings, 'collect', repo=REPO, extra_args=extra_args)
+        env = {
+            **os.environ,
+            'ROBOT_PLATFORM_SETTINGS_JSON': plan.settings_json,
+            'SMOKE_ARGV': json.dumps(plan.argv[1:]),
+            'PYTHONIOENCODING': 'utf-8',
+            'SDL_VIDEODRIVER': 'dummy',
+            'SDL_AUDIODRIVER': 'dummy',
+        }
+        path = tmp_path / 'collector.log'
+        with path.open('w', encoding='utf-8') as log:
+            process = subprocess.Popen(
+                [sys.executable, '-u', '-c', WRAPPER], cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT
+            )
             try:
                 started = previous = time.monotonic()
                 while process.poll() is None and time.monotonic() - started < 30:
@@ -78,8 +84,8 @@ def test_real_collector_connects_without_hardware_and_shuts_down(robot, tmp_path
                 if process.poll() is None:
                     process.kill()
                 process.wait(timeout=5)
-        output = path.read_text(encoding="utf-8")
+        output = path.read_text(encoding='utf-8')
         assert process.returncode == 0, output[-6000:]
-        assert "SIMULATION_OBSERVATION_READY" in output, output[-6000:]
-        assert "HARDWARE_OPEN_ATTEMPT" not in output
+        assert 'SIMULATION_OBSERVATION_READY' in output, output[-6000:]
+        assert 'HARDWARE_OPEN_ATTEMPT' not in output
         assert server.rejected == 0

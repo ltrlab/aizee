@@ -50,16 +50,16 @@ from .mesh_world import MeshWorld
 # root-first.  Wheels and other continuous joints are skipped (no
 # meaningful "limit" to compute).
 _DEFAULT_SWEEP_JOINTS = [
-    "swivel",
-    "gantry_base",
-    "gantry_mid",
-    "gantry_end",
-    "wrist_pitch",
-    "wrist_swivel",
+    'swivel',
+    'gantry_base',
+    'gantry_mid',
+    'gantry_end',
+    'wrist_pitch',
+    'wrist_swivel',
 ]
 
-_DEFAULT_URDF = Path(__file__).resolve().parents[2] / "urdf" / "aizee" / "aizee.urdf"
-_DEFAULT_OUTPUT = Path(__file__).resolve().parents[2] / "calibration_runs" / "aizee" / "joint_limit_sweep.yaml"
+_DEFAULT_URDF = Path(__file__).resolve().parents[2] / 'urdf' / 'aizee' / 'aizee.urdf'
+_DEFAULT_OUTPUT = Path(__file__).resolve().parents[2] / 'calibration_runs' / 'aizee' / 'joint_limit_sweep.yaml'
 
 
 def _samples_with_zero(lo: float, hi: float, n: int) -> list[float]:
@@ -158,7 +158,7 @@ def sweep_one_joint(
         eff_lo, eff_hi = urdf_lo, urdf_hi
         safe_at_zero_pct = 0.0
         if verbose:
-            print(f"  [warn] {joint}: 0 valid ancestor postures — using URDF limits as fallback")
+            print(f'  [warn] {joint}: 0 valid ancestor postures — using URDF limits as fallback')
     else:
         safe_mask = [c == valid_postures for c in safe_count]
         eff_lo, eff_hi = _largest_run_containing(j_samples, safe_mask, anchor=0.0)
@@ -169,24 +169,22 @@ def sweep_one_joint(
     reduction_pct = 100.0 * (1.0 - eff_range / urdf_range) if urdf_range > 0 else 0.0
 
     top_offenders = sorted(failure_pairs.items(), key=lambda kv: -kv[1])[:5]
-    top_offenders_str = [
-        {"pair": sorted(list(p)), "fail_count": c} for p, c in top_offenders
-    ]
+    top_offenders_str = [{'pair': sorted(list(p)), 'fail_count': c} for p, c in top_offenders]
 
     return {
-        "joint": joint,
-        "urdf_lower": float(urdf_lo),
-        "urdf_upper": float(urdf_hi),
-        "effective_lower": float(eff_lo),
-        "effective_upper": float(eff_hi),
-        "reduction_pct": float(reduction_pct),
-        "ancestors": ancestors,
-        "posture_grid_size": len(posture_grid),
-        "valid_postures": valid_postures,
-        "sweep_samples": len(j_samples),
-        "safe_sample_pct": float(safe_at_zero_pct),
-        "top_colliding_pairs": top_offenders_str,
-        "elapsed_s": float(elapsed),
+        'joint': joint,
+        'urdf_lower': float(urdf_lo),
+        'urdf_upper': float(urdf_hi),
+        'effective_lower': float(eff_lo),
+        'effective_upper': float(eff_hi),
+        'reduction_pct': float(reduction_pct),
+        'ancestors': ancestors,
+        'posture_grid_size': len(posture_grid),
+        'valid_postures': valid_postures,
+        'sweep_samples': len(j_samples),
+        'safe_sample_pct': float(safe_at_zero_pct),
+        'top_colliding_pairs': top_offenders_str,
+        'elapsed_s': float(elapsed),
     }
 
 
@@ -200,21 +198,23 @@ def run_full_sweep(
     verbose: bool = True,
 ) -> dict:
     if verbose:
-        print(f"[sweep] loading URDF + meshes ({'convex hulls' if use_convex else 'raw meshes'})")
+        print(f'[sweep] loading URDF + meshes ({"convex hulls" if use_convex else "raw meshes"})')
     world = MeshWorld(urdf_path, use_convex=use_convex)
     if verbose:
-        print(f"[sweep] {len(world.link_names)} links meshed, "
-              f"{len(world._home_spurious_pairs)} home-spurious pairs auto-allowed")
+        print(
+            f'[sweep] {len(world.link_names)} links meshed, '
+            f'{len(world._home_spurious_pairs)} home-spurious pairs auto-allowed'
+        )
         for p in world._home_spurious_pairs:
-            print(f"          {sorted(list(p))}")
+            print(f'          {sorted(list(p))}')
 
     joint_order = list(joints) if joints else _DEFAULT_SWEEP_JOINTS
     # Drop any joint that's continuous (wheels) — meaningless to sweep.
-    joint_order = [j for j in joint_order if world.joint_type(j) != "continuous"]
+    joint_order = [j for j in joint_order if world.joint_type(j) != 'continuous']
 
     if verbose:
-        print(f"[sweep] joints (root-first): {joint_order}")
-        print(f"[sweep] samples: ancestor={n_ancestor}, sweep={n_sweep}")
+        print(f'[sweep] joints (root-first): {joint_order}')
+        print(f'[sweep] samples: ancestor={n_ancestor}, sweep={n_sweep}')
 
     effective_limits: dict[str, tuple[float, float]] = {}
     per_joint_reports: list[dict] = []
@@ -222,34 +222,37 @@ def run_full_sweep(
     for j in joint_order:
         if verbose:
             ancs = world.ancestors_of(j)
-            print(f"[sweep] {j}  (ancestors: {ancs})")
+            print(f'[sweep] {j}  (ancestors: {ancs})')
         report = sweep_one_joint(
-            world, j,
+            world,
+            j,
             effective_limits_so_far=effective_limits,
             n_ancestor=n_ancestor,
             n_sweep=n_sweep,
             verbose=verbose,
         )
-        effective_limits[j] = (report["effective_lower"], report["effective_upper"])
+        effective_limits[j] = (report['effective_lower'], report['effective_upper'])
         per_joint_reports.append(report)
         if verbose:
-            print(f"  -> [{report['effective_lower']:+.3f}, {report['effective_upper']:+.3f}]  "
-                  f"(URDF: [{report['urdf_lower']:+.3f}, {report['urdf_upper']:+.3f}])  "
-                  f"reduction {report['reduction_pct']:.1f}%  "
-                  f"in {report['elapsed_s']:.1f}s  "
-                  f"({report['valid_postures']}/{report['posture_grid_size']} postures valid)")
-            if report["top_colliding_pairs"]:
-                for entry in report["top_colliding_pairs"][:3]:
-                    print(f"      colliding: {entry['pair']}  ({entry['fail_count']} fails)")
+            print(
+                f'  -> [{report["effective_lower"]:+.3f}, {report["effective_upper"]:+.3f}]  '
+                f'(URDF: [{report["urdf_lower"]:+.3f}, {report["urdf_upper"]:+.3f}])  '
+                f'reduction {report["reduction_pct"]:.1f}%  '
+                f'in {report["elapsed_s"]:.1f}s  '
+                f'({report["valid_postures"]}/{report["posture_grid_size"]} postures valid)'
+            )
+            if report['top_colliding_pairs']:
+                for entry in report['top_colliding_pairs'][:3]:
+                    print(f'      colliding: {entry["pair"]}  ({entry["fail_count"]} fails)')
 
     return {
-        "generated_at":           _dt.datetime.now(_dt.timezone.utc).isoformat(),
-        "urdf":                   str(urdf_path),
-        "use_convex":             use_convex,
-        "samples_per_ancestor":   n_ancestor,
-        "samples_per_sweep":      n_sweep,
-        "auto_allowed_home_pairs": [sorted(list(p)) for p in world._home_spurious_pairs],
-        "joints":                 {r["joint"]: r for r in per_joint_reports},
+        'generated_at': _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        'urdf': str(urdf_path),
+        'use_convex': use_convex,
+        'samples_per_ancestor': n_ancestor,
+        'samples_per_sweep': n_sweep,
+        'auto_allowed_home_pairs': [sorted(list(p)) for p in world._home_spurious_pairs],
+        'joints': {r['joint']: r for r in per_joint_reports},
     }
 
 
@@ -257,24 +260,23 @@ def run_full_sweep(
 # CLI
 # -----------------------------------------------------------------------------
 
+
 def _cli() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--urdf", type=Path, default=_DEFAULT_URDF,
-                    help=f"URDF path (default: {_DEFAULT_URDF})")
-    ap.add_argument("--output", type=Path, default=_DEFAULT_OUTPUT,
-                    help=f"YAML output path (default: {_DEFAULT_OUTPUT})")
-    ap.add_argument("--joints", type=str, default=None,
-                    help="Comma-separated joint subset (default: full arm chain)")
-    ap.add_argument("--samples-ancestor", type=int, default=5)
-    ap.add_argument("--samples-sweep",    type=int, default=31)
-    ap.add_argument("--raw-meshes", action="store_true",
-                    help="Use raw STL geometry instead of convex hulls "
-                         "(slower, more accurate)")
-    ap.add_argument("--no-write", action="store_true",
-                    help="Print results but don't write the YAML")
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('--urdf', type=Path, default=_DEFAULT_URDF, help=f'URDF path (default: {_DEFAULT_URDF})')
+    ap.add_argument(
+        '--output', type=Path, default=_DEFAULT_OUTPUT, help=f'YAML output path (default: {_DEFAULT_OUTPUT})'
+    )
+    ap.add_argument('--joints', type=str, default=None, help='Comma-separated joint subset (default: full arm chain)')
+    ap.add_argument('--samples-ancestor', type=int, default=5)
+    ap.add_argument('--samples-sweep', type=int, default=31)
+    ap.add_argument(
+        '--raw-meshes', action='store_true', help='Use raw STL geometry instead of convex hulls (slower, more accurate)'
+    )
+    ap.add_argument('--no-write', action='store_true', help="Print results but don't write the YAML")
     args = ap.parse_args()
 
-    joints = [s.strip() for s in args.joints.split(",")] if args.joints else None
+    joints = [s.strip() for s in args.joints.split(',')] if args.joints else None
     t0 = time.perf_counter()
     result = run_full_sweep(
         args.urdf,
@@ -284,15 +286,15 @@ def _cli() -> int:
         use_convex=not args.raw_meshes,
         verbose=True,
     )
-    print(f"\n[sweep] total {time.perf_counter() - t0:.1f}s")
+    print(f'\n[sweep] total {time.perf_counter() - t0:.1f}s')
 
     if not args.no_write:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(yaml.safe_dump(result, sort_keys=False, default_flow_style=False))
-        print(f"[sweep] wrote {args.output}")
+        print(f'[sweep] wrote {args.output}')
 
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(_cli())

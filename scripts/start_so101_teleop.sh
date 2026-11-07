@@ -38,10 +38,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ---------------------------------------------------------------------------
 _os() {
     case "$(uname -s)" in
-        Linux*)               echo "linux"   ;;
-        Darwin*)              echo "mac"     ;;
-        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-        *)                    echo "unknown" ;;
+    Linux*) echo "linux" ;;
+    Darwin*) echo "mac" ;;
+    MINGW* | MSYS* | CYGWIN*) echo "windows" ;;
+    *) echo "unknown" ;;
     esac
 }
 OS="$(_os)"
@@ -88,7 +88,8 @@ _find_python() {
 # ---------------------------------------------------------------------------
 _find_tmux() {
     if command -v tmux &>/dev/null; then
-        command -v tmux; return 0
+        command -v tmux
+        return 0
     fi
     if [[ "$OS" == "windows" ]]; then
         local search_bases=()
@@ -102,7 +103,10 @@ _find_tmux() {
             for sub in "usr/bin" "bin" "."; do
                 for name in "tmux.exe" "tmux"; do
                     local c="$base/$sub/$name"
-                    [[ -x "$c" ]] && { echo "$c"; return 0; }
+                    [[ -x "$c" ]] && {
+                        echo "$c"
+                        return 0
+                    }
                 done
             done
         done
@@ -120,11 +124,13 @@ if [[ $# -lt 1 ]]; then
     exit 1
 fi
 
-PORT="$1"; shift
+PORT="$1"
+shift
 
 HOST="192.168.0.27"
 if [[ $# -ge 1 && "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    HOST="$1"; shift
+    HOST="$1"
+    shift
 fi
 
 RECORD=0

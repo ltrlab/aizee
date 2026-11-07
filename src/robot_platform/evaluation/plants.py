@@ -14,6 +14,7 @@ never evidence about the robot.
 Both report the 14 receiver joints in receiver motor coordinates, the same coordinates the task
 capture records as qpos/qcmd/actions.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -45,40 +46,63 @@ def _sha(path):
 
 
 def documented_directions(steps):
-    return {step['joint']: dict(motor=step['motor'], offset_rad=0., direction_verified=True,
-                                sign=-1 if step['motor'] in REVERSED_MOTORS else 1) for step in steps}
+    return {
+        step['joint']: dict(
+            motor=step['motor'],
+            offset_rad=0.0,
+            direction_verified=True,
+            sign=-1 if step['motor'] in REVERSED_MOTORS else 1,
+        )
+        for step in steps
+    }
 
 
 def session_directions(path, steps):
     """A Helm direction session's confirmed mapping (helm.session: session.json's preview_mapping)."""
     state = json.loads(Path(path).read_text(encoding='utf-8'))
     mapping = state.get('preview_mapping') if isinstance(state, dict) else None
-    if (not isinstance(mapping, dict) or set(mapping) != {s['joint'] for s in steps}
-            or any(r.get('sign') not in (-1, 1) or not math.isfinite(r.get('offset_rad', math.nan))
-                   for r in mapping.values())):
+    if (
+        not isinstance(mapping, dict)
+        or set(mapping) != {s['joint'] for s in steps}
+        or any(
+            r.get('sign') not in (-1, 1) or not math.isfinite(r.get('offset_rad', math.nan)) for r in mapping.values()
+        )
+    ):
         raise ValueError(f'{path} has no complete direction mapping (preview_mapping) for this calibration plan')
     return mapping
 
 
-def derive_stack(*, devices=DEVICES, calibration='minerva-joint-calibration.json', profile='minerva-teleop-direct.json',
-                 limits='minerva-production-01-joint-limits.json', servo='minerva-production-01-servo.json',
-                 directions=None, actuators=True):
+def derive_stack(
+    *,
+    devices=DEVICES,
+    calibration='minerva-joint-calibration.json',
+    profile='minerva-teleop-direct.json',
+    limits='minerva-production-01-joint-limits.json',
+    servo='minerva-production-01-servo.json',
+    directions=None,
+    actuators=True,
+):
     """The receiver Helm would derive for these saved files (helm.teleop.TeleopCore.build), and their provenance."""
     from robot_platform.control.guarded_config import derive_receiver, fit_motor_ranges
     from robot_platform.control.joint_calibration import load_plan, validate_preview_transmissions
     from robot_platform.control.servo_calibration import load_servo
     from robot_platform.helm.teleop import load_profile
     from robot_platform.simulation.minerva_sim import actuators_path
+
     devices = Path(devices)
-    paths = {key: devices / name for key, name in
-             (('calibration', calibration), ('profile', profile), ('limits', limits), ('servo', servo))}
+    paths = {
+        key: devices / name
+        for key, name in (('calibration', calibration), ('profile', profile), ('limits', limits), ('servo', servo))
+    }
     plan, _, device, reference, model, _pose, bindings = load_plan(paths['calibration'])
     loaded = load_profile(paths['profile'])
     receiver = loaded['receiver']
     if receiver.get('collision_mode') != 'disabled':
         # Enforced two-arm checks need the motion envelope compiler and collision backend; not wired here.
-        raise ValueError('The evaluation runner drives collision-disabled direct profiles only '
-                         f"({paths['profile'].name} is {receiver.get('collision_mode', 'enforced')})")
+        raise ValueError(
+            'The evaluation runner drives collision-disabled direct profiles only '
+            f'({paths["profile"].name} is {receiver.get("collision_mode", "enforced")})'
+        )
     steps = plan['steps']
     transmissions = validate_preview_transmissions(plan.get('preview_transmissions', []), steps, reference, model)
     if directions is None:
@@ -86,21 +110,42 @@ def derive_stack(*, devices=DEVICES, calibration='minerva-joint-calibration.json
     else:
         mapping, direction_source = session_directions(directions, steps), str(Path(directions).resolve())
     saved_servo = load_servo(paths['servo'])
-    derived = derive_receiver(reference=reference, steps=steps, directions=mapping, transmissions=transmissions,
-                              model=model, limits=json.loads(paths['limits'].read_text(encoding='utf-8')),
-                              profile=loaded, backend=None, servo=saved_servo, collision_bound=None)
+    derived = derive_receiver(
+        reference=reference,
+        steps=steps,
+        directions=mapping,
+        transmissions=transmissions,
+        model=model,
+        limits=json.loads(paths['limits'].read_text(encoding='utf-8')),
+        profile=loaded,
+        backend=None,
+        servo=saved_servo,
+        collision_bound=None,
+    )
     fit_motor_ranges(derived['config']['joints'], {})
     actuator_file = None
     if actuators:
         actuator_file = actuators_path(paths['servo'], device['asset_id']) if actuators is True else Path(actuators)
     names = tuple(joint['name'] for joint in derived['config']['joints'])
-    provenance = {'asset_id': device['asset_id'], 'receiver_identity': derived['config']['identity'],
-                  'profile': loaded.get('id'), 'directions': direction_source,
-                  'files': {key: {'path': str(path), 'sha256': _sha(path)} for key, path in paths.items()},
-                  'joint_names': list(names)}
-    return {'derived': derived, 'model': model, 'reference': reference, 'directions': mapping,
-            'servo': saved_servo, 'profile': loaded, 'names': names, 'actuators': actuator_file,
-            'provenance': provenance}
+    provenance = {
+        'asset_id': device['asset_id'],
+        'receiver_identity': derived['config']['identity'],
+        'profile': loaded.get('id'),
+        'directions': direction_source,
+        'files': {key: {'path': str(path), 'sha256': _sha(path)} for key, path in paths.items()},
+        'joint_names': list(names),
+    }
+    return {
+        'derived': derived,
+        'model': model,
+        'reference': reference,
+        'directions': mapping,
+        'servo': saved_servo,
+        'profile': loaded,
+        'names': names,
+        'actuators': actuator_file,
+        'provenance': provenance,
+    }
 
 
 class _Stack:
@@ -108,6 +153,7 @@ class _Stack:
 
     def __init__(self, stack):
         from robot_platform.helm.teleop import loop_period_s
+
         self.stack = stack
         derived = stack['derived']
         self.names = stack['names']
@@ -119,7 +165,7 @@ class _Stack:
         config = {joint['name']: joint for joint in derived['config']['joints']}
         direct = derived['config'].get('direct') or {}
         reaction = (derived['config']['feedback_timeout_ms'] + direct.get('limit_reaction_ms', 0)) / 1000
-        margin = np.array([0. if config[n].get('gripper') else end_margin(config[n], reaction) for n in self.names])
+        margin = np.array([0.0 if config[n].get('gripper') else end_margin(config[n], reaction) for n in self.names])
         self.lower = np.array([rows[n]['lower'] for n in self.names]) + margin
         self.upper = np.array([rows[n]['upper'] for n in self.names]) - margin
         # How far following lets a command lead its joint (the lifecycle's max_lead): with position-only commands
@@ -127,7 +173,7 @@ class _Stack:
         self.lead = np.array([rows[n]['max_lead'] for n in self.names], dtype=float)
         self.home = np.array(derived['initial'], dtype=float)
         self.period_s = loop_period_s(stack['profile'])
-        self.time_s = 0.
+        self.time_s = 0.0
 
     def clip(self, command):
         return np.minimum(self.upper, np.maximum(self.lower, command))
@@ -143,8 +189,8 @@ class IdealPlant(_Stack):
 
     def stage(self, q, timeout_s=None):
         self.q = self.clip(np.asarray(q, dtype=float))
-        self._velocity[:] = 0.
-        return {'ok': True, 'duration_s': 0., 'error': np.zeros(len(self.names)).tolist()}
+        self._velocity[:] = 0.0
+        return {'ok': True, 'duration_s': 0.0, 'error': np.zeros(len(self.names)).tolist()}
 
     def scene_pose(self):
         return self.q.copy()
@@ -161,15 +207,18 @@ class IdealPlant(_Stack):
         return {'q': self.q.copy(), 'qcmd': self.q.copy(), 'dq': self._velocity.copy(), 'effort': nan}
 
     def describe(self):
-        return {'plant': 'ideal', 'note': 'commands become joint positions exactly; harness check only, '
-                                          'never evidence about the robot', **self.stack['provenance']}
+        return {
+            'plant': 'ideal',
+            'note': 'commands become joint positions exactly; harness check only, never evidence about the robot',
+            **self.stack['provenance'],
+        }
 
     def close(self):
         pass
 
 
 class _SteppedClock:
-    def __init__(self, start=100.):
+    def __init__(self, start=100.0):
         self.now = start
 
     def __call__(self):
@@ -178,6 +227,7 @@ class _SteppedClock:
 
 class ArmPlant(_Stack):
     """The receiver, lifecycle and simulated joints TeleopCore runs under `helm --sim`, driven by a policy."""
+
     kind = 'armplant'
     HOLD_CYCLES = 20
 
@@ -187,6 +237,7 @@ class ArmPlant(_Stack):
         from robot_platform.simulation.minerva_sim import open_simulation
         from robot_platform.teleop.direct_lifecycle import DirectLifecycleSession
         from robot_platform.teleop.lifecycle import TeleopLifecycle
+
         super().__init__(stack)
         if scene_pose not in ('plant', 'measured'):
             raise ValueError("scene_pose is 'plant' (the simulated joints) or 'measured' (receiver feedback rows)")
@@ -194,10 +245,18 @@ class ArmPlant(_Stack):
         derived = stack['derived']
         self.clock = _SteppedClock()
         self.directory = Path(directory) if directory else Path(tempfile.mkdtemp(prefix='minerva-eval-'))
-        self.receiver = open_simulation(derived, model=stack['model'], directions=stack['directions'],
-                                        motors=stack['reference']['motors'], servo=stack['servo'],
-                                        directory=self.directory, clock=self.clock, viewer=False, seed=seed,
-                                        actuators=stack['actuators'])
+        self.receiver = open_simulation(
+            derived,
+            model=stack['model'],
+            directions=stack['directions'],
+            motors=stack['reference']['motors'],
+            servo=stack['servo'],
+            directory=self.directory,
+            clock=self.clock,
+            viewer=False,
+            seed=seed,
+            actuators=stack['actuators'],
+        )
         self.plant = self.receiver.plant
         if list(self.plant.names) != list(self.names):
             raise ValueError('Simulated joints and receiver joints differ in order')
@@ -213,21 +272,36 @@ class ArmPlant(_Stack):
             step(commands, dt)
             if self._coupled is not None:
                 # Coupled: the scene's driven grippers, not ArmPlant, decide where the gripper joints went.
-                held = {name: None if commands is None or name in self.plant.dropped else commands[i]
-                        for name, i in self._grippers.items()}
+                held = {
+                    name: None if commands is None or name in self.plant.dropped else commands[i]
+                    for name, i in self._grippers.items()
+                }
                 for name, (q, v, torque) in self._coupled.step_driven(start, self.plant.q, held, dt).items():
                     i = self._grippers[name]
                     self.plant.q[i], self.plant.v[i], self.plant.torque[i] = q, v, torque
             self._ticks.append(tuple(self.plant.q))
+
         self.plant.step = recorded
         config = derived['config']
-        self.controller = GuardedControllerClient(self.receiver.exchange, group=config['group'],
-                                                  identity=config['identity'], joint_names=self.names)
-        self.lifecycle = TeleopLifecycle(derived['lifecycle'], clock=self.clock,
-                                         max_source_misses=source_misses(self.period_s), trial=None,
-                                         allow_repeated_source=True)
-        self.session = DirectLifecycleSession(self.controller, config, self.lifecycle, lambda: self.receiver.last,
-                                              period_s=self.period_s, cycle_budget_s=CYCLE_BUDGET_S, clock=self.clock)
+        self.controller = GuardedControllerClient(
+            self.receiver.exchange, group=config['group'], identity=config['identity'], joint_names=self.names
+        )
+        self.lifecycle = TeleopLifecycle(
+            derived['lifecycle'],
+            clock=self.clock,
+            max_source_misses=source_misses(self.period_s),
+            trial=None,
+            allow_repeated_source=True,
+        )
+        self.session = DirectLifecycleSession(
+            self.controller,
+            config,
+            self.lifecycle,
+            lambda: self.receiver.last,
+            period_s=self.period_s,
+            cycle_budget_s=CYCLE_BUDGET_S,
+            clock=self.clock,
+        )
         self._sequence = 0
         self._row = None
         self._pose = np.array(self.plant.q)
@@ -246,20 +320,26 @@ class ArmPlant(_Stack):
     def _target(self, q):
         self._sequence += 1
         now = self.clock()
-        return [dict(name=name, position=float(value), sampled_at=now, sequence=self._sequence)
-                for name, value in zip(self.names, q)]
+        return [
+            dict(name=name, position=float(value), sampled_at=now, sequence=self._sequence)
+            for name, value in zip(self.names, q)
+        ]
 
     def cycle(self, action=None, command=None):
         """One control period: a lifecycle cycle through the receiver, then the clock moves on."""
         self._ticks.clear()
         try:
-            self.session.cycle(action=action, target=None if command is None else self._target(command),
-                               started_at=self.clock())
+            self.session.cycle(
+                action=action, target=None if command is None else self._target(command), started_at=self.clock()
+            )
         except Exception as exc:
             status = getattr(exc, 'status', None) or self.controller.status or {}
             reason = status.get('reason')
-            raise PlantFault(f"receiver {status.get('state')}: {reason} · {exc}" if reason not in (None, 'ok')
-                             else f'{type(exc).__name__}: {exc}') from exc
+            raise PlantFault(
+                f'receiver {status.get("state")}: {reason} · {exc}'
+                if reason not in (None, 'ok')
+                else f'{type(exc).__name__}: {exc}'
+            ) from exc
         recent = (self.receiver.last or {}).get('recent') or []
         if recent:
             self._row = recent[-1]
@@ -273,20 +353,23 @@ class ArmPlant(_Stack):
         self.time_s += ticks * TICK_S
         return self._pose.copy(), ticks * TICK_S
 
-    def stage(self, q, timeout_s=30.):
+    def stage(self, q, timeout_s=30.0):
         """Engage onto `q` the way an operator's Engage aligns, until the lifecycle says it has settled there."""
         q = self.clip(np.asarray(q, dtype=float))
         if self.lifecycle.state in ('ENGAGING', 'TELEOP'):
             self.cycle('disengage')
         self.cycle('engage', q)
-        elapsed = 0.
+        elapsed = 0.0
         while self.lifecycle.state != 'TELEOP':
             if self.lifecycle.state != 'ENGAGING':
                 raise PlantFault(f'staging left ENGAGING for {self.lifecycle.state}: {self.lifecycle.reason}')
             if elapsed > timeout_s:
-                return {'ok': False, 'duration_s': elapsed,
-                        'error': (np.array(self.plant.q) - q).tolist(),
-                        'detail': f'did not settle on the start pose within {timeout_s:.0f} s'}
+                return {
+                    'ok': False,
+                    'duration_s': elapsed,
+                    'error': (np.array(self.plant.q) - q).tolist(),
+                    'detail': f'did not settle on the start pose within {timeout_s:.0f} s',
+                }
             self.cycle(None, q)
             elapsed += self.period_s
         return {'ok': True, 'duration_s': elapsed, 'error': (np.array(self.plant.q) - q).tolist()}
@@ -303,11 +386,17 @@ class ArmPlant(_Stack):
         for name in self._grippers:
             spec = next(s for s in self.plant.specs if s['name'] == name)
             guessed = nominal.get(name) or []
-            drives[name] = dict(inertia=spec['inertia'], friction=spec['friction'], viscous=spec.get('viscous', 0.),
-                                max_effort=float(rows[name]['max_effort']),
-                                source=('ArmPlant joint values' + (f" (nominal, unmeasured: {', '.join(guessed)})"
-                                                                   if guessed else '')
-                                        + '; torque limit: the receiver configuration\'s max_effort'))
+            drives[name] = dict(
+                inertia=spec['inertia'],
+                friction=spec['friction'],
+                viscous=spec.get('viscous', 0.0),
+                max_effort=float(rows[name]['max_effort']),
+                source=(
+                    'ArmPlant joint values'
+                    + (f' (nominal, unmeasured: {", ".join(guessed)})' if guessed else '')
+                    + "; torque limit: the receiver configuration's max_effort"
+                ),
+            )
         return drives
 
     def couple(self, scene):
@@ -339,19 +428,27 @@ class ArmPlant(_Stack):
         row, n = self._row, len(self.names)
         if row is None:
             raise PlantFault('no receiver feedback yet')
-        return {'q': np.array([row[1 + 4 * i] for i in range(n)]), 'dq': np.array([row[2 + 4 * i] for i in range(n)]),
-                'effort': np.array([row[3 + 4 * i] for i in range(n)]),
-                'qcmd': np.array([row[4 + 4 * i] for i in range(n)])}
+        return {
+            'q': np.array([row[1 + 4 * i] for i in range(n)]),
+            'dq': np.array([row[2 + 4 * i] for i in range(n)]),
+            'effort': np.array([row[3 + 4 * i] for i in range(n)]),
+            'qcmd': np.array([row[4 + 4 * i] for i in range(n)]),
+        }
 
     def describe(self):
         derived = self.stack['derived']
-        return {'plant': 'armplant', 'scene_pose': self.scene_pose_source,
-                'receiver': 'native control harness (simulation.control_harness) via minerva_sim.open_simulation',
-                'loop_hz': 1 / self.period_s, 'receiver_tick_s': TICK_S,
-                'control_law': sorted({row['control_law'] for row in derived['report']}),
-                'actuators': self.receiver.actuators, 'nominal_joint_values': self.receiver.nominal,
-                'clock': 'stepped simulation clock; no wall-clock timing or policy inference latency',
-                **self.stack['provenance']}
+        return {
+            'plant': 'armplant',
+            'scene_pose': self.scene_pose_source,
+            'receiver': 'native control harness (simulation.control_harness) via minerva_sim.open_simulation',
+            'loop_hz': 1 / self.period_s,
+            'receiver_tick_s': TICK_S,
+            'control_law': sorted({row['control_law'] for row in derived['report']}),
+            'actuators': self.receiver.actuators,
+            'nominal_joint_values': self.receiver.nominal,
+            'clock': 'stepped simulation clock; no wall-clock timing or policy inference latency',
+            **self.stack['provenance'],
+        }
 
     def close(self):
         try:

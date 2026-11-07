@@ -15,6 +15,7 @@ Each start reconciles DIR with the release it runs (prepare):
 - otherwise DIR's copy, the operator's last save, stands.
 DIR/operator-files.json records which release copy each file started from.
 """
+
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ def operator_files(profile_path, asset_id, teleop_path=None):
     """{file name: the copy beside the profiles} of the joint limits, servo calibration, arms' reference and (with a
     teleop profile) leader ranges."""
     from robot_platform.control.joint_calibration import arms_reference_name
+
     profile_path = Path(profile_path).resolve()
     files = {name: profile_path.parent / name for name in (f'{asset_id}-joint-limits.json', f'{asset_id}-servo.json')}
     reference = json.loads(profile_path.read_text(encoding='utf-8'))['reference']
@@ -78,16 +80,23 @@ def prepare(files, directory, *, clock=time.time):
                 continue
         elif mine == entry.get('release_sha256'):
             _write(state, Path(source).read_bytes())  # Never saved over: the release's new copy takes its place.
-            notices.append({'file': name, 'kind': 'updated', 'kept': None,
-                            'message': f'{name}: updated from the release'})
+            notices.append(
+                {'file': name, 'kind': 'updated', 'kept': None, 'message': f'{name}: updated from the release'}
+            )
         elif mine != release:
             kept = directory / 'replaced' / f'{stamp}-{name}'
             kept.parent.mkdir(exist_ok=True)
             os.replace(state, kept)
             _write(state, Path(source).read_bytes())
-            notices.append({'file': name, 'kind': 'replaced', 'kept': str(kept),
-                            'message': f'{name}: the release brought a new copy; the one saved on Minerva before is '
-                                       f'kept at {kept}'})
+            notices.append(
+                {
+                    'file': name,
+                    'kind': 'replaced',
+                    'kept': str(kept),
+                    'message': f'{name}: the release brought a new copy; the one saved on Minerva before is '
+                    f'kept at {kept}',
+                }
+            )
         registry[name] = {'release_sha256': release}
     _write(directory / REGISTRY, (json.dumps(registry, indent=1, sort_keys=True) + '\n').encode())
     return notices

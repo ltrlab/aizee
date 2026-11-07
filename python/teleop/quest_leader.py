@@ -57,22 +57,27 @@ except ImportError:
 
 # Fixed remap WebXR (Y-up, -Z forward) -> AIZEE base (Z-up, +X forward).
 #   X_robot = -Z_xr,  Y_robot = -X_xr,  Z_robot = +Y_xr
-_R_XR_TO_ROBOT: np.ndarray = np.array([
-    [0.0, 0.0, -1.0],
-    [-1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-], dtype=np.float64)
+_R_XR_TO_ROBOT: np.ndarray = np.array(
+    [
+        [0.0, 0.0, -1.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ],
+    dtype=np.float64,
+)
 
 
 def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     ax, ay, az, aw = a
     bx, by, bz, bw = b
-    return np.array([
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-        aw * bw - ax * bx - ay * by - az * bz,
-    ])
+    return np.array(
+        [
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz,
+        ]
+    )
 
 
 def _quat_conj(q: np.ndarray) -> np.ndarray:
@@ -100,9 +105,11 @@ def _yaw_from_quat_y_up(q: np.ndarray) -> float:
 # Configuration
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class QuestLeaderConfig:
     """Operator-facing knobs.  Loaded from config/quest_teleop.yaml."""
+
     # Operator clutch workspace — target EE position is clamped to this box
     # in robot base frame [m].  This is the SAFETY clamp; size it for
     # comfortable operator hand motion (~40-60 cm typical).
@@ -116,8 +123,8 @@ class QuestLeaderConfig:
     reachable_min: Optional[tuple[float, float, float]] = None
     reachable_max: Optional[tuple[float, float, float]] = None
     # Stale-frame timeouts [s]
-    stale_drop_clutch_s: float = 0.10        # no pose for this long -> release
-    stale_telem_s: float = 0.50              # no telem for this long -> no engage
+    stale_drop_clutch_s: float = 0.10  # no pose for this long -> release
+    stale_telem_s: float = 0.50  # no telem for this long -> no engage
     # Gripper trigger -> rad mapping
     gripper_open_rad: float = 0.0
     gripper_closed_rad: float = 0.785
@@ -147,8 +154,9 @@ class QuestLeaderConfig:
     pose_lpf_alpha: float = 0.3
 
     @classmethod
-    def load_yaml(cls, path: Path | str) -> "QuestLeaderConfig":
+    def load_yaml(cls, path: Path | str) -> 'QuestLeaderConfig':
         import yaml
+
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
@@ -156,6 +164,7 @@ class QuestLeaderConfig:
 # -----------------------------------------------------------------------------
 # QuestLeader
 # -----------------------------------------------------------------------------
+
 
 class QuestLeader:
     """WebXR Cartesian leader — drop-in for OpenRBLeader/So101Leader."""
@@ -177,38 +186,41 @@ class QuestLeader:
     # Public order — same as other leaders' AIZEE_JOINTS (this leader IS
     # already in the AIZEE-arm joint order, so JOINTS == AIZEE_JOINTS).
     JOINTS = [
-        "swivel", "gantry_base", "gantry_mid", "gantry_end",
-        "wrist_pitch", "wrist_roll", "gripper",
+        'swivel',
+        'gantry_base',
+        'gantry_mid',
+        'gantry_end',
+        'wrist_pitch',
+        'wrist_roll',
+        'gripper',
     ]
     AIZEE_JOINTS = list(JOINTS)
 
     def __init__(
         self,
-        port: Optional[str] = None,        # ignored — for constructor compat
-        baud: Optional[int] = None,        # ignored — for constructor compat
+        port: Optional[str] = None,  # ignored — for constructor compat
+        baud: Optional[int] = None,  # ignored — for constructor compat
         calib: Optional[Path | str] = None,  # ignored — uses YAML config instead
         *,
-        shared_state=None,                 # web.SharedState — required for poll()
+        shared_state=None,  # web.SharedState — required for poll()
         config: Optional[QuestLeaderConfig] = None,
         urdf_path: Optional[Path | str] = None,
         joint_limits_path: Optional[Path | str] = None,
     ) -> None:
-        self.port = port or "webxr://"
+        self.port = port or 'webxr://'
         self.cfg = config or QuestLeaderConfig()
-        self._state = shared_state         # caller wires this up in the factory
+        self._state = shared_state  # caller wires this up in the factory
         self._kin: Kinematics = load_aizee_arm(urdf_path)
         # Tighten kin.lower/upper using configured bounds. Independent joint
         # bounds do not guarantee collision-free motion. Keep URDF bounds if
         # no overlay is present.
         if joint_limits_path is None:
-            joint_limits_path = (
-                Path(__file__).resolve().parents[2] / "config" / "joint_limits.yaml"
-            )
+            joint_limits_path = Path(__file__).resolve().parents[2] / 'config' / 'joint_limits.yaml'
         if Path(joint_limits_path).exists():
             try:
                 self._kin.apply_limits_overlay(joint_limits_path)
             except Exception as exc:
-                print(f"[quest] joint_limits overlay failed: {exc}", flush=True)
+                print(f'[quest] joint_limits overlay failed: {exc}', flush=True)
         # Last commanded full 7-vector (6 IK joints + gripper).  Defaults
         # to zeros; gets replaced by current qpos on first successful engage.
         # q_last is in URDF *control* frame (what the motor gets, modulo
@@ -250,7 +262,7 @@ class QuestLeader:
         # raw commanded pose; *_clamped is after the workspace box (so when
         # the two diverge you're past the wall).
         self._last_target_unclamped_t: Optional[np.ndarray] = None
-        self._last_target_clamped_t:   Optional[np.ndarray] = None
+        self._last_target_clamped_t: Optional[np.ndarray] = None
         self._last_target_t_time: float = 0.0
         # Per-poll latency metrics (EMA-smoothed so the HUD doesn't flicker).
         self._last_ik_ms: float = 0.0
@@ -280,8 +292,7 @@ class QuestLeader:
     def connect(self) -> bool:
         if self._state is None:
             raise RuntimeError(
-                "QuestLeader needs a SharedState — pass one via the factory "
-                "in leader.py (use kind='quest')."
+                "QuestLeader needs a SharedState — pass one via the factory in leader.py (use kind='quest')."
             )
         self._connected = True
         self._estop = False
@@ -333,24 +344,24 @@ class QuestLeader:
         in collect_demo.py work unchanged."""
         if self._state is None or self._state.latest_control is None:
             return None
-        left = self._state.latest_control.get("left") or {}
-        stick = left.get("stick") or [0.0, 0.0]
-        a_btn = bool(left.get("a", False))
+        left = self._state.latest_control.get('left') or {}
+        stick = left.get('stick') or [0.0, 0.0]
+        a_btn = bool(left.get('a', False))
         # Increment press_counter on rising edge — matches OpenRB semantics so
         # the existing edge-detector in collect_demo.py just works.
-        if not hasattr(self, "_left_a_prev"):
+        if not hasattr(self, '_left_a_prev'):
             self._left_a_prev = False
             self._left_a_count = 0
         if a_btn and not self._left_a_prev:
             self._left_a_count += 1
         self._left_a_prev = a_btn
         return {
-            "x": float(stick[0]),
-            "y": float(stick[1]),
-            "button": a_btn,
-            "press_counter": int(self._left_a_count),
-            "status": 0 if self._state.latest_control else 1,
-            "present": True,
+            'x': float(stick[0]),
+            'y': float(stick[1]),
+            'button': a_btn,
+            'press_counter': int(self._left_a_count),
+            'status': 0 if self._state.latest_control else 1,
+            'present': True,
         }
 
     # ---- the hot path -------------------------------------------------
@@ -387,7 +398,7 @@ class QuestLeader:
         # Stale-pose handling.
         if frame is None:
             return self._maybe_held_cmd()
-        rx_ts = frame.get("_rx_ts", 0.0)
+        rx_ts = frame.get('_rx_ts', 0.0)
         # Pose age (always tracked — useful for HUD even when disengaged).
         self._last_pose_age_ms = (now - rx_ts) * 1000.0
         self._ema_pose_age_ms = 0.2 * self._last_pose_age_ms + 0.8 * self._ema_pose_age_ms
@@ -395,26 +406,25 @@ class QuestLeader:
             self._engaged = False
             return self._maybe_held_cmd()
 
-        right = frame.get("right") or {}
-        left  = frame.get("left")  or {}
-        b_btn = bool(right.get("b", False))
+        right = frame.get('right') or {}
+        left = frame.get('left') or {}
+        b_btn = bool(right.get('b', False))
         # E-stop edge: B button rising edge latches.
         if b_btn and not self._prev_b:
             self._estop = True
-            print("[quest] E-STOP latched (right B). Hold both grips 1s to clear.",
-                  flush=True)
+            print('[quest] E-STOP latched (right B). Hold both grips 1s to clear.', flush=True)
         self._prev_b = b_btn
         # Dual-grip-hold clears the latch (requires 1 s of both grips down to
         # avoid accidental release during normal use).
-        right_grip = bool(right.get("grip", False))
-        left_grip  = bool(left.get("grip",  False))
+        right_grip = bool(right.get('grip', False))
+        left_grip = bool(left.get('grip', False))
         if right_grip and left_grip:
             if self._dual_grip_t0 is None:
                 self._dual_grip_t0 = now
             elif (now - self._dual_grip_t0) >= 1.0 and self._estop:
                 self._estop = False
                 self._dual_grip_t0 = None
-                print("[quest] E-STOP cleared by dual-grip hold.", flush=True)
+                print('[quest] E-STOP cleared by dual-grip hold.', flush=True)
         else:
             self._dual_grip_t0 = None
         if self._estop:
@@ -425,8 +435,8 @@ class QuestLeader:
             return self._q_last.astype(np.float32)
 
         # Current pose + LPF.
-        rp = np.asarray(right.get("pos", [0, 0, 0]), dtype=np.float64)
-        rq = np.asarray(right.get("quat", [0, 0, 0, 1]), dtype=np.float64)
+        rp = np.asarray(right.get('pos', [0, 0, 0]), dtype=np.float64)
+        rq = np.asarray(right.get('quat', [0, 0, 0, 1]), dtype=np.float64)
         rq = rq / (np.linalg.norm(rq) + 1e-12)
         if self._lpf_pos is None:
             self._lpf_pos = rp.copy()
@@ -476,7 +486,7 @@ class QuestLeader:
                     self._lpf_quat = self._lpf_quat / (np.linalg.norm(self._lpf_quat) + 1e-12)
                 self._consec_glitches = 0
 
-        grip = bool(right.get("grip", False))
+        grip = bool(right.get('grip', False))
 
         # Clutch FSM.
         if grip and not self._engaged:
@@ -511,11 +521,9 @@ class QuestLeader:
             self._last_target_unclamped_t = None
 
         # Trigger -> gripper.
-        trig = float(right.get("trigger", 0.0))
+        trig = float(right.get('trigger', 0.0))
         trig = max(0.0, min(1.0, trig))
-        gripper_q = self.cfg.gripper_open_rad + trig * (
-            self.cfg.gripper_closed_rad - self.cfg.gripper_open_rad
-        )
+        gripper_q = self.cfg.gripper_open_rad + trig * (self.cfg.gripper_closed_rad - self.cfg.gripper_open_rad)
 
         if self._engaged and self._engage_t_ee is not None:
             target_t_raw, target_quat = self._compute_target_pose()
@@ -538,7 +546,7 @@ class QuestLeader:
                 if t_norm > t_max_step:
                     target_t = self._last_target_clamped_t + t_delta * (t_max_step / t_norm)
             self._last_target_unclamped_t = target_t_raw.copy()
-            self._last_target_clamped_t   = target_t.copy()
+            self._last_target_clamped_t = target_t.copy()
             self._last_target_t_time = now
             _t_ik_start = time.perf_counter()
             # Seed IK in visual frame; solution comes out in visual frame
@@ -546,8 +554,11 @@ class QuestLeader:
             # the IK converges relative to the user's perceived pose.
             _vo6 = self._visual_offsets[:6]
             q_last_visual = self._q_last[:6] + _vo6
-            _jw = (np.asarray(self.cfg.ik_joint_weights, dtype=np.float64)
-                   if self.cfg.ik_joint_weights is not None else None)
+            _jw = (
+                np.asarray(self.cfg.ik_joint_weights, dtype=np.float64)
+                if self.cfg.ik_joint_weights is not None
+                else None
+            )
             res = solve_ik(
                 self._kin,
                 q_init=q_last_visual,
@@ -592,32 +603,32 @@ class QuestLeader:
         """Read-only state dict for the WebXR HUD.  Safe to call from any
         thread — all fields are scalar reads of attributes set in poll()."""
         out: dict = {
-            "engaged":       bool(self._engaged_public),
-            "estop":         bool(self._estop),
-            "workspace_min": self._workspace_min.tolist(),
-            "workspace_max": self._workspace_max.tolist(),
-            "ik_ms":         float(self._ema_ik_ms),
-            "pose_age_ms":   float(self._ema_pose_age_ms),
-            "glitch_drops":  int(self._glitch_drops),
+            'engaged': bool(self._engaged_public),
+            'estop': bool(self._estop),
+            'workspace_min': self._workspace_min.tolist(),
+            'workspace_max': self._workspace_max.tolist(),
+            'ik_ms': float(self._ema_ik_ms),
+            'pose_age_ms': float(self._ema_pose_age_ms),
+            'glitch_drops': int(self._glitch_drops),
             # Commanded joint vector — what the leader is asking the arm
             # to reach.  Used by the browser ghost-URDF overlay: it stays
             # invisible while the real arm tracks the command, and floats
             # ahead in yellow when there's lag / saturation / collision.
-            "qcmd":          self._q_last.astype(float).tolist(),
+            'qcmd': self._q_last.astype(float).tolist(),
         }
         if self._state is not None and self._state.stats:
-            out["control_hz"] = float(self._state.stats.get("control_rx_hz", 0.0))
+            out['control_hz'] = float(self._state.stats.get('control_rx_hz', 0.0))
         if self.cfg.reachable_min is not None and self.cfg.reachable_max is not None:
-            out["reachable_min"] = list(self.cfg.reachable_min)
-            out["reachable_max"] = list(self.cfg.reachable_max)
+            out['reachable_min'] = list(self.cfg.reachable_min)
+            out['reachable_max'] = list(self.cfg.reachable_max)
         # IK marker positions for the scene overlay — green = engage anchor,
         # yellow = clamped target, red line drawn when raw target diverges.
         if self._engage_t_ee is not None:
-            out["engage_ee"] = self._engage_t_ee.astype(float).tolist()
+            out['engage_ee'] = self._engage_t_ee.astype(float).tolist()
         if self._last_target_clamped_t is not None:
-            out["target_ee"] = self._last_target_clamped_t.astype(float).tolist()
+            out['target_ee'] = self._last_target_clamped_t.astype(float).tolist()
         if self._last_target_unclamped_t is not None:
-            out["target_ee_raw"] = self._last_target_unclamped_t.astype(float).tolist()
+            out['target_ee_raw'] = self._last_target_unclamped_t.astype(float).tolist()
         return out
 
     # ---- discrete commands from the in-VR UI ---------------------------
@@ -636,22 +647,22 @@ class QuestLeader:
             try:
                 self._apply_command(cmd, now)
             except Exception as exc:
-                print(f"[quest] command {cmd!r} failed: {exc}", flush=True)
+                print(f'[quest] command {cmd!r} failed: {exc}', flush=True)
 
     def _apply_command(self, cmd: dict, now: float) -> None:
-        name = cmd.get("cmd")
-        if name == "realign":
+        name = cmd.get('cmd')
+        if name == 'realign':
             self._do_realign(now)
-        elif name == "grow_workspace":
-            self._scale_workspace(float(cmd.get("factor", 1.10)))
-        elif name == "shrink_workspace":
-            self._scale_workspace(float(cmd.get("factor", 0.90)))
-        elif name == "center_workspace_on_ee":
+        elif name == 'grow_workspace':
+            self._scale_workspace(float(cmd.get('factor', 1.10)))
+        elif name == 'shrink_workspace':
+            self._scale_workspace(float(cmd.get('factor', 0.90)))
+        elif name == 'center_workspace_on_ee':
             self._center_workspace_on_ee()
-        elif name == "reset_workspace":
+        elif name == 'reset_workspace':
             self._workspace_min = np.asarray(self.cfg.workspace_min, dtype=np.float64).copy()
             self._workspace_max = np.asarray(self.cfg.workspace_max, dtype=np.float64).copy()
-        elif name == "reset_sim":
+        elif name == 'reset_sim':
             # Reset the COMMANDED pose to home (all joints zero) and drop the
             # clutch so the next grip re-anchors cleanly.  Use when the
             # kinematic sim has wandered into an awkward configuration.
@@ -659,24 +670,24 @@ class QuestLeader:
             self._engaged = False
             self._last_target_clamped_t = None
             self._last_target_unclamped_t = None
-            print("[quest] sim reset to home", flush=True)
-        elif name == "calibrate_forward":
+            print('[quest] sim reset to home', flush=True)
+        elif name == 'calibrate_forward':
             # Capture the operator's current head yaw as the new "forward"
             # reference.  After this, "push hand away from chest" produces
             # "arm moves forward in robot base frame" regardless of which
             # way the operator is physically facing in WebXR-world coords.
             frame = self._state.latest_control if self._state is not None else None
             if frame is None:
-                print("[quest] calibrate_forward: no control frame yet", flush=True)
+                print('[quest] calibrate_forward: no control frame yet', flush=True)
                 return
-            head = frame.get("head") or {}
-            head_quat = np.asarray(head.get("quat", [0, 0, 0, 1]), dtype=np.float64)
+            head = frame.get('head') or {}
+            head_quat = np.asarray(head.get('quat', [0, 0, 0, 1]), dtype=np.float64)
             self._frame_yaw_offset_rad = _yaw_from_quat_y_up(head_quat)
             deg = math.degrees(self._frame_yaw_offset_rad)
-            print(f"[quest] forward calibrated  offset={deg:+.1f} deg", flush=True)
-        elif name == "rotate_frame":
+            print(f'[quest] forward calibrated  offset={deg:+.1f} deg', flush=True)
+        elif name == 'rotate_frame':
             # Nudge the yaw offset by `delta_deg` (default ±15°).
-            delta = math.radians(float(cmd.get("delta_deg", 15.0)))
+            delta = math.radians(float(cmd.get('delta_deg', 15.0)))
             self._frame_yaw_offset_rad += delta
             # Wrap to (-π, π] so accumulated nudges don't go unbounded.
             self._frame_yaw_offset_rad = math.atan2(
@@ -684,8 +695,8 @@ class QuestLeader:
                 math.cos(self._frame_yaw_offset_rad),
             )
             deg = math.degrees(self._frame_yaw_offset_rad)
-            print(f"[quest] frame yaw nudged to {deg:+.1f} deg", flush=True)
-        elif name == "align_to_actual":
+            print(f'[quest] frame yaw nudged to {deg:+.1f} deg', flush=True)
+        elif name == 'align_to_actual':
             # Snap the COMMANDED pose to the real arm's current position so
             # the kinematic sim matches reality — eliminates the jump when
             # motors are first enabled.  Reads actual qpos from telem.
@@ -695,11 +706,11 @@ class QuestLeader:
                 self._engaged = False
                 self._last_target_clamped_t = None
                 self._last_target_unclamped_t = None
-                print("[quest] sim aligned to actual arm", flush=True)
+                print('[quest] sim aligned to actual arm', flush=True)
             else:
-                print("[quest] align_to_actual: no fresh telem", flush=True)
+                print('[quest] align_to_actual: no fresh telem', flush=True)
         else:
-            print(f"[quest] unknown command: {name!r}", flush=True)
+            print(f'[quest] unknown command: {name!r}', flush=True)
 
     def _do_realign(self, now: float) -> None:
         """Atomically re-anchor the clutch frame using the CURRENT controller
@@ -724,9 +735,9 @@ class QuestLeader:
         cur_qpos = self._current_qpos(telem, now)
         if cur_qpos is None:
             return
-        right = frame.get("right") or {}
-        rp = np.asarray(right.get("pos", [0, 0, 0]), dtype=np.float64)
-        rq = np.asarray(right.get("quat", [0, 0, 0, 1]), dtype=np.float64)
+        right = frame.get('right') or {}
+        rp = np.asarray(right.get('pos', [0, 0, 0]), dtype=np.float64)
+        rq = np.asarray(right.get('quat', [0, 0, 0, 1]), dtype=np.float64)
         rq = rq / (np.linalg.norm(rq) + 1e-12)
 
         # Rebuild ALL engage state in place; _engaged stays True so the IK
@@ -757,8 +768,7 @@ class QuestLeader:
         the box without resizing it."""
         # FK in visual frame so the box centers on the mesh EE the user sees.
         try:
-            q_vis = (self._q_last[:6].astype(np.float64)
-                     + self._visual_offsets[:6])
+            q_vis = self._q_last[:6].astype(np.float64) + self._visual_offsets[:6]
             t_ee = self._kin.fk(q_vis)[1]
         except Exception:
             return
@@ -778,10 +788,10 @@ class QuestLeader:
         """Pull current 7-DoF qpos from the latest telem frame, if fresh."""
         if telem is None:
             return None
-        ts = float(telem.get("ts", 0.0))
+        ts = float(telem.get('ts', 0.0))
         if (now - ts) > self.cfg.stale_telem_s:
             return None
-        q = telem.get("qpos")
+        q = telem.get('qpos')
         if q is None or len(q) < 7:
             return None
         return np.asarray(q[:7], dtype=np.float64)
@@ -805,9 +815,7 @@ class QuestLeader:
         R_yaw_inv = _R_y(-self._frame_yaw_offset_rad)
         dp_robot = _R_XR_TO_ROBOT @ (R_yaw_inv @ dp_xr)
         R_dq_xr = quat_to_R(dq_xr)
-        R_dq_robot = (
-            _R_XR_TO_ROBOT @ R_yaw_inv @ R_dq_xr @ R_yaw_inv.T @ _R_XR_TO_ROBOT.T
-        )
+        R_dq_robot = _R_XR_TO_ROBOT @ R_yaw_inv @ R_dq_xr @ R_yaw_inv.T @ _R_XR_TO_ROBOT.T
         target_t = self._engage_t_ee + dp_robot
         target_R = R_dq_robot @ self._engage_R_ee
         target_quat = R_to_quat(target_R)
@@ -821,7 +829,8 @@ class QuestLeader:
     # Velocity-clamp dt accounting — kept on a separate field from the
     # poll-rate gate so the two timings don't interfere.
     def _poll_t_last_for_vel(self) -> float:
-        return getattr(self, "_vel_t_last", time.time() - 0.033)
+        return getattr(self, '_vel_t_last', time.time() - 0.033)
+
     def _poll_t_last_set_vel(self, t: float) -> None:
         self._vel_t_last = t
 
@@ -831,6 +840,7 @@ class QuestLeader:
 # get_leader_class("quest") returns a class that doesn't need the
 # SharedState passed in the open() call (the factory binds it).
 # -----------------------------------------------------------------------------
+
 
 def make_quest_leader_class(
     shared_state,
@@ -848,10 +858,13 @@ def make_quest_leader_class(
     class _BoundQuestLeader(QuestLeader):
         def __init__(self, port=None, baud=None, calib=None) -> None:
             super().__init__(
-                port=port, baud=baud, calib=calib,
-                shared_state=captured_state, config=captured_cfg,
+                port=port,
+                baud=baud,
+                calib=calib,
+                shared_state=captured_state,
+                config=captured_cfg,
                 joint_limits_path=captured_limits,
             )
 
-    _BoundQuestLeader.__name__ = "QuestLeader"
+    _BoundQuestLeader.__name__ = 'QuestLeader'
     return _BoundQuestLeader

@@ -24,16 +24,19 @@ from .kinematics import Kinematics, quat_log, R_to_quat
 # Quaternion helpers (kept local to avoid coupling to kinematics.py internals)
 # -----------------------------------------------------------------------------
 
+
 def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """[x,y,z,w] * [x,y,z,w] -> [x,y,z,w]"""
     ax, ay, az, aw = a
     bx, by, bz, bw = b
-    return np.array([
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-        aw * bw - ax * bx - ay * by - az * bz,
-    ])
+    return np.array(
+        [
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz,
+        ]
+    )
 
 
 def _quat_conj(q: np.ndarray) -> np.ndarray:
@@ -54,14 +57,15 @@ def _ori_error_world(q_current: np.ndarray, q_target: np.ndarray) -> np.ndarray:
 # IK solver
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class IKResult:
-    q: np.ndarray            # solved joint vector (N,)
-    pos_err: float           # final position error norm [m]
-    ori_err: float           # final orientation error norm [rad]
-    iters: int               # iterations used
-    converged: bool          # both errors under tolerance
-    clamped: np.ndarray      # bool (N,) — which joints hit a limit
+    q: np.ndarray  # solved joint vector (N,)
+    pos_err: float  # final position error norm [m]
+    ori_err: float  # final orientation error norm [rad]
+    iters: int  # iterations used
+    converged: bool  # both errors under tolerance
+    clamped: np.ndarray  # bool (N,) — which joints hit a limit
 
 
 def solve_ik(
@@ -72,12 +76,12 @@ def solve_ik(
     *,
     pos_weight: float = 1.0,
     ori_weight: float = 0.3,
-    pos_tol: float = 1e-3,        # 1 mm
-    ori_tol: float = 1e-2,        # ~0.6 deg
-    damping: float = 5e-2,        # λ in (JᵀJ + λ²I)
+    pos_tol: float = 1e-3,  # 1 mm
+    ori_tol: float = 1e-2,  # ~0.6 deg
+    damping: float = 5e-2,  # λ in (JᵀJ + λ²I)
     joint_weights: Optional[np.ndarray] = None,  # length n; >1 = harder to move
     max_iter: int = 8,
-    step_clip: float = 0.25,      # rad per iteration cap
+    step_clip: float = 0.25,  # rad per iteration cap
 ) -> IKResult:
     """Iterate DLS Newton steps from q_init toward (target_pos, target_quat).
 
@@ -97,22 +101,21 @@ def solve_ik(
     q = np.asarray(q_init, dtype=np.float64).copy()
     n = kin.n
     if q.shape != (n,):
-        raise ValueError(f"q_init shape {q.shape} != ({n},)")
+        raise ValueError(f'q_init shape {q.shape} != ({n},)')
     target_pos = np.asarray(target_pos, dtype=np.float64).reshape(3)
     target_quat = np.asarray(target_quat, dtype=np.float64).reshape(4)
     target_quat = target_quat / (np.linalg.norm(target_quat) + 1e-12)
 
-    W = np.diag([pos_weight, pos_weight, pos_weight,
-                 ori_weight, ori_weight, ori_weight])
+    W = np.diag([pos_weight, pos_weight, pos_weight, ori_weight, ori_weight, ori_weight])
     if joint_weights is None:
-        lam2_I = (damping ** 2) * np.eye(n)
+        lam2_I = (damping**2) * np.eye(n)
     else:
         jw = np.asarray(joint_weights, dtype=np.float64).reshape(-1)
         if jw.shape != (n,):
-            raise ValueError(f"joint_weights shape {jw.shape} != ({n},)")
-        lam2_I = (damping ** 2) * np.diag(jw * jw)
+            raise ValueError(f'joint_weights shape {jw.shape} != ({n},)')
+        lam2_I = (damping**2) * np.diag(jw * jw)
 
-    pos_err = ori_err = float("inf")
+    pos_err = ori_err = float('inf')
     converged = False
     for it in range(max_iter):
         pos, quat = kin.fk_pose(q)
@@ -138,7 +141,7 @@ def solve_ik(
         # their workspace and trip the velocity-limit at the leader output.
         step_norm = float(np.linalg.norm(dq))
         if step_norm > step_clip:
-            dq *= (step_clip / step_norm)
+            dq *= step_clip / step_norm
         q = q + dq
         # Hard-clamp to joint limits at every step — no point continuing
         # to optimize past a limit.

@@ -27,7 +27,7 @@ struct LidarConfigYaml {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct NetworkConfig {
-    #[serde(alias = "jetson")]  // Backward compatibility
+    #[serde(alias = "jetson")] // Backward compatibility
     device: DeviceConfig,
 }
 
@@ -67,7 +67,10 @@ fn initialize_scanners(config: &Config) -> Result<Vec<LidarScanner>> {
     let mut scanners = Vec::new();
 
     for lidar_config in &config.lidars {
-        info!("Initializing LiDAR: {} at {}", lidar_config.id, lidar_config.device);
+        info!(
+            "Initializing LiDAR: {} at {}",
+            lidar_config.id, lidar_config.device
+        );
 
         let scanner_config = LidarConfig {
             id: lidar_config.id.clone(),
@@ -94,10 +97,12 @@ fn initialize_scanners(config: &Config) -> Result<Vec<LidarScanner>> {
 }
 
 fn publish_scans(context: &zmq::Context, endpoint: &str, scans: &[LidarScan]) -> Result<()> {
-    let socket = context.socket(zmq::PUB)
+    let socket = context
+        .socket(zmq::PUB)
         .context("Failed to create ZMQ PUB socket")?;
 
-    socket.bind(endpoint)
+    socket
+        .bind(endpoint)
         .with_context(|| format!("Failed to bind to {}", endpoint))?;
 
     let mut telemetry_msg = TelemetryMessage::new();
@@ -106,7 +111,8 @@ fn publish_scans(context: &zmq::Context, endpoint: &str, scans: &[LidarScan]) ->
     let bytes = rmp_serde::to_vec_named(&telemetry_msg)
         .context("Failed to serialize telemetry message to msgpack")?;
 
-    socket.send(&bytes, 0)
+    socket
+        .send(&bytes, 0)
         .context("Failed to send telemetry message")?;
 
     Ok(())
@@ -118,7 +124,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
 
@@ -128,7 +134,11 @@ async fn main() -> Result<()> {
     let config = load_config()?;
 
     // Get ZMQ endpoint
-    let lidar_pub_endpoint = config.network.device.zmq.lidar_pub
+    let lidar_pub_endpoint = config
+        .network
+        .device
+        .zmq
+        .lidar_pub
         .as_ref()
         .context("lidar_pub endpoint not configured")?;
 
@@ -136,10 +146,12 @@ async fn main() -> Result<()> {
 
     // Initialize ZMQ context
     let zmq_context = zmq::Context::new();
-    let socket = zmq_context.socket(zmq::PUB)
+    let socket = zmq_context
+        .socket(zmq::PUB)
         .context("Failed to create ZMQ PUB socket")?;
 
-    socket.bind(lidar_pub_endpoint)
+    socket
+        .bind(lidar_pub_endpoint)
         .with_context(|| format!("Failed to bind to {}", lidar_pub_endpoint))?;
 
     info!("ZMQ socket bound to {}", lidar_pub_endpoint);

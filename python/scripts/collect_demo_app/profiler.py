@@ -1,4 +1,5 @@
 """Main-loop profiler (from collect_demo.py)."""
+
 from __future__ import annotations
 
 import time
@@ -9,14 +10,15 @@ from typing import Optional
 # Main-loop profiler (per-section timing → log file, dump every 10 s)
 # ---------------------------------------------------------------------------
 
+
 class _LoopProfiler:
     def __init__(self, log_path: Optional[Path] = None) -> None:
         self._log = None
         if log_path is not None:
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
-                self._log = open(log_path, "a", buffering=1, encoding="utf-8")
-                self._log.write(f"\n=== profiler started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                self._log = open(log_path, 'a', buffering=1, encoding='utf-8')
+                self._log.write(f'\n=== profiler started {time.strftime("%Y-%m-%d %H:%M:%S")} ===\n')
             except Exception:
                 self._log = None
         self._sec: dict[str, list[float]] = {}
@@ -65,14 +67,17 @@ class _LoopProfiler:
 
     def dump(self) -> None:
         if self._log is None:
-            self._sec.clear(); self._work.clear(); self._period.clear()
+            self._sec.clear()
+            self._work.clear()
+            self._period.clear()
             return
-        lines = [f"--- {time.strftime('%H:%M:%S')} ---"]
-        for label, arr in (("period", self._period), ("work", self._work)):
+        lines = [f'--- {time.strftime("%H:%M:%S")} ---']
+        for label, arr in (('period', self._period), ('work', self._work)):
             st = self._stats(arr)
             if st:
-                lines.append(f"{label:8s} mean={st[0]:6.2f} p50={st[1]:6.2f} "
-                             f"p99={st[2]:6.2f} max={st[3]:7.2f}  n={st[4]}")
+                lines.append(
+                    f'{label:8s} mean={st[0]:6.2f} p50={st[1]:6.2f} p99={st[2]:6.2f} max={st[3]:7.2f}  n={st[4]}'
+                )
         rows = []
         for name, arr in self._sec.items():
             st = self._stats(arr)
@@ -80,12 +85,13 @@ class _LoopProfiler:
                 rows.append((st[3], st[2], st[0], name))
         rows.sort(reverse=True)
         for mx, p99, mean, name in rows:
-            lines.append(f"  {name:14s} mean={mean:6.2f} p99={p99:6.2f} max={mx:7.2f}")
+            lines.append(f'  {name:14s} mean={mean:6.2f} p99={p99:6.2f} max={mx:7.2f}')
         for name, arr in self._gauge.items():
             st = self._stats(arr)
             if st:
-                lines.append(f"  [g] {name:10s} mean={st[0]:6.2f} p50={st[1]:6.2f} "
-                             f"p99={st[2]:6.2f} max={st[3]:7.2f}")
-        self._log.write("\n".join(lines) + "\n")
-        self._sec.clear(); self._gauge.clear()
-        self._work.clear(); self._period.clear()
+                lines.append(f'  [g] {name:10s} mean={st[0]:6.2f} p50={st[1]:6.2f} p99={st[2]:6.2f} max={st[3]:7.2f}')
+        self._log.write('\n'.join(lines) + '\n')
+        self._sec.clear()
+        self._gauge.clear()
+        self._work.clear()
+        self._period.clear()

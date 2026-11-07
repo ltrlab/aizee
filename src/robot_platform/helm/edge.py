@@ -15,6 +15,7 @@ responsive process (LeaderLinkProcess) and relays frames. A servo sweep
 an episode recorded on the robot drives the arms) run the same way with no
 leader link.
 """
+
 from datetime import datetime, timezone
 import json
 import os
@@ -32,8 +33,8 @@ MAX_FRAME = 1 << 22
 # Helm sends a frame at least every BEAT_S; the robot ends a session that hears nothing for SILENCE_S, as if
 # Helm had closed it (the arm lowered first). A dropped tether leaves the robot's SSH session half-open, with
 # no end of stream until TCP keepalive gives up two hours on: a loop then held the receiver (2026-10-15).
-BEAT_S = .5
-SILENCE_S = 5.
+BEAT_S = 0.5
+SILENCE_S = 5.0
 
 
 def write_frame(stream, message):
@@ -110,6 +111,7 @@ def end_on_sigterm(inbox):
     UPS service sends it to a loop still running when the battery is about to run out (robot_platform.ops.ups).
     The handler only writes a byte to a pipe, so no lock is ever taken in signal context; a thread ends the inbox."""
     import signal
+
     read_end, write_end = os.pipe()
 
     def handler(_signum, _frame):
@@ -159,6 +161,7 @@ class Outbox:
 
 # -- Robot side ----------------------------------------------------------------------
 
+
 def prepare(start, root=ROOT, *, leaders=True):
     """Activate the release, match Helm's calibration and bind the leader link: (bundle, link or None). The head's
     jog names no arms' calibration and its profile is the head's, so with no leaders neither is read (a jog failed
@@ -167,6 +170,7 @@ def prepare(start, root=ROOT, *, leaders=True):
     from robot_platform.ops.release import activate
     from robot_platform.teleop.leader_link import LeaderLinkInput
     from .teleop import load_profile, loop_period_s
+
     root = Path(root).resolve()
     activate(root)
     bundle = dict(start['bundle'])
@@ -174,16 +178,22 @@ def prepare(start, root=ROOT, *, leaders=True):
     for key in ('calibration_profile', 'teleop_profile', 'calibration_reference'):
         if key in bundle:
             bundle[key] = str(root / bundle[key])
-    if 'calibration_profile' in bundle and load_plan(
-            bundle['calibration_profile'], reference=bundle.get('calibration_reference'))[-1] != bundle['bindings']:
-        raise ValueError("The robot's calibration files differ from this PC's. "
-                         'Deploy (scripts/deploy_minerva_arms.sh) and start again.')
+    if (
+        'calibration_profile' in bundle
+        and load_plan(bundle['calibration_profile'], reference=bundle.get('calibration_reference'))[-1]
+        != bundle['bindings']
+    ):
+        raise ValueError(
+            "The robot's calibration files differ from this PC's. "
+            'Deploy (scripts/deploy_minerva_arms.sh) and start again.'
+        )
     if not leaders:
         return bundle, None
     teleop = load_profile(bundle['teleop_profile'])
     leaders = json.loads((Path(bundle['teleop_profile']).parent / teleop['leader_profile']).read_text(encoding='utf-8'))
-    link = LeaderLinkInput(bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0),
-                           timeout_s=min(.02, .4 * loop_period_s(teleop)))
+    link = LeaderLinkInput(
+        bytes.fromhex(start['key']), leaders, bind=(start['bind'], 0), timeout_s=min(0.02, 0.4 * loop_period_s(teleop))
+    )
     return bundle, link
 
 
@@ -193,6 +203,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
     from robot_platform.ops.ups import STATE, shutdown_announced
     from .head_only import HeadOnlyCore, head_only
     from .teleop import TeleopCore, run_loop
+
     refusal = shutdown_announced(STATE if ups_state is None else ups_state)
     if refusal:
         views.send(['error', refusal])
@@ -215,6 +226,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         return 1
     if tune:
         from .tune import TuneCore, run_tune_loop
+
         views.send(['link', 0])  # No leaders: the sweep plans its own motion.
         core = (core_factory or TuneCore)(bundle)
         if scheduling is not None:
@@ -235,7 +247,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
         views.send(['link', link.address[1]])
 
         def open_leaders(_profile):
-            link.wait_for_pc(10.)
+            link.wait_for_pc(10.0)
             return link
 
         core = (core_factory or TeleopCore)(bundle, open_leaders=open_leaders)
@@ -248,6 +260,7 @@ def serve(start, commands, views, *, root=ROOT, core_factory=None, scheduling=No
 def main():
     import signal
     from robot_platform.control.scheduling import prefer_responsive
+
     # First, before the session starts its threads: they, the receiver and any other child inherit the host's
     # control CPUs (control.scheduling). Live task capture moves itself back off them.
     scheduling = prefer_responsive()
@@ -266,6 +279,7 @@ def main():
 
 
 # -- PC side ---------------------------------------------------------------------------
+
 
 class _Commands:
     """TeleopSession's sending end; it waits for the robot's loop to accept frames."""
@@ -301,9 +315,23 @@ class EdgeWorker:
     leaders) arrive as a fault view naming the reason, then the end of the stream.
     """
 
-    def __init__(self, bundle, leader_profile, *, base_view, address=None, profile=None, open_ssh=None,
-                 serve_link=None, real_leaders=True, name='Teleop', evidence=None, link_bind=None):
+    def __init__(
+        self,
+        bundle,
+        leader_profile,
+        *,
+        base_view,
+        address=None,
+        profile=None,
+        open_ssh=None,
+        serve_link=None,
+        real_leaders=True,
+        name='Teleop',
+        evidence=None,
+        link_bind=None,
+    ):
         from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER
+
         self.bundle, self.leader_profile, self.base_view = bundle, leader_profile, base_view
         self.address, self.profile = address or TETHER, profile or DEFAULT_PROFILE
         self.open_ssh, self.serve_link, self.real_leaders = open_ssh, serve_link, real_leaders
@@ -336,13 +364,15 @@ class EdgeWorker:
     def _run(self):
         from robot_platform.ops.check import CURRENT
         from robot_platform.ops.ssh import connect, route_source
+
         client = server = None
         try:
             client = (self.open_ssh or connect)(self.profile, address=self.address)
             if self._aborted.is_set():
                 raise RuntimeError('Stopped before the loop started')
             stdin, stdout, stderr = client.exec_command(
-                f'cd {CURRENT} && PYTHONPATH=src exec python3 -u -m robot_platform.helm.edge')
+                f'cd {CURRENT} && PYTHONPATH=src exec python3 -u -m robot_platform.helm.edge'
+            )
             self._channel = stdout.channel
             key = secrets.token_bytes(32)
             bind = self.link_bind or self.address
@@ -350,8 +380,9 @@ class EdgeWorker:
             try:
                 first = read_frame(stdout)
             except EOFError:
-                raise RuntimeError(stderr.read().decode(errors='replace').strip()[-400:]
-                                   or 'the robot-side loop exited while starting') from None
+                raise RuntimeError(
+                    stderr.read().decode(errors='replace').strip()[-400:] or 'the robot-side loop exited while starting'
+                ) from None
             if first[0] == 'error':
                 raise RuntimeError(first[1])
             if first[0] != 'link':
@@ -361,9 +392,15 @@ class EdgeWorker:
             if int(first[1]):  # Port 0: this loop takes no leaders.
                 if self.serve_link is None:
                     from robot_platform.teleop.leader_link import serve_link
+
                     self.serve_link = serve_link
-                server = self.serve_link(self.leader_profile, key, (bind, int(first[1])),
-                                         local=(route_source(bind) or '0.0.0.0', 0), real=self.real_leaders)
+                server = self.serve_link(
+                    self.leader_profile,
+                    key,
+                    (bind, int(first[1])),
+                    local=(route_source(bind) or '0.0.0.0', 0),
+                    real=self.real_leaders,
+                )
             with self._lock:
                 self._writer = stdin
             threading.Thread(target=self._beat, args=(stdin,), daemon=True, name='helm-edge-beat').start()
@@ -375,8 +412,19 @@ class EdgeWorker:
             self.views.end(reason)
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
-            self.views.put(['view', dict(self.base_view, phase='fault', fault=reason, joints=[],
-                                         message=f"{self.name} on Minerva's Jetson stopped: {reason}"), None])
+            self.views.put(
+                [
+                    'view',
+                    dict(
+                        self.base_view,
+                        phase='fault',
+                        fault=reason,
+                        joints=[],
+                        message=f"{self.name} on Minerva's Jetson stopped: {reason}",
+                    ),
+                    None,
+                ]
+            )
             self.views.end(reason)
         finally:
             self._ended.set()
@@ -406,8 +454,7 @@ class EdgeWorker:
             directory = Path(self.evidence)
             directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-            (directory / f'leader-link-{stamp}.json').write_text(json.dumps(report, indent=1) + '\n',
-                                                                 encoding='utf-8')
+            (directory / f'leader-link-{stamp}.json').write_text(json.dumps(report, indent=1) + '\n', encoding='utf-8')
         except OSError:
             pass  # Diagnostics only: never turn a clean session end into a failure.
 

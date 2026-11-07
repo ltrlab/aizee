@@ -1,6 +1,7 @@
 """The policy's own process: it loads a policy, answers observations with chunks matched to their request, reports
 failures instead of dying, reads the robot's cameras as the task capture does, and a live session runs only trained
 checkpoints or hold_still."""
+
 from io import BytesIO
 import threading
 import time
@@ -16,21 +17,21 @@ from robot_platform.teleop.policy_worker import CaptureCameras, PolicyWorker
 from robot_platform.transport.wire import pack_camera
 
 NAMES = ('a', 'b')
-CONTEXT = {'home': [.1, -.2], 'lower': [-1., -1.], 'upper': [1., 1.], 'period_s': .02, 'joint_map': {}}
+CONTEXT = {'home': [0.1, -0.2], 'lower': [-1.0, -1.0], 'upper': [1.0, 1.0], 'period_s': 0.02, 'joint_map': {}}
 
 
-def answers(worker, count=1, timeout=30.):
+def answers(worker, count=1, timeout=30.0):
     replies, deadline = [], time.monotonic() + timeout
     while len(replies) < count:
         assert time.monotonic() < deadline, 'the worker did not answer'
         replies += worker.poll()
-        time.sleep(.01)
+        time.sleep(0.01)
     return replies
 
 
 class Doubling:
     name = 'doubling'
-    action_dt = .05
+    action_dt = 0.05
 
     def reset(self, context):
         self.names = context.joint_names
@@ -44,15 +45,15 @@ class Doubling:
 def test_a_worker_answers_each_observation_with_its_chunk_and_reports_failures():
     worker = PolicyWorker(Doubling(), NAMES, context=CONTEXT, in_process=True)
     try:
-        info = worker.ready(10.)
-        assert (info['name'], info['action_dt'], info['camera_roles']) == ('doubling', .05, [])
-        worker.ask(1, 12.5, {'q': [.5, 1.], 'qcmd': [.5, 1.]})
-        reply, = answers(worker)
-        assert reply['request'] == 1 and np.allclose(reply['chunk'], [[1., 2.]] * 3) and reply['inference_ms'] >= 0
-        worker.ask(2, 13., {'q': [-1., 0.], 'qcmd': [-1., 0.]})
-        reply, = answers(worker)
+        info = worker.ready(10.0)
+        assert (info['name'], info['action_dt'], info['camera_roles']) == ('doubling', 0.05, [])
+        worker.ask(1, 12.5, {'q': [0.5, 1.0], 'qcmd': [0.5, 1.0]})
+        (reply,) = answers(worker)
+        assert reply['request'] == 1 and np.allclose(reply['chunk'], [[1.0, 2.0]] * 3) and reply['inference_ms'] >= 0
+        worker.ask(2, 13.0, {'q': [-1.0, 0.0], 'qcmd': [-1.0, 0.0]})
+        (reply,) = answers(worker)
         assert reply == {'request': 2, 'error': 'RuntimeError: negative'}  # One failed answer; the worker lives on.
-        worker.ask(3, 13.5, {'q': [.25, 0.], 'qcmd': [.25, 0.]})
+        worker.ask(3, 13.5, {'q': [0.25, 0.0], 'qcmd': [0.25, 0.0]})
         assert answers(worker)[0]['request'] == 3
     finally:
         worker.close()
@@ -61,10 +62,10 @@ def test_a_worker_answers_each_observation_with_its_chunk_and_reports_failures()
 def test_a_policy_process_loads_a_reference_policy_and_defaults_its_row_spacing_to_the_loop_period():
     worker = PolicyWorker('hold_still', NAMES, context=CONTEXT)
     try:
-        info = worker.ready(60.)
-        assert info['name'] == 'hold_still' and info['action_dt'] == .02  # It names none: the loop's period.
-        worker.ask(1, 5., {'q': [0., 0.], 'qcmd': [0., 0.]})
-        reply, = answers(worker)
+        info = worker.ready(60.0)
+        assert info['name'] == 'hold_still' and info['action_dt'] == 0.02  # It names none: the loop's period.
+        worker.ask(1, 5.0, {'q': [0.0, 0.0], 'qcmd': [0.0, 0.0]})
+        (reply,) = answers(worker)
         assert np.allclose(reply['chunk'], [CONTEXT['home']])  # The reference pose, to hold.
     finally:
         worker.close()
@@ -75,7 +76,7 @@ def test_a_policy_that_cannot_load_says_why():
     worker = PolicyWorker('no_such_policy', NAMES, context=CONTEXT)
     try:
         with pytest.raises(RuntimeError, match='could not start: ValueError: policy is one of'):
-            worker.ready(60.)
+            worker.ready(60.0)
     finally:
         worker.close()
 
@@ -87,7 +88,13 @@ def test_the_arms_run_only_trained_checkpoints_or_hold_still():
         with pytest.raises(ValueError, match='for the simulation'):
             validate_request({'policy': spec}, live=True)
         assert validate_request({'policy': spec}, live=False)['policy'] == spec  # The virtual receiver may.
-    for bad in ({}, {'policy': ''}, {'policy': 3}, {'policy': 'hold_still', 'speed': 2}, {'kind': 'episode', 'policy': 'x'}):
+    for bad in (
+        {},
+        {'policy': ''},
+        {'policy': 3},
+        {'policy': 'hold_still', 'speed': 2},
+        {'kind': 'episode', 'policy': 'x'},
+    ):
         with pytest.raises(ValueError, match='names its policy'):
             validate_request(bad, live=False)
 
@@ -99,10 +106,21 @@ def test_the_cameras_reach_the_policy_as_the_recorder_stores_them_and_stale_ones
         publisher.setsockopt(zmq.LINGER, 0)
         publisher.bind('tcp://127.0.0.1:*')
         endpoints[role], publishers[role] = publisher.getsockopt(zmq.LAST_ENDPOINT).decode(), publisher
-    config = dict(schema=1, camera_roles=list(CAMERAS), recording_image_size=[32, 24],
-                  cameras={role: dict(endpoint=endpoints[role], camera_id=role, timestamp_clock='local_unix',
-                                      timestamp_semantics='host_read_complete') for role in CAMERAS},
-                  head=dict(endpoint='tcp://127.0.0.1:5596', motors=['head_pan', 'head_tilt']))  # Unused here.
+    config = dict(
+        schema=1,
+        camera_roles=list(CAMERAS),
+        recording_image_size=[32, 24],
+        cameras={
+            role: dict(
+                endpoint=endpoints[role],
+                camera_id=role,
+                timestamp_clock='local_unix',
+                timestamp_semantics='host_read_complete',
+            )
+            for role in CAMERAS
+        },
+        head=dict(endpoint='tcp://127.0.0.1:5596', motors=['head_pan', 'head_tilt']),
+    )  # Unused here.
     cameras = CaptureCameras(config)
     with pytest.raises(ValueError, match='lacks'):
         cameras.open(('top',))
@@ -114,29 +132,33 @@ def test_the_cameras_reach_the_policy_as_the_recorder_stores_them_and_stale_ones
             stamp, frame = time.time(), frame + 1
             for value, role in enumerate(CAMERAS):
                 payload = BytesIO()
-                Image.fromarray(np.full((48, 64, 3), 40 + 60 * value, np.uint8)).save(payload, format='JPEG', quality=95)
-                header = dict(camera_id=role, timestamp=stamp, frame_number=frame,
-                              color=dict(format='jpeg', width=64, height=48))
+                Image.fromarray(np.full((48, 64, 3), 40 + 60 * value, np.uint8)).save(
+                    payload, format='JPEG', quality=95
+                )
+                header = dict(
+                    camera_id=role, timestamp=stamp, frame_number=frame, color=dict(format='jpeg', width=64, height=48)
+                )
                 publishers[role].send_multipart(pack_camera(header, payload.getvalue()))
-            time.sleep(.03)
+            time.sleep(0.03)
+
     thread = threading.Thread(target=publish, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 10.
+        deadline = time.monotonic() + 10.0
         while True:
             try:
                 images, ages = reader.latest()
                 break
             except ValueError:
                 assert time.monotonic() < deadline, 'no coherent camera set arrived'
-                time.sleep(.05)
+                time.sleep(0.05)
         assert set(images) == {'head', 'right_wrist'}  # The policy's cameras, at the recording size.
         assert all(image.shape == (24, 32, 3) and image.dtype == np.uint8 for image in images.values())
         assert abs(int(images['head'][0, 0, 0]) - 160) < 6 and abs(int(images['right_wrist'][0, 0, 0]) - 100) < 6
-        assert all(0 <= age < .2 for age in ages.values())
+        assert all(0 <= age < 0.2 for age in ages.values())
         stop.set()
         thread.join()
-        time.sleep(.3)  # Past the profile's 0.2 s camera age.
+        time.sleep(0.3)  # Past the profile's 0.2 s camera age.
         with pytest.raises(ValueError, match='no fresh camera frame'):
             reader.latest()
     finally:

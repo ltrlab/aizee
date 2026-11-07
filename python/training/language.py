@@ -34,19 +34,19 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
-_DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_DEFAULT_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'
 _DEFAULT_DIM = 384
 
 
 def normalize_text(text: str) -> str:
     """Lowercase, strip, collapse internal whitespace — so trivially different
     spellings of the same instruction map to one cache entry."""
-    return re.sub(r"\s+", " ", text.strip().lower())
+    return re.sub(r'\s+', ' ', text.strip().lower())
 
 
 def text_hash(text: str) -> str:
     """Stable cache key for a (normalized) task string."""
-    return hashlib.sha1(normalize_text(text).encode("utf-8")).hexdigest()
+    return hashlib.sha1(normalize_text(text).encode('utf-8')).hexdigest()
 
 
 class TextConditioner:
@@ -65,18 +65,18 @@ class TextConditioner:
         model_name: str = _DEFAULT_MODEL,
         cache_path: Optional[str] = None,
         embed_dim: Optional[int] = None,
-        device: str = "cpu",
+        device: str = 'cpu',
     ):
         self.model_name = model_name
         self.device = device
-        self._encoder = None                      # lazy
+        self._encoder = None  # lazy
         self._embed_dim = embed_dim
         self._cache: Dict[str, np.ndarray] = {}
         # Normalize to the .npz that save_cache/load_cache actually use, so a
         # non-.npz cache_path (e.g. the documented '.pt') still loads.
         p = Path(cache_path) if cache_path else None
-        if p is not None and p.suffix != ".npz":
-            p = p.with_suffix(".npz")
+        if p is not None and p.suffix != '.npz':
+            p = p.with_suffix('.npz')
         self.cache_path = p
         if self.cache_path is not None and self.cache_path.exists():
             self.load_cache(self.cache_path)
@@ -86,24 +86,24 @@ class TextConditioner:
     def embed_dim(self) -> int:
         if self._embed_dim is not None:
             return self._embed_dim
-        if self.model_name == "hash":
+        if self.model_name == 'hash':
             self._embed_dim = _DEFAULT_DIM
         else:
-            self._ensure_encoder()               # sets _embed_dim
+            self._ensure_encoder()  # sets _embed_dim
         return self._embed_dim
 
     # -- encoder -----------------------------------------------------------
     def _ensure_encoder(self):
-        if self._encoder is not None or self.model_name == "hash":
+        if self._encoder is not None or self.model_name == 'hash':
             return
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as e:
             raise ImportError(
-                "sentence-transformers is required to encode NEW task strings. "
-                "Install it (`pip install sentence-transformers`) to build the "
+                'sentence-transformers is required to encode NEW task strings. '
+                'Install it (`pip install sentence-transformers`) to build the '
                 "cache, or construct TextConditioner(model_name='hash') for the "
-                "deterministic dependency-free fallback (no semantic meaning)."
+                'deterministic dependency-free fallback (no semantic meaning).'
             ) from e
         self._encoder = SentenceTransformer(self.model_name, device=self.device)
         self._embed_dim = int(self._encoder.get_sentence_embedding_dimension())
@@ -123,18 +123,22 @@ class TextConditioner:
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
         """Encode strings -> L2-normalized pooled embeddings [N, D] (float32)."""
-        if self.model_name == "hash":
+        if self.model_name == 'hash':
             return self._encode_hash_fallback(texts)
         self._ensure_encoder()
         emb = self._encoder.encode(
-            list(texts), convert_to_numpy=True, normalize_embeddings=True,
+            list(texts),
+            convert_to_numpy=True,
+            normalize_embeddings=True,
             show_progress_bar=False,
         )
         return emb.astype(np.float32)
 
     # -- cache -------------------------------------------------------------
     def build_cache(
-        self, strings: Sequence[str], out_path: Optional[str] = None,
+        self,
+        strings: Sequence[str],
+        out_path: Optional[str] = None,
     ) -> Dict[str, np.ndarray]:
         """Encode every unique string and (optionally) persist the cache."""
         uniq = sorted({normalize_text(s) for s in strings if s and s.strip()})
@@ -151,18 +155,17 @@ class TextConditioner:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
-            path.with_suffix(".npz"),
+            path.with_suffix('.npz'),
             keys=np.array(list(self._cache.keys())),
-            vecs=np.stack(list(self._cache.values()))
-            if self._cache else np.zeros((0, self.embed_dim), np.float32),
+            vecs=np.stack(list(self._cache.values())) if self._cache else np.zeros((0, self.embed_dim), np.float32),
             model=np.array([self.model_name]),
         )
 
     def load_cache(self, path: str | Path):
         path = Path(path)
-        npz = path if path.suffix == ".npz" else path.with_suffix(".npz")
+        npz = path if path.suffix == '.npz' else path.with_suffix('.npz')
         data = np.load(npz, allow_pickle=False)
-        keys, vecs = data["keys"], data["vecs"]
+        keys, vecs = data['keys'], data['vecs']
         self._cache = {str(k): v.astype(np.float32) for k, v in zip(keys, vecs)}
         if vecs.shape[0]:
             self._embed_dim = int(vecs.shape[1])
@@ -204,4 +207,4 @@ class ParaphraseTable:
         return str(rng.choice(variants + [canonical]))
 
 
-__all__ = ["TextConditioner", "ParaphraseTable", "normalize_text", "text_hash"]
+__all__ = ['TextConditioner', 'ParaphraseTable', 'normalize_text', 'text_hash']

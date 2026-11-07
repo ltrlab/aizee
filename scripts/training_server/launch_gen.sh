@@ -7,14 +7,26 @@
 set -euo pipefail
 : "${NAME:?set NAME}" "${EPISODES:?set EPISODES}"
 S=${AIZEE_SIM:-$HOME/aizee-sim}
-WORKERS=${WORKERS:-6}; TREE=${TREE:-$S/tree-01e2198}; SEED=${SEED:-1000}; EGL=${EGL:-0}
-if [ -e "$S/gen/$NAME" ]; then echo "$S/gen/$NAME exists: pick another NAME" >&2; exit 1; fi
-SESSION=${NAME//./_}  # tmux turns a dot in a session name into an underscore.
-if tmux has-session -t "=$SESSION" 2>/dev/null; then echo "tmux session $SESSION exists" >&2; exit 1; fi
-[ -d "$TREE/src/robot_platform" ] || { echo "no source tree at $TREE" >&2; exit 1; }
+WORKERS=${WORKERS:-6}
+TREE=${TREE:-$S/tree-01e2198}
+SEED=${SEED:-1000}
+EGL=${EGL:-0}
+if [ -e "$S/gen/$NAME" ]; then
+    echo "$S/gen/$NAME exists: pick another NAME" >&2
+    exit 1
+fi
+SESSION=${NAME//./_} # tmux turns a dot in a session name into an underscore.
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
+    echo "tmux session $SESSION exists" >&2
+    exit 1
+fi
+[ -d "$TREE/src/robot_platform" ] || {
+    echo "no source tree at $TREE" >&2
+    exit 1
+}
 mkdir -p "$S/gen" "$S/logs" "$S/tmp"
 cmd=("$S/.venv/bin/python" -u "$S/bin/gen_parallel.py" --out "$S/gen/$NAME" --episodes "$EPISODES"
-     --workers "$WORKERS" --tree "$TREE" --seed "$SEED" --egl-device "$EGL" -- "$@")
+    --workers "$WORKERS" --tree "$TREE" --seed "$SEED" --egl-device "$EGL" -- "$@")
 printf -v line '%q ' "${cmd[@]}"
 tmux new-session -d -s "$SESSION" "cd $S && { echo \"started \$(date -Is): $line\"; $line; echo \"exit \$? at \$(date -Is)\"; } 2>&1 | tee -a $S/logs/$NAME.log"
 echo "started tmux session $SESSION (tmux attach -t $SESSION); log $S/logs/$NAME.log; episodes $S/gen/$NAME/episodes"

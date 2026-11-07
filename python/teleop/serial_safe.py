@@ -25,7 +25,7 @@ import threading
 
 try:
     import serial
-except ImportError:                       # pragma: no cover - probed by callers
+except ImportError:  # pragma: no cover - probed by callers
     serial = None  # type: ignore
 
 # Default ceiling for a single open().  Real leader adapters (CH340 / OpenRB
@@ -33,9 +33,14 @@ except ImportError:                       # pragma: no cover - probed by callers
 DEFAULT_OPEN_TIMEOUT = 2.0
 
 
-def open_serial(device: str, baud: int, *, read_timeout: float,
-                open_timeout: float = DEFAULT_OPEN_TIMEOUT,
-                write_timeout: float = 1.0):
+def open_serial(
+    device: str,
+    baud: int,
+    *,
+    read_timeout: float,
+    open_timeout: float = DEFAULT_OPEN_TIMEOUT,
+    write_timeout: float = 1.0,
+):
     """Open ``device`` but block no longer than ``open_timeout`` seconds.
 
     Returns an open ``serial.Serial``.  Raises:
@@ -48,17 +53,16 @@ def open_serial(device: str, baud: int, *, read_timeout: float,
     opened but then went unresponsive can't block either.
     """
     if serial is None:
-        raise RuntimeError("pyserial not installed")
+        raise RuntimeError('pyserial not installed')
 
     box: dict = {}
     abandoned = threading.Event()
 
     def _worker() -> None:
         try:
-            s = serial.Serial(device, baud, timeout=read_timeout,
-                              write_timeout=write_timeout)
-        except BaseException as exc:       # noqa: BLE001 — relayed to caller
-            box["err"] = exc
+            s = serial.Serial(device, baud, timeout=read_timeout, write_timeout=write_timeout)
+        except BaseException as exc:  # noqa: BLE001 — relayed to caller
+            box['err'] = exc
             return
         if abandoned.is_set():
             # Caller already gave up waiting; don't leak the handle.
@@ -67,10 +71,9 @@ def open_serial(device: str, baud: int, *, read_timeout: float,
             except Exception:
                 pass
         else:
-            box["ser"] = s
+            box['ser'] = s
 
-    t = threading.Thread(target=_worker, daemon=True,
-                        name=f"serial-open:{device}")
+    t = threading.Thread(target=_worker, daemon=True, name=f'serial-open:{device}')
     t.start()
     t.join(open_timeout)
 
@@ -80,8 +83,9 @@ def open_serial(device: str, baud: int, *, read_timeout: float,
         # let the caller move on — launch is never gated on one bad device.
         abandoned.set()
         raise TimeoutError(
-            f"opening {device} timed out after {open_timeout:.1f}s "
-            "(unresponsive device — e.g. a Bluetooth serial port?)")
-    if "err" in box:
-        raise box["err"]
-    return box["ser"]
+            f'opening {device} timed out after {open_timeout:.1f}s '
+            '(unresponsive device — e.g. a Bluetooth serial port?)'
+        )
+    if 'err' in box:
+        raise box['err']
+    return box['ser']

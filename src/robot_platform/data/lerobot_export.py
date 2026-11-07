@@ -31,6 +31,7 @@ A sidecar meta/minerva_provenance.json records each exported episode's source, h
 
 The selection and resampling need only numpy and h5py; LeRobot is imported only to write.
 """
+
 import argparse
 import hashlib
 import json
@@ -41,14 +42,21 @@ import sys
 TASK = 'Pick up the cube with the left hand, hand it to the right hand, and put it in the box.'
 FORMATS = (8, 9)
 # Format 9's extra observations: (LeRobot feature, episode dataset, validity mask, width, names or None for the joints).
-EXTRAS = (('observation.effort', 'observations/torques', 'observations/torque_valid', None, None),
-          ('observation.velocity', 'observations/qvel', 'observations/qvel_valid', None, None),
-          ('observation.head_camera_pose', 'observations/head_camera_pose', 'timestamps/head_valid', 7,
-           ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']))
+EXTRAS = (
+    ('observation.effort', 'observations/torques', 'observations/torque_valid', None, None),
+    ('observation.velocity', 'observations/qvel', 'observations/qvel_valid', None, None),
+    (
+        'observation.head_camera_pose',
+        'observations/head_camera_pose',
+        'timestamps/head_valid',
+        7,
+        ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw'],
+    ),
+)
 MAX_GAP_PERIODS = 2.5  # One dropped camera frame (a two-period gap) passes; two in a row refuse the episode.
 CORRECTED = ('policy', 'correction')  # Who drives a policy session's frames (helm.teleop._capture_label).
-PRE_TAKEOVER_S = 1.  # A policy stretch the operator took over from loses its last second: where it went wrong.
-MIN_STRETCH_S = .5  # A kept stretch shorter than this (after that) is left out.
+PRE_TAKEOVER_S = 1.0  # A policy stretch the operator took over from loses its last second: where it went wrong.
+MIN_STRETCH_S = 0.5  # A kept stretch shorter than this (after that) is left out.
 
 
 class ExportError(ValueError):
@@ -67,6 +75,7 @@ def read_episode(path):
     `lifecycle`: a policy session's lifecycle state for each row, from its task state; None for any other episode."""
     import h5py
     import numpy as np
+
     with h5py.File(path, 'r') as f:
         attrs = f.attrs
         version = int(_text(attrs.get('format_version', 0)) or 0)
@@ -86,14 +95,22 @@ def read_episode(path):
             if dataset in f and mask in f:
                 values, valid = np.asarray(f[dataset][:], dtype=np.float32), np.asarray(f[mask][:], dtype=bool)
                 extras[name] = (values, valid.all(axis=-1) if valid.ndim > 1 else valid)
-        return dict(joints=joints, roles=roles, image_shape=next(iter(shapes.values())), version=version, extras=extras,
-                    telem=np.asarray(f['timestamps/telem'][:], dtype=np.float64),
-                    qpos=np.asarray(f['observations/qpos'][:], dtype=np.float32),
-                    actions=np.asarray(f['actions'][:], dtype=np.float32),
-                    action_valid=np.asarray(f['action_valid'][:], dtype=bool), authority=authority,
-                    lifecycle=lifecycle, complete=bool(_text(attrs.get('complete', False))),
-                    collected_at=_text(attrs.get('collected_at')),
-                    language_instruction=_text(attrs.get('language_instruction', '')) or '')
+        return dict(
+            joints=joints,
+            roles=roles,
+            image_shape=next(iter(shapes.values())),
+            version=version,
+            extras=extras,
+            telem=np.asarray(f['timestamps/telem'][:], dtype=np.float64),
+            qpos=np.asarray(f['observations/qpos'][:], dtype=np.float32),
+            actions=np.asarray(f['actions'][:], dtype=np.float32),
+            action_valid=np.asarray(f['action_valid'][:], dtype=bool),
+            authority=authority,
+            lifecycle=lifecycle,
+            complete=bool(_text(attrs.get('complete', False))),
+            collected_at=_text(attrs.get('collected_at')),
+            language_instruction=_text(attrs.get('language_instruction', '')) or '',
+        )
 
 
 def usable_span(action_valid, authority):
@@ -108,8 +125,9 @@ def usable_span(action_valid, authority):
     return first, last
 
 
-def corrected_stretches(telem, action_valid, authority, lifecycle, *, pre_takeover_s=PRE_TAKEOVER_S,
-                        min_stretch_s=MIN_STRETCH_S):
+def corrected_stretches(
+    telem, action_valid, authority, lifecycle, *, pre_takeover_s=PRE_TAKEOVER_S, min_stretch_s=MIN_STRETCH_S
+):
     """A policy session's kept stretches, in recorded order: [{'first', 'last', 'authority', 'trimmed_s'}].
     - A stretch is a run of rows one driver drove (the policy, or the operator's correction) while the arms followed:
       the row and the next one, whose command is the row's action, both in Teleop, and a valid action. The holds, and
@@ -120,8 +138,15 @@ def corrected_stretches(telem, action_valid, authority, lifecycle, *, pre_takeov
     n = len(authority)
 
     def drives(i, who):
-        return (i + 1 < n and bool(action_valid[i]) and authority[i] == who and who in CORRECTED
-                and lifecycle[i] == 'TELEOP' and lifecycle[i + 1] == 'TELEOP')
+        return (
+            i + 1 < n
+            and bool(action_valid[i])
+            and authority[i] == who
+            and who in CORRECTED
+            and lifecycle[i] == 'TELEOP'
+            and lifecycle[i + 1] == 'TELEOP'
+        )
+
     runs, i = [], 0
     while i < n:
         who = authority[i]
@@ -135,9 +160,9 @@ def corrected_stretches(telem, action_valid, authority, lifecycle, *, pre_takeov
         i = last + 1
     stretches = []
     for index, (first, last, who) in enumerate(runs):
-        end, trimmed = last, 0.
-        policy_again = next((run[0] for run in runs[index + 1:] if run[2] == 'policy'), n)
-        if who == 'policy' and 'correction' in authority[last + 1:policy_again]:
+        end, trimmed = last, 0.0
+        policy_again = next((run[0] for run in runs[index + 1 :] if run[2] == 'policy'), n)
+        if who == 'policy' and 'correction' in authority[last + 1 : policy_again]:
             cut = telem[last] - pre_takeover_s
             while end >= first and telem[end] > cut:
                 end -= 1
@@ -151,14 +176,17 @@ def corrected_stretches(telem, action_valid, authority, lifecycle, *, pre_takeov
 def resample(telem, first, last, fps):
     """The source row for each time on a fixed grid from telem[first] to telem[last]: the latest at or before it."""
     import numpy as np
+
     span = float(telem[last] - telem[first])
     grid = telem[first] + np.arange(int(math.floor(span * fps + 1e-9)) + 1) / fps
-    rows = np.searchsorted(telem[first:last + 1], grid, side='right') - 1 + first
+    rows = np.searchsorted(telem[first : last + 1], grid, side='right') - 1 + first
     lag = grid - telem[rows]
     if lag.max() > MAX_GAP_PERIODS / fps:
         at = int(lag.argmax())
-        raise ExportError(f'a gap of {lag.max() * 1000:.0f} ms at {grid[at] - telem[first]:.2f} s: '
-                          f'over {MAX_GAP_PERIODS} periods of {fps} fps')
+        raise ExportError(
+            f'a gap of {lag.max() * 1000:.0f} ms at {grid[at] - telem[first]:.2f} s: '
+            f'over {MAX_GAP_PERIODS} periods of {fps} fps'
+        )
     return rows
 
 
@@ -171,15 +199,21 @@ def features(joints, roles, image_shape, extras=()):
         if name in extras:
             result[name] = dict(vector) if width is None else {'dtype': 'float32', 'shape': (width,), 'names': names}
     for role in roles:
-        result[f'observation.images.{role}'] = {'dtype': 'video', 'shape': tuple(image_shape),
-                                                'names': ['height', 'width', 'channels']}
+        result[f'observation.images.{role}'] = {
+            'dtype': 'video',
+            'shape': tuple(image_shape),
+            'names': ['height', 'width', 'channels'],
+        }
     return result
 
 
 def complete_extras(episode, rows):
     """The format 9 extras every one of the grid's `rows` has: no NaN, nothing filled in."""
-    return tuple(name for name, _dataset, _mask, _width, _names in EXTRAS
-                 if name in episode['extras'] and bool(episode['extras'][name][1][rows].all()))
+    return tuple(
+        name
+        for name, _dataset, _mask, _width, _names in EXTRAS
+        if name in episode['extras'] and bool(episode['extras'][name][1][rows].all())
+    )
 
 
 def plan_episode(path, fps, *, pre_takeover_s=PRE_TAKEOVER_S, min_stretch_s=MIN_STRETCH_S):
@@ -191,9 +225,14 @@ def plan_episode(path, fps, *, pre_takeover_s=PRE_TAKEOVER_S, min_stretch_s=MIN_
     if episode['lifecycle'] is not None:
         if None in episode['lifecycle']:
             raise ExportError(f'{path.name}: a policy episode whose rows do not all say their lifecycle state')
-        stretches = corrected_stretches(episode['telem'], episode['action_valid'], episode['authority'],
-                                        episode['lifecycle'], pre_takeover_s=pre_takeover_s,
-                                        min_stretch_s=min_stretch_s)
+        stretches = corrected_stretches(
+            episode['telem'],
+            episode['action_valid'],
+            episode['authority'],
+            episode['lifecycle'],
+            pre_takeover_s=pre_takeover_s,
+            min_stretch_s=min_stretch_s,
+        )
         if not stretches:
             raise ExportError(f'{path.name}: no stretch the policy or a correction drove for {min_stretch_s:g} s')
         for stretch in stretches:
@@ -202,18 +241,26 @@ def plan_episode(path, fps, *, pre_takeover_s=PRE_TAKEOVER_S, min_stretch_s=MIN_
         return dict(episode, path=path, stretches=stretches, exported_extras=complete_extras(episode, rows))
     first, last = usable_span(episode['action_valid'], episode['authority'])
     rows = resample(episode['telem'], first, last, fps)
-    return dict(episode, path=path, first=first, last=last, rows=rows, exported_extras=complete_extras(episode, rows),
-                stretches=[dict(first=first, last=last, authority='human', trimmed_s=0., rows=rows)])
+    return dict(
+        episode,
+        path=path,
+        first=first,
+        last=last,
+        rows=rows,
+        exported_extras=complete_extras(episode, rows),
+        stretches=[dict(first=first, last=last, authority='human', trimmed_s=0.0, rows=rows)],
+    )
 
 
 def frames(plan, task, rows=None):
     """LeRobot frames for one planned episode (or the grid `rows` of one of its stretches), images read one source
     row at a time."""
     import h5py
+
     with h5py.File(plan['path'], 'r') as f:
         images = {role: f[f'observations/images/{role}'] for role in plan['roles']}
         cached = (None, None)
-        for row in (plan['rows'] if rows is None else rows):
+        for row in plan['rows'] if rows is None else rows:
             row = int(row)
             if cached[0] != row:  # A repeated row (a grid finer than the recording) reads its images once.
                 cached = (row, {role: images[role][row] for role in plan['roles']})
@@ -227,6 +274,7 @@ def select(evidence, *, include_unreviewed=False):
     """The episodes to export, oldest first: (path, review) for each complete one reviewed Keep (or not reviewed at
     all, with include_unreviewed), never one reviewed Discard. Reviews come from Replay's reviews.jsonl."""
     from robot_platform.helm.episode_worker import Episodes
+
     root = Path(evidence).expanduser().resolve()
     chosen = []
     for entry in Episodes(root).list():
@@ -250,8 +298,13 @@ def plan(evidence, fps, *, include_unreviewed=False, pre_takeover_s=PRE_TAKEOVER
         planned['review'] = review
         key = ('joints', 'roles', 'image_shape', 'exported_extras')
         if plans and tuple(planned[k] for k in key) != tuple(plans[0][k] for k in key):
-            refused.append((path, 'different joints, cameras, image size or extra features from the first episode: '
-                                  'export them as their own dataset'))
+            refused.append(
+                (
+                    path,
+                    'different joints, cameras, image size or extra features from the first episode: '
+                    'export them as their own dataset',
+                )
+            )
             continue
         plans.append(planned)
     return plans, refused
@@ -273,12 +326,19 @@ def write(plans, out, repo_id, fps, task, *, create=None):
         raise ExportError('nothing to export: no episode is kept for training')
     if create is None:
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset  # openpi's pinned revision: format v2.1
+
         create = LeRobotDataset.create
     out = Path(out)
     first = plans[0]
-    dataset = create(repo_id=repo_id, fps=fps, root=out, robot_type='minerva',
-                     features=features(first['joints'], first['roles'], first['image_shape'], first['exported_extras']),
-                     use_videos=True, image_writer_threads=4)
+    dataset = create(
+        repo_id=repo_id,
+        fps=fps,
+        root=out,
+        robot_type='minerva',
+        features=features(first['joints'], first['roles'], first['image_shape'], first['exported_extras']),
+        use_videos=True,
+        image_writer_threads=4,
+    )
     provenance = []
     for planned in plans:
         digest = _sha256(planned['path'])
@@ -287,51 +347,91 @@ def write(plans, out, repo_id, fps, task, *, create=None):
             for frame in frames(planned, task, rows):
                 dataset.add_frame(frame)
             dataset.save_episode()
-            provenance.append(dict(
-                episode_index=len(provenance), source=f"{planned['path'].parent.parent.name}/{planned['path'].stem}",
-                sha256=digest, collected_at=planned['collected_at'], review=planned['review'],
-                source_span=[int(stretch['first']), int(stretch['last'])],
-                source_rows=int(stretch['last'] - stretch['first'] + 1), frames=len(rows),
-                repeated_rows=int(len(rows) - len(set(int(r) for r in rows))), authority=stretch['authority'],
-                trimmed_s=stretch['trimmed_s']))
+            provenance.append(
+                dict(
+                    episode_index=len(provenance),
+                    source=f'{planned["path"].parent.parent.name}/{planned["path"].stem}',
+                    sha256=digest,
+                    collected_at=planned['collected_at'],
+                    review=planned['review'],
+                    source_span=[int(stretch['first']), int(stretch['last'])],
+                    source_rows=int(stretch['last'] - stretch['first'] + 1),
+                    frames=len(rows),
+                    repeated_rows=int(len(rows) - len(set(int(r) for r in rows))),
+                    authority=stretch['authority'],
+                    trimmed_s=stretch['trimmed_s'],
+                )
+            )
     meta = out / 'meta'
     meta.mkdir(parents=True, exist_ok=True)
-    (meta / 'minerva_provenance.json').write_text(json.dumps(dict(
-        fps=fps, task=task, format=f"minerva task capture {first['version']} -> LeRobot v2.1", state='qpos',
-        action='actions', extras=list(first['exported_extras']), joints=first['joints'], cameras=first['roles'],
-        episodes=provenance), indent=1) + '\n', encoding='utf-8')
+    (meta / 'minerva_provenance.json').write_text(
+        json.dumps(
+            dict(
+                fps=fps,
+                task=task,
+                format=f'minerva task capture {first["version"]} -> LeRobot v2.1',
+                state='qpos',
+                action='actions',
+                extras=list(first['exported_extras']),
+                joints=first['joints'],
+                cameras=first['roles'],
+                episodes=provenance,
+            ),
+            indent=1,
+        )
+        + '\n',
+        encoding='utf-8',
+    )
     return dataset
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python -m robot_platform.data.lerobot_export', description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog='python -m robot_platform.data.lerobot_export',
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('--evidence', required=True, help='a copy of ~/minerva/evidence (live-*/episodes, reviews)')
     parser.add_argument('--out', help='the dataset directory to create (must not exist)')
     parser.add_argument('--repo-id', default='minerva/handoff')
     parser.add_argument('--fps', type=int, default=15)
     parser.add_argument('--task', default=TASK)
     parser.add_argument('--include-unreviewed', action='store_true', help='also export episodes not yet reviewed')
-    parser.add_argument('--pre-takeover-s', type=float, default=PRE_TAKEOVER_S,
-                        help='seconds left out before each take over from the policy (policy sessions)')
-    parser.add_argument('--min-stretch-s', type=float, default=MIN_STRETCH_S,
-                        help='the shortest policy or correction stretch kept (policy sessions)')
+    parser.add_argument(
+        '--pre-takeover-s',
+        type=float,
+        default=PRE_TAKEOVER_S,
+        help='seconds left out before each take over from the policy (policy sessions)',
+    )
+    parser.add_argument(
+        '--min-stretch-s',
+        type=float,
+        default=MIN_STRETCH_S,
+        help='the shortest policy or correction stretch kept (policy sessions)',
+    )
     parser.add_argument('--dry-run', action='store_true', help='show what would be exported; needs no LeRobot')
     args = parser.parse_args(argv)
     if not 1 <= args.fps <= 60:
         parser.error('--fps is 1 to 60')
     if not (0 <= args.pre_takeover_s <= 10 and 0 <= args.min_stretch_s <= 60):
         parser.error('--pre-takeover-s is 0 to 10 s and --min-stretch-s 0 to 60 s')
-    plans, refused = plan(args.evidence, args.fps, include_unreviewed=args.include_unreviewed,
-                          pre_takeover_s=args.pre_takeover_s, min_stretch_s=args.min_stretch_s)
+    plans, refused = plan(
+        args.evidence,
+        args.fps,
+        include_unreviewed=args.include_unreviewed,
+        pre_takeover_s=args.pre_takeover_s,
+        min_stretch_s=args.min_stretch_s,
+    )
     for planned in plans:
         for stretch in planned['stretches']:
             rows = stretch['rows']
-            who = '' if stretch['authority'] == 'human' else f" {stretch['authority']}"
-            trimmed = f", {stretch['trimmed_s']:g} s before the take over left out" if stretch['trimmed_s'] else ''
-            print(f"export {planned['path'].parent.parent.name}/{planned['path'].stem}:{who} rows {stretch['first']}-"
-                  f"{stretch['last']} -> {len(rows)} frames at {args.fps} fps "
-                  f"({len(rows) / args.fps:.1f} s, {len(rows) - len(set(rows.tolist()))} repeated{trimmed})")
+            who = '' if stretch['authority'] == 'human' else f' {stretch["authority"]}'
+            trimmed = f', {stretch["trimmed_s"]:g} s before the take over left out' if stretch['trimmed_s'] else ''
+            print(
+                f'export {planned["path"].parent.parent.name}/{planned["path"].stem}:{who} rows {stretch["first"]}-'
+                f'{stretch["last"]} -> {len(rows)} frames at {args.fps} fps '
+                f'({len(rows) / args.fps:.1f} s, {len(rows) - len(set(rows.tolist()))} repeated{trimmed})'
+            )
     for path, reason in refused:
         print(f'refused {path.parent.parent.name}/{path.stem}: {reason}', file=sys.stderr)
     if args.dry_run:
@@ -345,8 +445,10 @@ def main(argv=None):
     except ExportError as exc:
         print(exc, file=sys.stderr)
         return 1
-    print(f"wrote {sum(len(planned['stretches']) for planned in plans)} episodes from {len(plans)} recordings "
-          f'to {args.out}')
+    print(
+        f'wrote {sum(len(planned["stretches"]) for planned in plans)} episodes from {len(plans)} recordings '
+        f'to {args.out}'
+    )
     return 0
 
 

@@ -15,6 +15,7 @@ A message on the pose channel that starts with PAGE_REPORT is the page's own loo
 One viewer at a time: an offer ends the last one. Read-only towards the robot: its only way in is the pose channel, whose
 messages go to Helm unread except for their size, and Helm checks them as it does the socket's.
 """
+
 import asyncio
 import fractions
 import json
@@ -31,7 +32,7 @@ MAX_HEADER = 256 * 1024  # An offer's SDP.
 MAX_PAYLOAD = 2 * 1024 * 1024
 MAX_POSE = 1024  # As Helm's socket (server.xr_socket).
 FPS = 10  # The camera relay's rate (camera_video_worker): x264 counts its bits by it.
-STATS_S = 1.
+STATS_S = 1.0
 PARTITION = '/etc/minerva/cpu-partition.json'
 EVIDENCE = 'HELM_WEBRTC_EVIDENCE'  # Helm on Minerva: the folder for this worker's log of the link, if any.
 PAGE_REPORT = '{"type":"link"'
@@ -120,6 +121,7 @@ class Worker:
         import av
         from .webrtc_rate import RateControl
         from .webrtc_video import LinkEncoder, follow_loss, limit_resends, peer_connection, prefer_h264, use_encoder
+
         self.limit_resends = limit_resends
         self.av, self.RateControl, self.LinkEncoder = av, RateControl, LinkEncoder
         self.follow_loss, self.peer_connection, self.prefer_h264 = follow_loss, peer_connection, prefer_h264
@@ -132,6 +134,7 @@ class Worker:
 
         class Newest(MediaStreamTrack):
             """The newest JPEG as a frame: one that comes while the encoder is busy replaces the one waiting."""
+
             kind = 'video'
 
             def __init__(track):
@@ -159,6 +162,7 @@ class Worker:
                     if frame is not None:
                         frame.pts, frame.time_base = int(time.monotonic() * 90_000), track.time_base
                         return frame
+
         self.Newest = Newest
 
     def make_encoder(self):
@@ -185,6 +189,7 @@ class Worker:
 
     async def offer(self, message):
         from aiortc import RTCSessionDescription
+
         await self.close_peer()
         self.rate = self.RateControl()
         pc = self.pc = self.peer_connection()
@@ -233,11 +238,22 @@ class Worker:
                     sent, packets = item.bytesSent, item.packetsSent
                 elif item.type == 'remote-inbound-rtp':
                     lost, rtt = item.fractionLost / 256, item.roundTripTime
-            self.say({'kind': 'stats', 'state': pc.connectionState, 'bytes_sent': sent, 'packets_sent': packets,
-                      'resends': self.resends.resent, 'resends_refused': self.resends.refused,
-                      'target_bps': self.rate.target,
-                      'estimate_bps': self.rate.estimated, 'fraction_lost': lost, 'rtt_s': rtt,
-                      'frames_in': self.frames_in, 'poses_in': self.poses_in})
+            self.say(
+                {
+                    'kind': 'stats',
+                    'state': pc.connectionState,
+                    'bytes_sent': sent,
+                    'packets_sent': packets,
+                    'resends': self.resends.resent,
+                    'resends_refused': self.resends.refused,
+                    'target_bps': self.rate.target,
+                    'estimate_bps': self.rate.estimated,
+                    'fraction_lost': lost,
+                    'rtt_s': rtt,
+                    'frames_in': self.frames_in,
+                    'poses_in': self.poses_in,
+                }
+            )
 
     async def handle(self, header, payload):
         kind = header.get('kind')
@@ -268,6 +284,7 @@ class Worker:
                     loop.call_soon_threadsafe(queue.put_nowait, message)
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
+
         threading.Thread(target=read, daemon=True).start()
         while (message := await queue.get()) is not None:
             await self.handle(*message)

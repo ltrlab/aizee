@@ -3,6 +3,7 @@ for the Jetson inference timing test. CPU only, memory-mapped: the 1 GB checkpoi
 
 usage: python export_ema_fp16.py <checkpoint.pt> <out.pt>
 """
+
 import hashlib
 import json
 import os
@@ -18,11 +19,28 @@ ckpt = torch.load(src, map_location='cpu', mmap=True, weights_only=False)
 ema = ckpt['ema_state_dict']
 kept = {k: v.detach().to(torch.float16).clone() for k, v in ema.items() if not k.startswith(TRAINING_ONLY)}
 dropped = sorted({k.split('.')[0] for k in ema if k.startswith(TRAINING_ONLY)})
-out = {'ema_fp16': kept, 'config': ckpt['config'], 'dataset_stats': ckpt['dataset_stats'], 'epoch': ckpt['epoch'],
-       'ema_num_updates': ckpt.get('ema_num_updates'), 'source': os.path.abspath(src)}
+out = {
+    'ema_fp16': kept,
+    'config': ckpt['config'],
+    'dataset_stats': ckpt['dataset_stats'],
+    'epoch': ckpt['epoch'],
+    'ema_num_updates': ckpt.get('ema_num_updates'),
+    'source': os.path.abspath(src),
+}
 os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
 torch.save(out, dst)
 digest = hashlib.sha256(open(dst, 'rb').read()).hexdigest()
-print(json.dumps({'epoch': ckpt['epoch'], 'ema_num_updates': ckpt.get('ema_num_updates'), 'tensors': len(kept),
-                  'params': sum(v.numel() for v in kept.values()), 'dropped_prefixes': dropped,
-                  'bytes': os.path.getsize(dst), 'sha256': digest, 'config': ckpt['config']}))
+print(
+    json.dumps(
+        {
+            'epoch': ckpt['epoch'],
+            'ema_num_updates': ckpt.get('ema_num_updates'),
+            'tensors': len(kept),
+            'params': sum(v.numel() for v in kept.values()),
+            'dropped_prefixes': dropped,
+            'bytes': os.path.getsize(dst),
+            'sha256': digest,
+            'config': ckpt['config'],
+        }
+    )
+)

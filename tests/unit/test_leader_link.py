@@ -1,4 +1,5 @@
 """Authenticated UDP leader link over loopback: freshness, skips, faults and keys."""
+
 import time
 
 import pytest
@@ -6,8 +7,11 @@ import pytest
 from robot_platform.teleop.leader_link import LeaderLinkInput, LeaderLinkProcess, LeaderLinkServer, seal, unseal
 from robot_platform.teleop.openrb import LeaderSample, LeaderSampleSkipped
 
-PROFILE = {'leaders': {'left': {'usb_serial': 'A1'}, 'right': {'usb_serial': 'B2'}},
-           'max_age_s': .05, 'max_skew_s': .02}
+PROFILE = {
+    'leaders': {'left': {'usb_serial': 'A1'}, 'right': {'usb_serial': 'B2'}},
+    'max_age_s': 0.05,
+    'max_skew_s': 0.02,
+}
 KEY = b'k' * 32
 
 
@@ -22,17 +26,27 @@ class Inputs:
             raise self.failure
         self.sequence += 1
         now = time.perf_counter()
-        return {name: LeaderSample(tuple(.1 * i for i in range(7)), tuple(range(7)), self.sequence, now - .002,
-                                   now - .001, (0, 0, 1, 1), 10 * self.sequence, 10 * self.sequence + 1)
-                for name in self.pins}
+        return {
+            name: LeaderSample(
+                tuple(0.1 * i for i in range(7)),
+                tuple(range(7)),
+                self.sequence,
+                now - 0.002,
+                now - 0.001,
+                (0, 0, 1, 1),
+                10 * self.sequence,
+                10 * self.sequence + 1,
+            )
+            for name in self.pins
+        }
 
 
 @pytest.fixture
 def link():
-    robot = LeaderLinkInput(KEY, PROFILE, bind=('127.0.0.1', 0), timeout_s=.2)
+    robot = LeaderLinkInput(KEY, PROFILE, bind=('127.0.0.1', 0), timeout_s=0.2)
     inputs = Inputs()
     server = LeaderLinkServer(inputs, KEY, robot.address, local=('127.0.0.1', 0)).start()
-    robot.wait_for_pc(5.)
+    robot.wait_for_pc(5.0)
     yield robot, server, inputs
     server.close()
     robot.close()
@@ -44,7 +58,7 @@ def test_the_robot_gets_fresh_authenticated_pairs(link):
     first, second = robot.poll(), robot.poll()
     assert set(first) == {'left', 'right'} and second['left'].sequence > first['left'].sequence
     assert first['left'].raw_positions == tuple(range(7))
-    assert 0 <= time.perf_counter() - second['left'].sampled_at < .05  # Source age plus the round trip.
+    assert 0 <= time.perf_counter() - second['left'].sampled_at < 0.05  # Source age plus the round trip.
     assert server.served == 2 and server.rejected == 0
 
 
@@ -81,7 +95,7 @@ def test_nothing_is_requested_before_the_pc_says_hello():
         with pytest.raises(LeaderSampleSkipped, match='Waiting for the leader PC'):
             robot.poll()
         with pytest.raises(TimeoutError):
-            robot.wait_for_pc(.05)
+            robot.wait_for_pc(0.05)
     finally:
         robot.close()
 
@@ -95,11 +109,11 @@ def test_seal_rejects_tampering():
 
 
 def test_the_pc_end_runs_in_its_own_responsive_process():
-    robot = LeaderLinkInput(KEY, PROFILE, bind=('127.0.0.1', 0), timeout_s=.5)
+    robot = LeaderLinkInput(KEY, PROFILE, bind=('127.0.0.1', 0), timeout_s=0.5)
     pc = LeaderLinkProcess(PROFILE, KEY, robot.address, local=('127.0.0.1', 0), real=False)
     try:
         pc.start()
-        robot.wait_for_pc(10.)
+        robot.wait_for_pc(10.0)
         first, second = robot.poll(), robot.poll()
         assert second['left'].sequence > first['left'].sequence and robot.fault is None
     finally:
@@ -111,25 +125,31 @@ def test_the_pc_end_runs_in_its_own_responsive_process():
 
 def test_link_timing_tells_a_queued_burst_from_lost_requests_and_a_slow_reply():
     from robot_platform.teleop.leader_link import LinkTiming
-    clock = [0.]
+
+    clock = [0.0]
     timing = LinkTiming(clock=lambda: clock[0], wall=lambda: 1e9)
-    def arrive(at, turnaround=.0002):
+
+    def arrive(at, turnaround=0.0002):
         clock[0] = at
         arrived = timing.arrived()
         clock[0] = at + turnaround
         timing.replied(arrived)
-    for at in (0., .01, .02):
+
+    for at in (0.0, 0.01, 0.02):
         arrive(at)
-    for at in (.13, .1305, .131, .1315):  # 110 ms quiet, then the held requests at once: queued on the way in.
+    for at in (0.13, 0.1305, 0.131, 0.1315):  # 110 ms quiet, then the held requests at once: queued on the way in.
         arrive(at)
-    arrive(.1415)
-    arrive(.30)  # 158.5 ms quiet and no burst: lost.
-    arrive(.31, turnaround=.003)  # The PC took 3 ms to answer.
+    arrive(0.1415)
+    arrive(0.30)  # 158.5 ms quiet and no burst: lost.
+    arrive(0.31, turnaround=0.003)  # The PC took 3 ms to answer.
     summary = timing.summary()
-    assert summary['requests'] == 10 and summary['span_s'] == .31
+    assert summary['requests'] == 10 and summary['span_s'] == 0.31
     assert summary['gaps_over_ms'] == {'20': 2, '50': 2, '100': 2}
-    assert [(g['gap_ms'], g['burst'], g['elapsed_s']) for g in summary['largest_gaps']] == [(158.5, 0, .3), (110., 3, .13)]
-    assert summary['turnarounds_over_2ms'] == 1 and summary['slowest_turnarounds'][0]['turnaround_ms'] == 3.
+    assert [(g['gap_ms'], g['burst'], g['elapsed_s']) for g in summary['largest_gaps']] == [
+        (158.5, 0, 0.3),
+        (110.0, 3, 0.13),
+    ]
+    assert summary['turnarounds_over_2ms'] == 1 and summary['slowest_turnarounds'][0]['turnaround_ms'] == 3.0
     assert summary['largest_gaps'][0]['utc'].startswith('2001-09-09T01:46:40')
 
 

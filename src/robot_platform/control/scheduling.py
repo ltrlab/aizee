@@ -27,6 +27,7 @@ need the robot user's services to hold an RLIMIT_RTPRIO, which Minerva's
 systemd-user PAM session drops; on a CPU of its own, under a load filling the
 background CPUs, the receiver missed no deadline in 30 s.
 """
+
 import json
 import os
 from pathlib import Path
@@ -138,8 +139,11 @@ def thread_placement(pid):
     a receiver; empty where it cannot be read (not Linux, or the process has ended)."""
     if not sys.platform.startswith('linux'):
         return {}
-    policies = {getattr(os, name): name for name in ('SCHED_OTHER', 'SCHED_FIFO', 'SCHED_RR', 'SCHED_BATCH',
-                                                     'SCHED_IDLE') if hasattr(os, name)}
+    policies = {
+        getattr(os, name): name
+        for name in ('SCHED_OTHER', 'SCHED_FIFO', 'SCHED_RR', 'SCHED_BATCH', 'SCHED_IDLE')
+        if hasattr(os, name)
+    }
     threads = {}
     try:
         tasks = [int(task.name) for task in (PROC / str(pid) / 'task').iterdir()]
@@ -147,9 +151,11 @@ def thread_placement(pid):
         return {}
     for thread in tasks:
         try:
-            threads[thread] = {'cpus': sorted(os.sched_getaffinity(thread)),
-                               'policy': policies.get(os.sched_getscheduler(thread), 'unknown'),
-                               'priority': os.sched_getparam(thread).sched_priority}
+            threads[thread] = {
+                'cpus': sorted(os.sched_getaffinity(thread)),
+                'policy': policies.get(os.sched_getscheduler(thread), 'unknown'),
+                'priority': os.sched_getparam(thread).sched_priority,
+            }
         except OSError:
             continue  # That thread has ended.
     return threads
@@ -166,8 +172,7 @@ def prefer_responsive(pid=None):
     from ctypes import wintypes
 
     class ThrottlingState(ctypes.Structure):
-        _fields_ = [('Version', wintypes.ULONG), ('ControlMask', wintypes.ULONG),
-                    ('StateMask', wintypes.ULONG)]
+        _fields_ = [('Version', wintypes.ULONG), ('ControlMask', wintypes.ULONG), ('StateMask', wintypes.ULONG)]
 
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
@@ -185,8 +190,9 @@ def prefer_responsive(pid=None):
         # StateMask 0 = never throttle. Windows 10 lacks the timer flag; retry without it.
         for control in (THROTTLE_EXECUTION_SPEED | THROTTLE_IGNORE_TIMER_RESOLUTION, THROTTLE_EXECUTION_SPEED):
             state = ThrottlingState(1, control, 0)
-            if kernel32.SetProcessInformation(handle, PROCESS_POWER_THROTTLING, ctypes.byref(state),
-                                              ctypes.sizeof(state)):
+            if kernel32.SetProcessInformation(
+                handle, PROCESS_POWER_THROTTLING, ctypes.byref(state), ctypes.sizeof(state)
+            ):
                 applied.append('no_power_throttling')
                 break
         if kernel32.SetPriorityClass(handle, HIGH_PRIORITY_CLASS):

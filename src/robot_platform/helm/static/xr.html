@@ -1,64 +1,152 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Head tracking · Helm</title>
-  <style>
-    :root { color-scheme: dark; --bg: #101318; --panel: #181c23; --text: #e9ecf1; --muted: #9aa3b2; --accent: #4f8cff;
-            --ok: #3fbf7f; --warn: #e0a83a; --bad: #e05a5a; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-           font: 18px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; }
-    main { width: min(640px, 100% - 32px); background: var(--panel); border-radius: 14px; padding: 28px; }
-    h1 { margin: 0 0 6px; font-size: 26px; }
-    p { margin: 8px 0; }
-    .muted { color: var(--muted); }
-    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 8px; }
-    button { font: inherit; font-weight: 600; padding: 16px 22px; border-radius: 10px; border: 0; cursor: pointer;
-             background: var(--accent); color: #fff; min-height: 56px; }
-    button:disabled { opacity: .45; cursor: default; }
-    button.quiet { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--muted); }
-    #status b { font-weight: 700; }
-    .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0 0; }
-    dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Minerva head tracking</h1>
-    <p class="muted">The robot's head turns with this headset while a teleop session follows (Engage, T). Without it the
-      head holds still at its zero.</p>
-    <p id="status" role="status">Connecting to Helm…</p>
-    <div class="row">
-      <button id="start" disabled>Start head tracking</button>
-      <button id="other-link" class="quiet"></button>
-    </div>
-    <p class="muted">Look straight ahead and level when you start: that is the head's zero. Inside you see the head
-      camera's picture. Press A or X for the ring of controls, in front of you and a little low: tilt that controller's
-      thumbstick toward an item (it stays picked as the stick comes back) and press the thumbstick down to choose it;
-      A or X goes back, or closes the ring. From the ring you start a session (Virtual, an arm, both arms or the head),
-      step it (Idle, Enable, Engage, Hold), shut it down, end it or Disable; anything that powers or moves Minerva asks
-      you to hold the thumbstick down for a second. Starting here takes Helm's control: the other device's page shows
-      the session, view-only, and
-      can still Disable or Shut down. The ring's View sets the picture: Follow head, 3D (the head camera's depth, fixed
-      in the room while a session drives the head), Model, Wrists (the wrist cameras' pictures on the model's wrists),
-      Map, the opacities and Recenter; the headset remembers them. While the ring is open on a controller, its arm takes
-      no part. With the ring closed, a line low in view shows a fault, a hold or lost control. To zero again, look
-      where the head should face straight ahead and press either controller's thumbstick (a pinch does not: your hands
-      hold the leaders); recentering the headset (hold the Meta button) zeroes at the new heading, level. Take the
-      headset off or press the Meta button to stop: the head holds, then returns to its zero.</p>
-    <dl>
-      <dt>Video</dt><dd id="video">—</dd>
-      <dt>Helm</dt><dd id="link">—</dd>
-      <dt>Tracking</dt><dd id="tracking">—</dd>
-      <dt>Yaw / pitch</dt><dd id="angles">—</dd>
-      <dt>Head</dt><dd id="head">—</dd>
-      <dt>Also at</dt><dd id="elsewhere">—</dd>
-    </dl>
-  </main>
-  <script type="importmap">{"imports": {"three": "/static/vendor/three.module.js"}}</script>
-  <script type="module" src="/helm/xr.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Head tracking · Helm</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101318;
+        --panel: #181c23;
+        --text: #e9ecf1;
+        --muted: #9aa3b2;
+        --accent: #4f8cff;
+        --ok: #3fbf7f;
+        --warn: #e0a83a;
+        --bad: #e05a5a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          18px/1.45 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        display: grid;
+        place-items: center;
+      }
+      main {
+        width: min(640px, 100% - 32px);
+        background: var(--panel);
+        border-radius: 14px;
+        padding: 28px;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 26px;
+      }
+      p {
+        margin: 8px 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 20px 0 8px;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 16px 22px;
+        border-radius: 10px;
+        border: 0;
+        cursor: pointer;
+        background: var(--accent);
+        color: #fff;
+        min-height: 56px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.quiet {
+        background: none;
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px var(--muted);
+      }
+      #status b {
+        font-weight: 700;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 16px;
+        margin: 16px 0 0;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Minerva head tracking</h1>
+      <p class="muted">
+        The robot's head turns with this headset while a teleop session follows (Engage, T). Without it the head holds
+        still at its zero.
+      </p>
+      <p id="status" role="status">Connecting to Helm…</p>
+      <div class="row">
+        <button id="start" disabled>Start head tracking</button>
+        <button id="other-link" class="quiet"></button>
+      </div>
+      <p class="muted">
+        Look straight ahead and level when you start: that is the head's zero. Inside you see the head camera's picture.
+        Press A or X for the ring of controls, in front of you and a little low: tilt that controller's thumbstick
+        toward an item (it stays picked as the stick comes back) and press the thumbstick down to choose it; A or X goes
+        back, or closes the ring. From the ring you start a session (Virtual, an arm, both arms or the head), step it
+        (Idle, Enable, Engage, Hold), shut it down, end it or Disable; anything that powers or moves Minerva asks you to
+        hold the thumbstick down for a second. Starting here takes Helm's control: the other device's page shows the
+        session, view-only, and can still Disable or Shut down. The ring's View sets the picture: Follow head, 3D (the
+        head camera's depth, fixed in the room while a session drives the head), Model, Wrists (the wrist cameras'
+        pictures on the model's wrists), Map, the opacities and Recenter; the headset remembers them. While the ring is
+        open on a controller, its arm takes no part. With the ring closed, a line low in view shows a fault, a hold or
+        lost control. To zero again, look where the head should face straight ahead and press either controller's
+        thumbstick (a pinch does not: your hands hold the leaders); recentering the headset (hold the Meta button)
+        zeroes at the new heading, level. Take the headset off or press the Meta button to stop: the head holds, then
+        returns to its zero.
+      </p>
+      <dl>
+        <dt>Video</dt>
+        <dd id="video">—</dd>
+        <dt>Helm</dt>
+        <dd id="link">—</dd>
+        <dt>Tracking</dt>
+        <dd id="tracking">—</dd>
+        <dt>Yaw / pitch</dt>
+        <dd id="angles">—</dd>
+        <dt>Head</dt>
+        <dd id="head">—</dd>
+        <dt>Also at</dt>
+        <dd id="elsewhere">—</dd>
+      </dl>
+    </main>
+    <script type="importmap">
+      { "imports": { "three": "/static/vendor/three.module.js" } }
+    </script>
+    <script type="module" src="/helm/xr.js"></script>
+  </body>
 </html>

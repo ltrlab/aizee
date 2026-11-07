@@ -9,6 +9,7 @@ centre of the black square. Corners run in OpenCV's order: top-left, top-right, 
 
 Imports only the standard library, so scripts outside the development environment can use it.
 """
+
 from __future__ import annotations
 
 import math
@@ -68,18 +69,19 @@ def cell_center(family, square, row, column):
     return ((column - (n - 1) / 2) * size, ((n - 1) / 2 - row) * size)
 
 
-def marker_axes(yaw, tilt=0.):
+def marker_axes(yaw, tilt=0.0):
     """A tag's marker axes (x, y, z) in the frame it is placed in (z up): turned `yaw` about z, then tipped `tilt`
     about its own x axis. Flat on a table, tilt is 0 and z points up; on an upright wall with the top of the code up,
     tilt is a quarter turn and z points out of the wall."""
     c, s, ct, st = math.cos(yaw), math.sin(yaw), math.cos(tilt), math.sin(tilt)
-    return ((c, s, 0.), (-s * ct, c * ct, st), (s * st, -c * st, ct))
+    return ((c, s, 0.0), (-s * ct, c * ct, st), (s * st, -c * st, ct))
 
 
-def corners(square, x, y, z, yaw, tilt=0.):
+def corners(square, x, y, z, yaw, tilt=0.0):
     """The black square's corners, in OpenCV's order, in the frame a tag is placed in: its centre at (x, y, z) and its
     marker axes as marker_axes(yaw, tilt) gives them."""
     (xx, xy, xz), (yx, yy, yz), _ = marker_axes(yaw, tilt)
     h = square / 2
-    return [(x + xx * u + yx * v, y + xy * u + yy * v, z + xz * u + yz * v)
-            for u, v in ((-h, h), (h, h), (h, -h), (-h, -h))]
+    return [
+        (x + xx * u + yx * v, y + xy * u + yy * v, z + xz * u + yz * v) for u, v in ((-h, h), (h, h), (h, -h), (-h, -h))
+    ]

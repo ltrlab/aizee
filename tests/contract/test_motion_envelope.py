@@ -1,10 +1,11 @@
 """Motion-bound collision boxes (two arms): the compiler's boxes against the Rust receiver's own check."""
+
 from copy import deepcopy
 import math
 
 import pytest
 
-pytest.importorskip("fcl")
+pytest.importorskip('fcl')
 from robot_platform.control.approach import motion_reserve, reaction_s, reserve_toward
 from robot_platform.control.collision_envelope import CollisionBlocked, MotionEnvelopeCompiler, calibration_revision
 from robot_platform.control.guarded import GuardedControllerClient, GuardRejected
@@ -13,8 +14,10 @@ from robot_platform.simulation.control_harness import NativeControlHarness, defa
 from robot_platform.simulation.native_collision import NativeCollisionBackend, library_path
 from robot_platform.simulation.runtime_model import RuntimeCollisionModel, build_runtime_model
 
-pytestmark = pytest.mark.skipif(not library_path().is_file() or not default_binary().is_file(),
-                               reason="Build native collision library and controller harness")
+pytestmark = pytest.mark.skipif(
+    not library_path().is_file() or not default_binary().is_file(),
+    reason='Build native collision library and controller harness',
+)
 
 
 @pytest.fixture
@@ -26,171 +29,229 @@ def setup(tmp_path):
 
 def sliders(tmp_path):
     # Two 0.2 m cubes sliding toward each other along x, each on its own branch.
-    urdf = tmp_path / "two_sliders.urdf"
-    urdf.write_text('''<robot name="fixture"><link name="root"/>
+    urdf = tmp_path / 'two_sliders.urdf'
+    urdf.write_text("""<robot name="fixture"><link name="root"/>
     <link name="a"><collision><geometry><box size=".2 .2 .2"/></geometry></collision></link>
     <link name="b"><collision><geometry><box size=".2 .2 .2"/></geometry></collision></link>
     <joint name="left" type="prismatic"><parent link="root"/><child link="a"/>
     <axis xyz="1 0 0"/><limit lower="-3" upper="3"/></joint>
     <joint name="right" type="prismatic"><parent link="root"/><child link="b"/>
-    <axis xyz="1 0 0"/><limit lower="-3" upper="3"/></joint></robot>''')
+    <axis xyz="1 0 0"/><limit lower="-3" upper="3"/></joint></robot>""")
     profile = ModelProfile.from_urdf(urdf)
-    artifact = tmp_path / "runtime.json"
+    artifact = tmp_path / 'runtime.json'
     build_runtime_model(profile, artifact)
     runtime = RuntimeCollisionModel(profile, artifact)
-    backend = NativeCollisionBackend(runtime, geometry_mode="keepout")
-    mapping = {"left": {"actuator": "a", "scale": 1., "offset": 0.},
-               "right": {"actuator": "b", "scale": 1., "offset": 0.}}
-    cfg = {"group": "whole_robot", "identity": {"model": runtime.revision,
-           "calibration": calibration_revision(mapping), "collision_policy": backend.policy_revision},
-           "lease_ms": 150, "feedback_timeout_ms": 20, "settled_velocity": .001, "interpolation_ms": 20,
-           "collision": {"world_revision": runtime.world_revision, "scope": "inter_branch",
-                         "max_verdict_ms": 80, "reaction_ms": 10, "bound": "motion"},
-           "joints": [{"name": name, "unit": "metres", "lower": -3., "upper": 3.,
-                       "max_velocity": 2., "max_effort": 5., "max_kp": 20., "max_kd": 5.,
-                       "stop_acceleration": 2., "hold_kp": 10., "hold_kd": 1.,
-                       "max_tracking_error": .01, "max_temperature": 70.} for name in ("a", "b")]}
+    backend = NativeCollisionBackend(runtime, geometry_mode='keepout')
+    mapping = {
+        'left': {'actuator': 'a', 'scale': 1.0, 'offset': 0.0},
+        'right': {'actuator': 'b', 'scale': 1.0, 'offset': 0.0},
+    }
+    cfg = {
+        'group': 'whole_robot',
+        'identity': {
+            'model': runtime.revision,
+            'calibration': calibration_revision(mapping),
+            'collision_policy': backend.policy_revision,
+        },
+        'lease_ms': 150,
+        'feedback_timeout_ms': 20,
+        'settled_velocity': 0.001,
+        'interpolation_ms': 20,
+        'collision': {
+            'world_revision': runtime.world_revision,
+            'scope': 'inter_branch',
+            'max_verdict_ms': 80,
+            'reaction_ms': 10,
+            'bound': 'motion',
+        },
+        'joints': [
+            {
+                'name': name,
+                'unit': 'metres',
+                'lower': -3.0,
+                'upper': 3.0,
+                'max_velocity': 2.0,
+                'max_effort': 5.0,
+                'max_kp': 20.0,
+                'max_kd': 5.0,
+                'stop_acceleration': 2.0,
+                'hold_kp': 10.0,
+                'hold_kd': 1.0,
+                'max_tracking_error': 0.01,
+                'max_temperature': 70.0,
+            }
+            for name in ('a', 'b')
+        ],
+    }
     return backend, cfg, mapping
 
 
 def client(harness, cfg):
-    return GuardedControllerClient(harness.exchange, group=cfg["group"], identity=cfg["identity"],
-                                   joint_names=("a", "b"))
+    return GuardedControllerClient(
+        harness.exchange, group=cfg['group'], identity=cfg['identity'], joint_names=('a', 'b')
+    )
 
 
-def commands(a, b, va=0., vb=0.):
-    return [dict(position=q, velocity=v, effort=0., kp=10., kd=1.) for q, v in ((a, va), (b, vb))]
+def commands(a, b, va=0.0, vb=0.0):
+    return [dict(position=q, velocity=v, effort=0.0, kp=10.0, kd=1.0) for q, v in ((a, va), (b, vb))]
 
 
 def armed(harness, cfg, compiler):
     control = client(harness, cfg)
     control.acquire()
     offered = control.collision_offer()
-    control.arm(collision=compiler.compile(offered, harness.last["feedback"]))
+    control.arm(collision=compiler.compile(offered, harness.last['feedback']))
     return control
 
 
 def test_a_motion_box_is_the_ramp_widened_by_tracking_and_a_stop_from_the_speed_bound(setup):
     backend, cfg, mapping = setup
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)
-    with NativeControlHarness(cfg, [-1., 1.]) as harness:
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.05)
+    with NativeControlHarness(cfg, [-1.0, 1.0]) as harness:
         control = armed(harness, cfg, compiler)
         # At rest each joint may move at its approach floor (0.5): the tracking bound, then 30 ms of reaction and
         # a stop at 2 m/s2 from there, 0.0875 m in all.
-        rest = motion_reserve(cfg["joints"][0], .03, (.5, .5))[0]
-        assert rest == pytest.approx(.01 + .015 + .0625)
+        rest = motion_reserve(cfg['joints'][0], 0.03, (0.5, 0.5))[0]
+        assert rest == pytest.approx(0.01 + 0.015 + 0.0625)
         offered = control.collision_offer()
-        held = compiler.compile(offered, harness.last["feedback"], commands(-1., 1.))
-        assert held["lower"] == pytest.approx([-1 - rest, 1 - rest])
-        assert held["upper"] == pytest.approx([-1 + rest, 1 + rest])
+        held = compiler.compile(offered, harness.last['feedback'], commands(-1.0, 1.0))
+        assert held['lower'] == pytest.approx([-1 - rest, 1 - rest])
+        assert held['upper'] == pytest.approx([-1 + rest, 1 + rest])
         # A reserve bound would keep a stop from the 2 m/s cap over the verdict's lifetime: over 1.2 m.
-        assert reserve_toward(cfg["joints"][0], reaction_s(cfg), 2.) > 10 * rest
+        assert reserve_toward(cfg['joints'][0], reaction_s(cfg), 2.0) > 10 * rest
         # The receiver takes the motion box, and refuses one a millimetre short of its own reserve: the two agree.
-        control.move(commands(-1., 1.), collision=held)
+        control.move(commands(-1.0, 1.0), collision=held)
         offered = control.collision_offer()
-        held = compiler.compile(offered, harness.last["feedback"], commands(-1., 1.))
-        short = dict(held, lower=[held["lower"][0] + .001, held["lower"][1]])
-        with pytest.raises(GuardRejected, match="collision_violation"):
-            control.move(commands(-1., 1.), collision=short)
+        held = compiler.compile(offered, harness.last['feedback'], commands(-1.0, 1.0))
+        short = dict(held, lower=[held['lower'][0] + 0.001, held['lower'][1]])
+        with pytest.raises(GuardRejected, match='collision_violation'):
+            control.move(commands(-1.0, 1.0), collision=short)
 
 
 def test_arming_is_taken_when_a_reading_flickers_after_the_offer(setup):
     # Not yet driven, the receiver boxes its own newest reading. A real drive's reading flickers by an encoder count
     # at rest, and the first live two-arm Enable was refused for one (2026-10-09).
     backend, cfg, mapping = setup
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)
-    with NativeControlHarness(cfg, [-1., 1.]) as harness:
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.05)
+    with NativeControlHarness(cfg, [-1.0, 1.0]) as harness:
         twitch = {}
 
         def exchange(request):
-            return harness.step(harness.now_ms + 1, request, feedback=twitch.pop("feedback", None))["reply"]
-        control = GuardedControllerClient(exchange, group=cfg["group"], identity=cfg["identity"],
-                                          joint_names=("a", "b"))
+            return harness.step(harness.now_ms + 1, request, feedback=twitch.pop('feedback', None))['reply']
+
+        control = GuardedControllerClient(
+            exchange, group=cfg['group'], identity=cfg['identity'], joint_names=('a', 'b')
+        )
         control.acquire()
         offered = control.collision_offer()
-        envelope = compiler.compile(offered, harness.last["feedback"])
-        twitch["feedback"] = [dict(position=-1. - 4e-4, velocity=0., effort=0.),
-                              dict(position=1. + 4e-4, velocity=0., effort=0.)]
+        envelope = compiler.compile(offered, harness.last['feedback'])
+        twitch['feedback'] = [
+            dict(position=-1.0 - 4e-4, velocity=0.0, effort=0.0),
+            dict(position=1.0 + 4e-4, velocity=0.0, effort=0.0),
+        ]
         control.arm(collision=envelope)
-        assert harness.last["status"]["state"] == "holding"
+        assert harness.last['status']['state'] == 'holding'
 
 
 def test_a_stream_of_moves_is_certified_and_taken_and_the_box_follows_the_speed(setup):
     backend, cfg, mapping = setup
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)
-    with NativeControlHarness(cfg, [-1., 1.]) as harness:
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.05)
+    with NativeControlHarness(cfg, [-1.0, 1.0]) as harness:
         control = armed(harness, cfg, compiler)
         widths = []
         for cycle in range(1, 60):
             for now in range(20 * cycle - 18, 20 * cycle + 1, 2):  # The receiver ticks between commands.
                 harness.step(now)
             # Each cube sways at up to 1.2 m/s, ramped as a teleop stream is: from the last target.
-            t = cycle * .02
-            a, b = -1 + .1 * math.sin(12 * t), 1 - .1 * math.sin(12 * t)
+            t = cycle * 0.02
+            a, b = -1 + 0.1 * math.sin(12 * t), 1 - 0.1 * math.sin(12 * t)
             va, vb = 1.2 * math.cos(12 * t), -1.2 * math.cos(12 * t)
             target = commands(a, b, va, vb)
             offered = control.collision_offer()
-            envelope = compiler.compile(offered, harness.last["feedback"], target)
+            envelope = compiler.compile(offered, harness.last['feedback'], target)
             control.move(target, collision=envelope)
-            widths.append(envelope["upper"][0] - envelope["lower"][0])
+            widths.append(envelope['upper'][0] - envelope['lower'][0])
         # Faster commands keep a longer stop: 1.25x their speed (a servo overshoots what it follows) and the
         # readings' noise, falling after a slower one at the stop acceleration.
-        assert max(widths) > min(widths) + .3
-        assert harness.last["status"]["state"] == "executing"
-        assert .5 < max(max(pair) for pair in harness.last["status"]["speed_bounds"]) <= 1.25 * 1.2 + .25 + 1e-9
+        assert max(widths) > min(widths) + 0.3
+        assert harness.last['status']['state'] == 'executing'
+        assert 0.5 < max(max(pair) for pair in harness.last['status']['speed_bounds']) <= 1.25 * 1.2 + 0.25 + 1e-9
 
 
 def test_a_box_that_could_bring_the_bodies_together_is_blocked_not_sent(setup):
     backend, cfg, mapping = setup
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.05)
-    with NativeControlHarness(cfg, [-.2, .2]) as harness:
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.05)
+    with NativeControlHarness(cfg, [-0.2, 0.2]) as harness:
         control = armed(harness, cfg, compiler)
         # 0.2 m apart: holding is clear (two 0.0875 m reserves and the clearance fit).
         offered = control.collision_offer()
-        control.move(commands(-.2, .2), collision=compiler.compile(offered, harness.last["feedback"],
-                                                                   commands(-.2, .2)))
-        assert compiler.last_verdict["clear"]
+        control.move(
+            commands(-0.2, 0.2), collision=compiler.compile(offered, harness.last['feedback'], commands(-0.2, 0.2))
+        )
+        assert compiler.last_verdict['clear']
         # Moving them together at 1 m/s each: a stop from 1.25 m/s takes 0.39 m at 2 m/s2; the boxes meet.
         offered = control.collision_offer()
-        with pytest.raises(CollisionBlocked, match="could come within") as blocked:
-            compiler.compile(offered, harness.last["feedback"], commands(-.18, .18, 1., -1.))
-        assert blocked.value.verdict["reason"] == "insufficient_swept_clearance"
-        assert set(blocked.value.verdict["links"]) == {"a", "b"}
-        assert compiler.blocked == 1 and not compiler.last_verdict["clear"]
+        with pytest.raises(CollisionBlocked, match='could come within') as blocked:
+            compiler.compile(offered, harness.last['feedback'], commands(-0.18, 0.18, 1.0, -1.0))
+        assert blocked.value.verdict['reason'] == 'insufficient_swept_clearance'
+        assert set(blocked.value.verdict['links']) == {'a', 'b'}
+        assert compiler.blocked == 1 and not compiler.last_verdict['clear']
         # Bad inputs are not a block: they fault as before.
-        stale = deepcopy(harness.last["feedback"])
+        stale = deepcopy(harness.last['feedback'])
         for sample in stale:
-            sample["sampled_at_ms"] -= 50
-        with pytest.raises(ValueError, match="Stale") as unusable:
-            compiler.compile(control.collision_offer(), stale, commands(-.2, .2))
+            sample['sampled_at_ms'] -= 50
+        with pytest.raises(ValueError, match='Stale') as unusable:
+            compiler.compile(control.collision_offer(), stale, commands(-0.2, 0.2))
         assert not isinstance(unusable.value, CollisionBlocked)
 
 
 def test_the_compiler_refuses_a_reserve_bound_receiver(setup):
     backend, cfg, mapping = setup
-    with pytest.raises(ValueError, match="motion-bound"):
-        MotionEnvelopeCompiler(backend, dict(cfg, collision=dict(cfg["collision"], bound="reserve")), mapping)
-    with pytest.raises(ValueError, match="ramped"):
+    with pytest.raises(ValueError, match='motion-bound'):
+        MotionEnvelopeCompiler(backend, dict(cfg, collision=dict(cfg['collision'], bound='reserve')), mapping)
+    with pytest.raises(ValueError, match='ramped'):
         MotionEnvelopeCompiler(backend, dict(cfg, interpolation_ms=0), mapping)
 
 
 def lifecycle_joints(cfg):
-    return [dict(name=joint["name"], lower=joint["lower"], upper=joint["upper"], hold_kp=joint["hold_kp"],
-                 hold_kd=joint["hold_kd"], max_velocity=.5, align_speed=.2, shutdown_speed=.2, max_lead=.008,
-                 tolerance=.005, settled_velocity=.05, zero_position=0., interpolation_s=.02)
-            for joint in cfg["joints"]]
+    return [
+        dict(
+            name=joint['name'],
+            lower=joint['lower'],
+            upper=joint['upper'],
+            hold_kp=joint['hold_kp'],
+            hold_kd=joint['hold_kd'],
+            max_velocity=0.5,
+            align_speed=0.2,
+            shutdown_speed=0.2,
+            max_lead=0.008,
+            tolerance=0.005,
+            settled_velocity=0.05,
+            zero_position=0.0,
+            interpolation_s=0.02,
+        )
+        for joint in cfg['joints']
+    ]
 
 
 def test_teleop_holds_where_the_boxes_would_meet_and_follows_again_once_they_part(setup):
     from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
     from robot_platform.teleop.lifecycle import TeleopLifecycle
+
     backend, cfg, mapping = setup
-    clock = [0.]
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.03, clock=lambda: clock[0])
-    with NativeControlHarness(cfg, [-.6, .6]) as harness:
+    clock = [0.0]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.03, clock=lambda: clock[0])
+    with NativeControlHarness(cfg, [-0.6, 0.6]) as harness:
         lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
-        session = GuardedLifecycleSession(client(harness, cfg), compiler, lifecycle, lambda: harness.last,
-                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+        session = GuardedLifecycleSession(
+            client(harness, cfg),
+            compiler,
+            lifecycle,
+            lambda: harness.last,
+            period_s=0.02,
+            cycle_budget_s=0.035,
+            clock=lambda: clock[0],
+        )
         now = [0]
 
         def cycle(action=None, a=None, b=None, sequence=[0]):
@@ -201,31 +262,33 @@ def test_teleop_holds_where_the_boxes_would_meet_and_follows_again_once_they_par
             target = None
             if a is not None:
                 sequence[0] += 1
-                target = [dict(name=name, position=q, sampled_at=clock[0], sequence=sequence[0])
-                          for name, q in (("a", a), ("b", b))]
+                target = [
+                    dict(name=name, position=q, sampled_at=clock[0], sequence=sequence[0])
+                    for name, q in (('a', a), ('b', b))
+                ]
             return session.cycle(action=action, target=target)
 
-        cycle("idle")
-        cycle("enable")
-        cycle("engage", -.6, .6)
+        cycle('idle')
+        cycle('enable')
+        cycle('engage', -0.6, 0.6)
         gaps, held = [], 0
         # The leaders bring the cubes together at 0.25 m/s each, until they would overlap, then part them.
         for k in range(200):
-            q = min(.55, .005 * k) if k < 120 else max(0., .55 - .005 * (k - 120))
-            record = cycle(None, -.6 + q, .6 - q)
-            held += bool(record.get("blocked"))
-            assert record["accepted"], record
-            a, b = (row["position"] for row in harness.last["feedback"])
-            gaps.append(b - a - .2)  # Between the cubes' faces.
-        assert held and lifecycle.state in ("ENGAGING", "TELEOP")
+            q = min(0.55, 0.005 * k) if k < 120 else max(0.0, 0.55 - 0.005 * (k - 120))
+            record = cycle(None, -0.6 + q, 0.6 - q)
+            held += bool(record.get('blocked'))
+            assert record['accepted'], record
+            a, b = (row['position'] for row in harness.last['feedback'])
+            gaps.append(b - a - 0.2)  # Between the cubes' faces.
+        assert held and lifecycle.state in ('ENGAGING', 'TELEOP')
         # Held short of touching (the faces never closer than the clearance), never faulted.
-        assert .005 < min(gaps) < .3
-        assert harness.last["status"]["state"] == "executing"
+        assert 0.005 < min(gaps) < 0.3
+        assert harness.last['status']['state'] == 'executing'
         # Parted again: following once more (the leaders end 0.69 m apart).
-        assert session.blocked is None and gaps[-1] > min(gaps) + .3
+        assert session.blocked is None and gaps[-1] > min(gaps) + 0.3
 
 
-@pytest.mark.parametrize('age', [0., .035])
+@pytest.mark.parametrize('age', [0.0, 0.035])
 def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup, age):
     # Virtual, enforced, on the Jetson (2026-10-09): a blocked move tried again at shorter steps, each try a whole
     # collision computation, took the cycle to 37 ms, past its 35 ms budget, and the session faulted. Here each
@@ -235,21 +298,30 @@ def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup, age)
     # blocked cycle outlived it on the Jetson (2026-10-10); a hold follows nothing.
     from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
     from robot_platform.teleop.lifecycle import TeleopLifecycle
+
     backend, cfg, mapping = setup
-    clock = [0.]
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.012, clock=lambda: clock[0])
+    clock = [0.0]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.012, clock=lambda: clock[0])
     compile_box = compiler.compile
 
     def slow(*args, **kwargs):
         try:
             return compile_box(*args, **kwargs)
         finally:
-            clock[0] += .009
+            clock[0] += 0.009
+
     compiler.compile = slow
-    with NativeControlHarness(cfg, [-.6, .6]) as harness:
+    with NativeControlHarness(cfg, [-0.6, 0.6]) as harness:
         lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
-        session = GuardedLifecycleSession(client(harness, cfg), compiler, lifecycle, lambda: harness.last,
-                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+        session = GuardedLifecycleSession(
+            client(harness, cfg),
+            compiler,
+            lifecycle,
+            lambda: harness.last,
+            period_s=0.02,
+            cycle_budget_s=0.035,
+            clock=lambda: clock[0],
+        )
         now = [0]
 
         def cycle(action=None, a=None, b=None, sequence=[0]):
@@ -259,52 +331,63 @@ def test_a_blocked_move_is_tried_again_only_while_the_cycle_has_time(setup, age)
             target = None
             if a is not None:
                 sequence[0] += 1
-                target = [dict(name=name, position=q, sampled_at=clock[0] - age, sequence=sequence[0])
-                          for name, q in (("a", a), ("b", b))]
+                target = [
+                    dict(name=name, position=q, sampled_at=clock[0] - age, sequence=sequence[0])
+                    for name, q in (('a', a), ('b', b))
+                ]
             return session.cycle(action=action, target=target)
 
-        cycle("idle")
-        cycle("enable")
-        cycle("engage", -.6, .6)
+        cycle('idle')
+        cycle('enable')
+        cycle('engage', -0.6, 0.6)
         holds = 0
         for k in range(120):
-            q = min(.55, .005 * k)
-            record = cycle(None, -.6 + q, .6 - q)
-            assert record["accepted"] and record["completed_at"] - record["started_at"] <= .035, record
-            holds += record.get("reduced") == 0.
-        assert holds and lifecycle.state in ("ENGAGING", "TELEOP")
-        assert harness.last["status"]["state"] == "executing"  # Held, never stopped.
+            q = min(0.55, 0.005 * k)
+            record = cycle(None, -0.6 + q, 0.6 - q)
+            assert record['accepted'] and record['completed_at'] - record['started_at'] <= 0.035, record
+            holds += record.get('reduced') == 0.0
+        assert holds and lifecycle.state in ('ENGAGING', 'TELEOP')
+        assert harness.last['status']['state'] == 'executing'  # Held, never stopped.
 
 
 def test_hold_cycles_check_stationary_box_without_approach_margin_or_offer_transport_penalty(setup):
     from robot_platform.teleop.guarded_lifecycle import GuardedLifecycleSession
     from robot_platform.teleop.lifecycle import TeleopLifecycle
+
     backend, cfg, mapping = setup
-    clock = [0.]
-    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=.012, clock=lambda: clock[0])
+    clock = [0.0]
+    compiler = MotionEnvelopeCompiler(backend, cfg, mapping, compute_budget_s=0.012, clock=lambda: clock[0])
     compile_box = compiler.compile
     hold_flags = []
 
     def tracked_compile(*args, **kwargs):
-        hold_flags.append(bool(kwargs.get("hold")))
-        clock[0] += .008
+        hold_flags.append(bool(kwargs.get('hold')))
+        clock[0] += 0.008
         return compile_box(*args, **kwargs)
 
     compiler.compile = tracked_compile
-    with NativeControlHarness(cfg, [-.2, .2]) as harness:
+    with NativeControlHarness(cfg, [-0.2, 0.2]) as harness:
         now = [0]
 
         def exchange(request):
             # Simulate 6 ms ZMQ + CAN tick + sample recording overhead during collision_offer.
-            if request.get("type") == "collision_offer":
-                clock[0] += .006
-            return harness.step(now[0], request)["reply"]
+            if request.get('type') == 'collision_offer':
+                clock[0] += 0.006
+            return harness.step(now[0], request)['reply']
 
-        control = GuardedControllerClient(exchange, group=cfg["group"], identity=cfg["identity"],
-                                          joint_names=("a", "b"))
+        control = GuardedControllerClient(
+            exchange, group=cfg['group'], identity=cfg['identity'], joint_names=('a', 'b')
+        )
         lifecycle = TeleopLifecycle(lifecycle_joints(cfg), clock=lambda: clock[0], max_source_misses=4)
-        session = GuardedLifecycleSession(control, compiler, lifecycle, lambda: harness.last,
-                                          period_s=.02, cycle_budget_s=.035, clock=lambda: clock[0])
+        session = GuardedLifecycleSession(
+            control,
+            compiler,
+            lifecycle,
+            lambda: harness.last,
+            period_s=0.02,
+            cycle_budget_s=0.035,
+            clock=lambda: clock[0],
+        )
 
         def cycle(action=None, a=None, b=None, sequence=[0]):
             now[0] = max(now[0], math.ceil(clock[0] * 1000)) + 20
@@ -313,18 +396,19 @@ def test_hold_cycles_check_stationary_box_without_approach_margin_or_offer_trans
             target = None
             if a is not None:
                 sequence[0] += 1
-                target = [dict(name=name, position=q, sampled_at=clock[0] - .030, sequence=sequence[0])
-                          for name, q in (("a", a), ("b", b))]
+                target = [
+                    dict(name=name, position=q, sampled_at=clock[0] - 0.030, sequence=sequence[0])
+                    for name, q in (('a', a), ('b', b))
+                ]
             return session.cycle(action=action, target=target)
 
-        cycle("idle")
-        cycle("enable")
-        assert session.lifecycle.state == "HOLD"
+        cycle('idle')
+        cycle('enable')
+        assert session.lifecycle.state == 'HOLD'
         for _ in range(10):
             # Pass a preview leader target as TeleopCore._tick does even in HOLD.
-            record = cycle(None, -.5, .5)
-            assert record["accepted"] and not record.get("blocked"), record
-            assert compiler.last_verdict["queries"] == 1
+            record = cycle(None, -0.5, 0.5)
+            assert record['accepted'] and not record.get('blocked'), record
+            assert compiler.last_verdict['queries'] == 1
         assert hold_flags[1:] == [True] * 10
-        assert harness.last["status"]["state"] == "executing"
-
+        assert harness.last['status']['state'] == 'executing'

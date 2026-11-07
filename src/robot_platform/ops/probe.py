@@ -16,6 +16,7 @@ stopped reader: host, adapter, service and CAN-down checks, then identity,
 firmware and fault-free Reset for every motor and one position read each; CAN
 links go down again afterwards.
 """
+
 import json
 import os
 from pathlib import Path
@@ -34,13 +35,14 @@ EVIDENCE = Path.home() / 'minerva' / 'evidence'
 def identity(root=ROOT):
     """(device, reference) named by the release's calibration profile."""
     from .release import CALIBRATION
+
     plan_path = Path(root) / CALIBRATION
     plan = json.loads(plan_path.read_text(encoding='utf-8'))
     load = lambda key: json.loads((plan_path.parent / plan[key]).read_text(encoding='utf-8'))
     return load('device'), load('reference')
 
 
-def _run(args, timeout=5.):
+def _run(args, timeout=5.0):
     """(exit status or None, stripped stdout or the error)."""
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -62,7 +64,7 @@ def _read(path):
 def _percentiles(values):
     values = sorted(values)
     pick = lambda p: round(values[min(len(values) - 1, int(p * (len(values) - 1)))], 2) if values else None
-    return {'p50': pick(.5), 'p99': pick(.99), 'max': pick(1.)}
+    return {'p50': pick(0.5), 'p99': pick(0.99), 'max': pick(1.0)}
 
 
 def health(root=ROOT):
@@ -89,18 +91,21 @@ def health(root=ROOT):
 
     helper = device['can_up_helper']
     buses = [bus['interface'] for bus in device['buses']]
-    report['setup'] = {'helper': os.access(helper, os.X_OK),
-                       # A listing query only: -n never prompts, nothing runs as root.
-                       'sudo': _run(['sudo', '-n', '-l', helper, buses[0]])[0] == 0,
-                       'udev_rule': Path(UDEV_RULE).is_file()}
+    report['setup'] = {
+        'helper': os.access(helper, os.X_OK),
+        # A listing query only: -n never prompts, nothing runs as root.
+        'sudo': _run(['sudo', '-n', '-l', helper, buses[0]])[0] == 0,
+        'udev_rule': Path(UDEV_RULE).is_file(),
+    }
     adapters = {}
     for bus in device['buses']:
         path = Path('/sys/class/net') / bus['interface']
         row = {'present': path.exists(), 'expected_serial': bus['usb_serial']}
         if row['present']:
             target = (path / 'device').resolve()
-            row['serial'] = next((_read(parent / 'serial') for parent in target.parents
-                                  if (parent / 'serial').is_file()), None)
+            row['serial'] = next(
+                (_read(parent / 'serial') for parent in target.parents if (parent / 'serial').is_file()), None
+            )
             status, out = _run(['ip', '-details', '-json', 'link', 'show', bus['interface']])
             link = json.loads(out)[0] if status == 0 else {}
             row['up'] = 'UP' in link.get('flags', [])
@@ -121,18 +126,19 @@ def link(stream=None, out=None):
     loop period in seconds; 0.04 without it), like the robot's control loop."""
     from robot_platform.teleop.leader_link import LeaderLinkInput
     from robot_platform.teleop.openrb import LeaderSampleSkipped
+
     stream, out = stream or sys.stdin, out or sys.stdout
     key = bytes.fromhex(stream.readline().strip())
     profile = json.loads(stream.readline())
     seconds, address = float(stream.readline()), stream.readline().strip()
-    period = float(stream.readline().strip() or .04)
-    if not 0 < seconds <= 60 or not .01 <= period <= .04:
+    period = float(stream.readline().strip() or 0.04)
+    if not 0 < seconds <= 60 or not 0.01 <= period <= 0.04:
         raise ValueError('Link test duration must be within 60 s, at a 10-40 ms period')
-    robot = LeaderLinkInput(key, profile, bind=(address, 0), timeout_s=min(.02, .4 * period))
+    robot = LeaderLinkInput(key, profile, bind=(address, 0), timeout_s=min(0.02, 0.4 * period))
     try:
         out.write(f'ready {robot.address[1]}\n')
         out.flush()
-        robot.wait_for_pc(10.)
+        robot.wait_for_pc(10.0)
         ages, polls, skipped, run, longest, last_skip = [], [], 0, 0, 0, None
         due = start = time.perf_counter()
         while time.perf_counter() - start < seconds:
@@ -146,11 +152,18 @@ def link(stream=None, out=None):
                 longest = max(longest, run)
             polls.append((time.perf_counter() - began) * 1000)
             due += period
-            time.sleep(max(0., due - time.perf_counter()))
-        return {'cycles': len(polls), 'fresh': len(ages), 'skipped': skipped, 'longest_skip_run': longest,
-                'rate_hz': round(1 / period),
-                'last_skip': last_skip, 'age_ms': _percentiles(ages), 'poll_ms': _percentiles(polls),
-                'max_age_ms': round(robot.max_age_s * 1000)}
+            time.sleep(max(0.0, due - time.perf_counter()))
+        return {
+            'cycles': len(polls),
+            'fresh': len(ages),
+            'skipped': skipped,
+            'longest_skip_run': longest,
+            'rate_hz': round(1 / period),
+            'last_skip': last_skip,
+            'age_ms': _percentiles(ages),
+            'poll_ms': _percentiles(polls),
+            'max_age_ms': round(robot.max_age_s * 1000),
+        }
     finally:
         robot.close()
 
@@ -159,6 +172,7 @@ def motors(root=ROOT):
     """The stopped reader's identity preflight, then one position read per motor."""
     import signal
     from robot_platform.control.joint_capture import live_scan, run_capture
+
     # A dropped SSH session must not kill the scan between CAN up and CAN down.
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     device, reference = identity(root)
@@ -195,16 +209,19 @@ def _zero(names, description, slug, root, capture, maintenance):
     needs each still, zeroes and saves it (no enable, no retry) and reads it back; CAN goes down after. The evidence
     file is written as it goes: (report, its path)."""
     import signal
+
     if capture is None or maintenance is None:
         from robot_platform.control.joint_capture import run_capture
         from robot_platform.control.mechanical_zero import StoppedMaintenance
+
         capture, maintenance = capture or run_capture, maintenance or StoppedMaintenance
     if hasattr(signal, 'SIGHUP'):  # A dropped SSH session must not stop it between CAN up and down.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
     device, reference = identity(root)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    path = EVIDENCE / f"mechanical-zero-{slug}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
+    path = EVIDENCE / f'mechanical-zero-{slug}-{time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())}.json'
     with path.open('x', encoding='utf-8') as output:
+
         def save(result):
             output.seek(0)
             output.write(json.dumps(result, indent=1, default=str) + '\n')
@@ -216,11 +233,18 @@ def _zero(names, description, slug, root, capture, maintenance):
             roster = [m for m in motors if m['name'] in names]
             missing = sorted(set(names) - {m['name'] for m in roster})
             if missing:
-                raise RuntimeError(f"{', '.join(missing)} not in the roster")
-            zero = result['zero'] = {'reference': {
-                'motors': roster, 'model_revision': reference.get('model_revision'), 'previous_reference': reference['id'],
-                'reference_description': description}}
-            maintenance(exchange).run(roster, zero, reference_confirmed=True, save=True, checkpoint=lambda: save(result))
+                raise RuntimeError(f'{", ".join(missing)} not in the roster')
+            zero = result['zero'] = {
+                'reference': {
+                    'motors': roster,
+                    'model_revision': reference.get('model_revision'),
+                    'previous_reference': reference['id'],
+                    'reference_description': description,
+                }
+            }
+            maintenance(exchange).run(
+                roster, zero, reference_confirmed=True, save=True, checkpoint=lambda: save(result)
+            )
             save(result)
             if not zero.get('success'):
                 raise RuntimeError('Mechanical zero did not complete: ' + str(zero.get('error')))
@@ -243,15 +267,27 @@ def zero_gripper(motor, root=ROOT, *, capture=None, maintenance=None):
     holds again. Evidence: mechanical-zero-<motor>-<UTC>."""
     if motor not in GRIPPERS:
         raise ValueError('Only a gripper can be zeroed here: left_gripper or right_gripper')
-    report, path = _zero([motor], f'{motor} zeroed from Helm at its fully closed jaws, operator-confirmed.',
-                         motor.replace('_', '-'), root, capture, maintenance)
+    report, path = _zero(
+        [motor],
+        f'{motor} zeroed from Helm at its fully closed jaws, operator-confirmed.',
+        motor.replace('_', '-'),
+        root,
+        capture,
+        maintenance,
+    )
     zero = report.get('zero') or {}
     row = next(iter(zero.get('motors') or []), {})
-    return {'motor': motor, 'success': bool(report.get('success') and zero.get('success')),
-            'error': zero.get('error') or report.get('error'), 'evidence': str(path),
-            'before_rad': _last(row, 'before_rad'), 'after_zero_rad': _last(row, 'after_zero_rad'),
-            'after_save_rad': _last(row, 'after_save_rad'), 'save_response_missing': bool(row.get('save_response_missing')),
-            'power_cycle_verified': False}
+    return {
+        'motor': motor,
+        'success': bool(report.get('success') and zero.get('success')),
+        'error': zero.get('error') or report.get('error'),
+        'evidence': str(path),
+        'before_rad': _last(row, 'before_rad'),
+        'after_zero_rad': _last(row, 'after_zero_rad'),
+        'after_save_rad': _last(row, 'after_save_rad'),
+        'save_response_missing': bool(row.get('save_response_missing')),
+        'power_cycle_verified': False,
+    }
 
 
 def zero_joints(motors, root=ROOT, *, capture=None, maintenance=None):
@@ -263,24 +299,46 @@ def zero_joints(motors, root=ROOT, *, capture=None, maintenance=None):
     motors = list(motors)
     if not motors or len(set(motors)) != len(motors) or any(motor not in ARM_JOINTS for motor in motors):
         raise ValueError('Only arm joints can be zeroed here (left_arm_j1 … right_arm_j6), each once')
-    slug = '-'.join(side + ''.join('-' + motor.rsplit('_', 1)[1] for motor in motors if motor.startswith(side + '_'))
-                    for side in ('left', 'right') if any(motor.startswith(side + '_') for motor in motors))
-    report, path = _zero(motors, f"{', '.join(motors)} zeroed from Helm at the six-joint zero pose, operator-confirmed.",
-                         slug, root, capture, maintenance)
+    slug = '-'.join(
+        side + ''.join('-' + motor.rsplit('_', 1)[1] for motor in motors if motor.startswith(side + '_'))
+        for side in ('left', 'right')
+        if any(motor.startswith(side + '_') for motor in motors)
+    )
+    report, path = _zero(
+        motors,
+        f'{", ".join(motors)} zeroed from Helm at the six-joint zero pose, operator-confirmed.',
+        slug,
+        root,
+        capture,
+        maintenance,
+    )
     zero = report.get('zero') or {}
     rows = {row.get('name'): row for row in zero.get('motors') or []}
     joints = []
     for motor in motors:
         row = rows.get(motor, {})
-        joints.append({'motor': motor, 'uid': row.get('uid'), 'firmware': row.get('firmware'),
-                       'zero_sent': bool(row.get('zero_requested')), 'zero_acknowledged': bool(row.get('zero_reply')),
-                       'save_sent': bool(row.get('save_requested')),
-                       'save_response_missing': bool(row.get('save_response_missing')),
-                       'before_rad': _last(row, 'before_rad'), 'after_zero_rad': _last(row, 'after_zero_rad'),
-                       'after_save_rad': _last(row, 'after_save_rad')})
-    return {'motors': motors, 'success': bool(report.get('success') and zero.get('success')),
-            'error': zero.get('error') or report.get('error'), 'evidence': str(path), 'joints': joints,
-            'power_cycle_verified': False}
+        joints.append(
+            {
+                'motor': motor,
+                'uid': row.get('uid'),
+                'firmware': row.get('firmware'),
+                'zero_sent': bool(row.get('zero_requested')),
+                'zero_acknowledged': bool(row.get('zero_reply')),
+                'save_sent': bool(row.get('save_requested')),
+                'save_response_missing': bool(row.get('save_response_missing')),
+                'before_rad': _last(row, 'before_rad'),
+                'after_zero_rad': _last(row, 'after_zero_rad'),
+                'after_save_rad': _last(row, 'after_save_rad'),
+            }
+        )
+    return {
+        'motors': motors,
+        'success': bool(report.get('success') and zero.get('success')),
+        'error': zero.get('error') or report.get('error'),
+        'evidence': str(path),
+        'joints': joints,
+        'power_cycle_verified': False,
+    }
 
 
 def main(argv=None):
@@ -295,7 +353,9 @@ def main(argv=None):
         print(json.dumps(report, allow_nan=False, default=str), flush=True)
         return 0 if report['ok'] else 1
     if len(argv) != 1 or argv[0] not in probes:
-        print(json.dumps({'ok': False, 'error': 'Use health, link, motors, zero_gripper MOTOR or zero_joints MOTOR...'}))
+        print(
+            json.dumps({'ok': False, 'error': 'Use health, link, motors, zero_gripper MOTOR or zero_joints MOTOR...'})
+        )
         return 2
     try:
         report = {'ok': True, **probes[argv[0]]()}

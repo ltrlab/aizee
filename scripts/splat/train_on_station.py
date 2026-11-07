@@ -15,6 +15,7 @@ profile's, pinned by ops.ssh) and the station's.
    place, where Helm serves them; the headset's Map draws the newest it can place.
 Nothing here moves the robot or changes the station beyond its minerva-splat folders.
 """
+
 import argparse
 import base64
 import hashlib
@@ -29,7 +30,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 TRAINER = Path(__file__).with_name('train_head_scene.py')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 MAPS = 'minerva/helm/maps'
-WSL_SCRIPT = '''#!/usr/bin/env bash
+WSL_SCRIPT = """#!/usr/bin/env bash
 # Written by scripts/splat/train_on_station.py: one capture trained in this station's WSL venv.
 set -euo pipefail
 NAME="$1"; STEPS="$2"; UP="$3"
@@ -46,17 +47,20 @@ cp "$UP/train_head_scene.py" "$ROOT/"
 python "$ROOT/train_head_scene.py" "$ROOT/captures/$NAME" "$ROOT/scenes/$NAME.ply" --steps "$STEPS"
 cp "$ROOT/scenes/$NAME.splat" "$ROOT/scenes/$NAME.json" "$UP/"
 rm -f "$UP/$NAME.zip"
-'''
+"""
 # Lists the captures and maps on Minerva, as JSON (python3 there).
-LIST = '''import json, pathlib
+LIST = (
+    """import json, pathlib
 root = pathlib.Path.home() / %r
 captures = sorted(p.name for p in (root / 'captures').glob('*') if (p / 'scene.json').is_file())
 maps = sorted(p.name for p in (root / 'maps').glob('*') if (p / 'map.splat').is_file())
 print(json.dumps({'captures': captures, 'maps': maps}))
-''' % MAPS
+"""
+    % MAPS
+)
 
 
-def pinned_client(host, user, key, fingerprint, timeout=15.):
+def pinned_client(host, user, key, fingerprint, timeout=15.0):
     """An SSH client to the station, refusing any host key but `fingerprint` (SHA256:...)."""
     import paramiko
 
@@ -66,16 +70,26 @@ def pinned_client(host, user, key, fingerprint, timeout=15.):
             if actual != fingerprint:
                 raise paramiko.SSHException(f'Host key mismatch for {hostname}: {actual}')
             client.get_host_keys().add(hostname, host_key.get_name(), host_key)
+
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(Pinned())
-    client.connect(host, username=user, key_filename=str(key), look_for_keys=False, allow_agent=False,
-                   timeout=timeout, auth_timeout=timeout, banner_timeout=timeout)
+    client.connect(
+        host,
+        username=user,
+        key_filename=str(key),
+        look_for_keys=False,
+        allow_agent=False,
+        timeout=timeout,
+        auth_timeout=timeout,
+        banner_timeout=timeout,
+    )
     client.get_transport().set_keepalive(15)
     return client
 
 
 def run(client, command, timeout):
     from robot_platform.ops.ssh import run as remote
+
     status, out, err = remote(client, command, timeout=timeout)
     if status:
         raise RuntimeError(f'{command.split()[0]} failed ({status}): {(err or out).strip()[-1500:]}')
@@ -106,10 +120,11 @@ def main(argv=None):
     parser.add_argument('--min-free-mb', type=int, default=3000)
     args = parser.parse_args(argv)
     from robot_platform.ops.ssh import DEFAULT_PROFILE, TETHER, connect
+
     if args.capture is not None and not NAME.match(args.capture):
         raise SystemExit('A capture name is letters, digits, dots, dashes and underscores')
     user, _, host = args.station.rpartition('@')
-    robot = connect(args.profile or DEFAULT_PROFILE, address=args.robot or TETHER, timeout=10.)
+    robot = connect(args.profile or DEFAULT_PROFILE, address=args.robot or TETHER, timeout=10.0)
     station = pinned_client(host, user, args.station_key, args.station_host_key)
     try:
         listing = json.loads(run(robot, 'python3 -c ' + _quote(LIST), 30))
@@ -128,8 +143,10 @@ def main(argv=None):
         used, total, load = (float(v) for v in run(station, f'{wsl} --gpu 0 {linux}', 60).split(','))
         print(f'Station GPU: {used:.0f} of {total:.0f} MB in use, {load:.0f} % busy', flush=True)
         if total - used < args.min_free_mb:
-            raise SystemExit(f'Only {total - used:.0f} MB of the station GPU is free (--min-free-mb '
-                             f'{args.min_free_mb}): try again when its own work is done')
+            raise SystemExit(
+                f'Only {total - used:.0f} MB of the station GPU is free (--min-free-mb '
+                f'{args.min_free_mb}): try again when its own work is done'
+            )
         with tempfile.TemporaryDirectory() as scratch:
             archive = Path(scratch) / f'{name}.zip'
             print(f'Fetching capture {name} from Minerva...', flush=True)
@@ -149,8 +166,11 @@ def main(argv=None):
                 robot_sftp.put(str(local), f'{target}/{final}.part')
                 robot_sftp.posix_rename(f'{target}/{final}.part', f'{target}/{final}')
         report = json.loads((robot_sftp.open(f'{target}/map.json').read()).decode())
-        print(f"Map {name} on Minerva: {report.get('gaussians')} Gaussians, {report.get('psnr_held_out')} dB held out, "
-              f"in {report.get('world')}'s frame", flush=True)
+        print(
+            f'Map {name} on Minerva: {report.get("gaussians")} Gaussians, {report.get("psnr_held_out")} dB held out, '
+            f"in {report.get('world')}'s frame",
+            flush=True,
+        )
     finally:
         station.close()
         robot.close()
@@ -159,11 +179,13 @@ def main(argv=None):
 
 def _quote(text):
     import shlex
+
     return shlex.quote(text)
 
 
 def _bytes(data):
     import io
+
     return io.BytesIO(data)
 
 

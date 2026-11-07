@@ -3,6 +3,7 @@
 The core below is a deterministic, non-hardware acknowledgement source. These
 tests exercise the real session, pipes and web handlers, not physical tracking.
 """
+
 import asyncio
 from copy import deepcopy
 import json
@@ -23,7 +24,7 @@ ENDPOINT = '/api/helm/teleop/tuning/'
 
 
 class AcknowledgingCore:
-    period_s = .005
+    period_s = 0.005
     clock = staticmethod(time.perf_counter)
     landing = False
 
@@ -60,8 +61,14 @@ class AcknowledgingCore:
             self.release.clear()
 
     def view(self):
-        return dict(phase=self.phase, state=self.state, fault=self.fault, **self.law,
-                    manual_tuning_ack=deepcopy(self.ack), manual_tuning_pending=self.pending is not None)
+        return dict(
+            phase=self.phase,
+            state=self.state,
+            fault=self.fault,
+            **self.law,
+            manual_tuning_ack=deepcopy(self.ack),
+            manual_tuning_pending=self.pending is not None,
+        )
 
     def guide(self):
         return None
@@ -90,24 +97,74 @@ def setup(tmp_path, monkeypatch):
 
     names = ('left_arm_j1', 'right_arm_j1')
     derived = {
-        'config': {'joints': [dict(name=name, lower=-2., upper=2., hold_kp=10., hold_kd=1.,
-            max_kp=20., max_kd=2., max_velocity=1., max_effort=5., max_tracking_error=.2,
-            stop_acceleration=2.) for name in names]},
-        'lifecycle': [dict(name=name, lower=-2., upper=2., max_velocity=.4, hold_kp=10., hold_kd=1.,
-                          max_lead=.12, friction_nm=0., interpolation_s=0.) for name in names],
+        'config': {
+            'joints': [
+                dict(
+                    name=name,
+                    lower=-2.0,
+                    upper=2.0,
+                    hold_kp=10.0,
+                    hold_kd=1.0,
+                    max_kp=20.0,
+                    max_kd=2.0,
+                    max_velocity=1.0,
+                    max_effort=5.0,
+                    max_tracking_error=0.2,
+                    stop_acceleration=2.0,
+                )
+                for name in names
+            ]
+        },
+        'lifecycle': [
+            dict(
+                name=name,
+                lower=-2.0,
+                upper=2.0,
+                max_velocity=0.4,
+                hold_kp=10.0,
+                hold_kd=1.0,
+                max_lead=0.12,
+                friction_nm=0.0,
+                interpolation_s=0.0,
+            )
+            for name in names
+        ],
     }
     monkeypatch.setattr(guarded_config, 'derive_receiver', lambda **_: deepcopy(derived))
-    monkeypatch.setattr(commissioning, 'motor_models', lambda *_: {
-        'left_arm_j1': 'ROBSTRIDE03', 'right_arm_j1': 'ROBSTRIDE00'})
-    helm = SimpleNamespace(asset_id='manual-api-fixture', profile_path=tmp_path/'config/devices/calibration.json',
+    monkeypatch.setattr(
+        commissioning, 'motor_models', lambda *_: {'left_arm_j1': 'ROBSTRIDE03', 'right_arm_j1': 'ROBSTRIDE00'}
+    )
+    helm = SimpleNamespace(
+        asset_id='manual-api-fixture',
+        profile_path=tmp_path / 'config/devices/calibration.json',
         reference={'motors': [dict(name=name, uid=f'uid-{i}', firmware='1') for i, name in enumerate(names)]},
-        bindings={}, steps=[], mapping={}, transmissions=[], saved_limits={}, device={}, labels={},
-        model=SimpleNamespace(profile=SimpleNamespace(id='fixture')), snapshot=lambda: {}, guide=lambda: None)
-    profile = dict(id='manual-api-fixture', kind='guarded_teleop_profile', backend='virtual',
-        runtime_approved=False, manual_tuning=True, routes={}, receiver=dict(collision_mode='disabled',
-            loop_hz=100, interpolation_ms=0, lease_ms=150,
-            direct=dict(command_ms=30, velocity_timeout_ms=15, limit_reaction_ms=10, position_only=True)))
-    profile_path = tmp_path/'teleop.json'
+        bindings={},
+        steps=[],
+        mapping={},
+        transmissions=[],
+        saved_limits={},
+        device={},
+        labels={},
+        model=SimpleNamespace(profile=SimpleNamespace(id='fixture')),
+        snapshot=lambda: {},
+        guide=lambda: None,
+    )
+    profile = dict(
+        id='manual-api-fixture',
+        kind='guarded_teleop_profile',
+        backend='virtual',
+        runtime_approved=False,
+        manual_tuning=True,
+        routes={},
+        receiver=dict(
+            collision_mode='disabled',
+            loop_hz=100,
+            interpolation_ms=0,
+            lease_ms=150,
+            direct=dict(command_ms=30, velocity_timeout_ms=15, limit_reaction_ms=10, position_only=True),
+        ),
+    )
+    profile_path = tmp_path / 'teleop.json'
     profile_path.write_text(json.dumps(profile), encoding='utf-8')
     cores = []
 
@@ -116,11 +173,15 @@ def setup(tmp_path, monkeypatch):
         cores.append(core)
         return core
 
-    teleop = TeleopSession(helm, profile_path, runs=tmp_path/'runs', core_factory=core_factory)
-    fixture = SimpleNamespace(helm=helm, teleop=teleop, cores=cores,
-                              app=lambda: create_app(helm, FakeLink(), teleop=teleop, token=TOKEN['X-Helm-Token']))
+    teleop = TeleopSession(helm, profile_path, runs=tmp_path / 'runs', core_factory=core_factory)
+    fixture = SimpleNamespace(
+        helm=helm,
+        teleop=teleop,
+        cores=cores,
+        app=lambda: create_app(helm, FakeLink(), teleop=teleop, token=TOKEN['X-Helm-Token']),
+    )
     yield fixture
-    teleop.stop(timeout=2.)
+    teleop.stop(timeout=2.0)
     assert all(core.closed for core in cores)
 
 
@@ -133,11 +194,11 @@ def payload(teleop, *, kp=None, action='apply'):
     return result
 
 
-async def wait_until(predicate, timeout=2.):
+async def wait_until(predicate, timeout=2.0):
     deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, 'timed out waiting for the test worker'
-        await asyncio.sleep(.005)
+        await asyncio.sleep(0.005)
 
 
 async def start(setup):
@@ -153,22 +214,28 @@ def test_http_authentication_and_request_validation_leave_settings_unchanged(set
         async with TestClient(TestServer(setup.app())) as client:
             before = setup.teleop.manual.bundle()
             for headers in ({}, {'X-Helm-Token': 'wrong'}):
-                assert (await client.post(ENDPOINT+'apply', json=payload(setup.teleop, kp=20.),
-                                          headers=headers)).status == 403
-            for action, candidate in [('apply', []), ('apply', {}), ('apply', {**before, 'extra': True}),
-                                      ('other', payload(setup.teleop, action='save'))]:
-                assert (await client.post(ENDPOINT+action, json=candidate, headers=TOKEN)).status == 422
+                assert (
+                    await client.post(ENDPOINT + 'apply', json=payload(setup.teleop, kp=20.0), headers=headers)
+                ).status == 403
+            for action, candidate in [
+                ('apply', []),
+                ('apply', {}),
+                ('apply', {**before, 'extra': True}),
+                ('other', payload(setup.teleop, action='save')),
+            ]:
+                assert (await client.post(ENDPOINT + action, json=candidate, headers=TOKEN)).status == 422
             for key, invalid in [('kp', float('nan')), ('kd', float('inf')), ('speed', True)]:
                 candidate = payload(setup.teleop)
                 candidate['joints'][0][key] = invalid
-                response = await client.post(ENDPOINT+'apply', json=candidate, headers=TOKEN)
+                response = await client.post(ENDPOINT + 'apply', json=candidate, headers=TOKEN)
                 assert response.status == 422
                 assert key in (await response.json())['error']
             for change in ({'revision': -1}, {'revision': True}, {'session_id': 'previous-session'}):
-                response = await client.post(ENDPOINT+'apply', json={**before, **change}, headers=TOKEN)
+                response = await client.post(ENDPOINT + 'apply', json={**before, **change}, headers=TOKEN)
                 assert response.status == 422
             assert setup.teleop.manual.bundle() == before
             assert not setup.teleop.active and not setup.cores
+
     asyncio.run(run())
 
 
@@ -181,8 +248,9 @@ def test_running_tuning_is_rejected_outside_hold(setup, state):
         before = setup.teleop.manual.bundle()
         assert not setup.teleop.snapshot()['tuning']['can_apply']
         with pytest.raises(ValueError, match='Hold to edit'):
-            setup.teleop.manual_tuning('apply', payload(setup.teleop, kp=20.))
+            setup.teleop.manual_tuning('apply', payload(setup.teleop, kp=20.0))
         assert setup.teleop.manual.bundle() == before and not core.requests
+
     asyncio.run(run())
 
 
@@ -192,9 +260,9 @@ def test_pending_apply_waits_for_ack_and_http_remains_responsive_to_h_and_x(setu
     async def run():
         core = await start(setup)
         before = setup.teleop.manual.bundle()
-        candidate = payload(setup.teleop, kp=25.)
+        candidate = payload(setup.teleop, kp=25.0)
         async with TestClient(TestServer(setup.app())) as client:
-            apply_task = asyncio.create_task(client.post(ENDPOINT+'apply', json=candidate, headers=TOKEN))
+            apply_task = asyncio.create_task(client.post(ENDPOINT + 'apply', json=candidate, headers=TOKEN))
             try:
                 await wait_until(core.queued.is_set)
                 assert not apply_task.done()
@@ -205,24 +273,26 @@ def test_pending_apply_waits_for_ack_and_http_remains_responsive_to_h_and_x(setu
                 # Separate physical presses: a same-cycle H supersedes X.
                 # Each endpoint must still dispatch while the tuning ACK waits.
                 for count, key in enumerate(('H', 'X'), 1):
-                    response = await asyncio.wait_for(client.post('/api/helm/teleop/key',
-                        json={'key': key}, headers=TOKEN), timeout=1.)
+                    response = await asyncio.wait_for(
+                        client.post('/api/helm/teleop/key', json={'key': key}, headers=TOKEN), timeout=1.0
+                    )
                     assert response.status == 200
                     await wait_until(lambda: core.keys == ['H', 'X'][:count])
                 assert not apply_task.done()  # Keys arrived while the ACK was still withheld.
-                refused = await client.post(ENDPOINT+'apply', json=candidate, headers=TOKEN)
+                refused = await client.post(ENDPOINT + 'apply', json=candidate, headers=TOKEN)
                 assert refused.status == 422 and len(core.requests) == 1
             finally:
                 core.release.set()
-                response = await asyncio.wait_for(apply_task, timeout=2.)
+                response = await asyncio.wait_for(apply_task, timeout=2.0)
             assert response.status == 200
             tuning = (await response.json())['teleop']['tuning']
             assert tuning['revision'] == before['revision'] + 1
-            assert tuning['rows'][0]['kp'] == 25.
+            assert tuning['rows'][0]['kp'] == 25.0
             assert setup.teleop.manual.active == candidate['joints']
             assert not setup.teleop.manual.path.exists()  # Applied is not implicitly saved.
-            stale = await client.post(ENDPOINT+'apply', json=candidate, headers=TOKEN)
+            stale = await client.post(ENDPOINT + 'apply', json=candidate, headers=TOKEN)
             assert stale.status == 422
+
     asyncio.run(run())
 
 
@@ -233,20 +303,21 @@ def test_receiver_rejection_preserves_active_settings_and_revision(setup):
         core.reject = 'Receiver rejected held gain update: feedback_not_settled'
         core.release.set()
         with pytest.raises(ValueError, match='feedback_not_settled'):
-            await asyncio.to_thread(setup.teleop.manual_tuning, 'apply', payload(setup.teleop, kp=25.))
+            await asyncio.to_thread(setup.teleop.manual_tuning, 'apply', payload(setup.teleop, kp=25.0))
         assert setup.teleop.manual.bundle() == before
         assert setup.teleop.snapshot()['tuning']['can_apply']
+
     asyncio.run(run())
 
 
 def test_late_view_ack_reconciles_after_caller_timeout_without_resending(setup, monkeypatch):
     original_request = setup.teleop._request
-    monkeypatch.setattr(setup.teleop, '_request', lambda kind, *args: original_request(kind, *args, timeout=.05))
+    monkeypatch.setattr(setup.teleop, '_request', lambda kind, *args: original_request(kind, *args, timeout=0.05))
 
     async def run():
         core = await start(setup)
         before = setup.teleop.manual.bundle()
-        candidate = payload(setup.teleop, kp=30.)
+        candidate = payload(setup.teleop, kp=30.0)
         with pytest.raises(ValueError, match='did not answer the change in time'):
             await asyncio.to_thread(setup.teleop.manual_tuning, 'apply', candidate)
         assert core.queued.is_set() and setup.teleop.manual.bundle() == before
@@ -263,6 +334,7 @@ def test_late_view_ack_reconciles_after_caller_timeout_without_resending(setup, 
         assert setup.teleop.snapshot()['tuning']['can_apply']
         with pytest.raises(ValueError, match='changed or the session restarted'):
             setup.teleop.manual_tuning('apply', candidate)
+
     asyncio.run(run())
 
 
@@ -271,22 +343,27 @@ def test_http_save_and_restore_keep_preparation_separate_from_motor_enable(setup
 
     async def run():
         async with TestClient(TestServer(setup.app())) as client:
-            response = await client.post(ENDPOINT+'restore', json=payload(setup.teleop, action='restore'), headers=TOKEN)
+            response = await client.post(
+                ENDPOINT + 'restore', json=payload(setup.teleop, action='restore'), headers=TOKEN
+            )
             assert response.status == 422 and not setup.teleop.manual.path.exists()
-            response = await client.post(ENDPOINT+'apply', json=payload(setup.teleop, kp=20.), headers=TOKEN)
+            response = await client.post(ENDPOINT + 'apply', json=payload(setup.teleop, kp=20.0), headers=TOKEN)
             assert response.status == 200
             applied = setup.teleop.manual.bundle()
-            response = await client.post(ENDPOINT+'save', json=payload(setup.teleop, action='save'), headers=TOKEN)
+            response = await client.post(ENDPOINT + 'save', json=payload(setup.teleop, action='save'), headers=TOKEN)
             assert response.status == 200
             document = json.loads(setup.teleop.manual.path.read_text(encoding='utf-8'))
             assert document['joints'] == applied['joints'] and document['measured_calibration'] is False
-            await client.post(ENDPOINT+'apply', json=payload(setup.teleop, kp=40.), headers=TOKEN)
-            response = await client.post(ENDPOINT+'restore', json=payload(setup.teleop, action='restore'), headers=TOKEN)
+            await client.post(ENDPOINT + 'apply', json=payload(setup.teleop, kp=40.0), headers=TOKEN)
+            response = await client.post(
+                ENDPOINT + 'restore', json=payload(setup.teleop, action='restore'), headers=TOKEN
+            )
             tuning = (await response.json())['teleop']['tuning']
             assert response.status == 200 and values(tuning['rows']) == applied['joints']
             assert tuning['revision'] == applied['revision'] + 2
             assert not tuning['dirty']
             assert not setup.teleop.active and not setup.cores
+
     asyncio.run(run())
 
 
@@ -294,21 +371,23 @@ def test_restore_during_hold_also_waits_for_receiver_ack(setup):
     async def run():
         setup.teleop.manual_tuning('save', payload(setup.teleop, action='save'))
         saved = deepcopy(setup.teleop.manual.active)
-        setup.teleop.manual_tuning('apply', payload(setup.teleop, kp=40.))
+        setup.teleop.manual_tuning('apply', payload(setup.teleop, kp=40.0))
         core = await start(setup)
         before = setup.teleop.manual.bundle()
-        task = asyncio.create_task(asyncio.to_thread(setup.teleop.manual_tuning,
-                                  'restore', payload(setup.teleop, action='restore')))
+        task = asyncio.create_task(
+            asyncio.to_thread(setup.teleop.manual_tuning, 'restore', payload(setup.teleop, action='restore'))
+        )
         try:
             await wait_until(core.queued.is_set)
             assert core.requests[0]['joints'] == saved
             assert not task.done() and setup.teleop.manual.bundle() == before
         finally:
             core.release.set()
-            await asyncio.wait_for(task, timeout=2.)
+            await asyncio.wait_for(task, timeout=2.0)
         assert setup.teleop.manual.active == saved
         assert setup.teleop.manual.revision == before['revision'] + 1
         assert not setup.teleop.snapshot()['tuning']['dirty']
+
     asyncio.run(run())
 
 
@@ -323,34 +402,38 @@ def test_faulted_running_session_accepts_http_disable_but_no_motion_or_tuning(se
             for key in ('I', 'E', 'T', 'X'):
                 response = await client.post('/api/helm/teleop/key', json={'key': key}, headers=TOKEN)
                 assert response.status == 422
-            response = await client.post(ENDPOINT+'apply', json=payload(setup.teleop, kp=20.), headers=TOKEN)
+            response = await client.post(ENDPOINT + 'apply', json=payload(setup.teleop, kp=20.0), headers=TOKEN)
             assert response.status == 422 and not core.requests
-            response = await asyncio.wait_for(client.post('/api/helm/teleop/key',
-                json={'key': 'H'}, headers=TOKEN), timeout=1.)
+            response = await asyncio.wait_for(
+                client.post('/api/helm/teleop/key', json={'key': 'H'}, headers=TOKEN), timeout=1.0
+            )
             assert response.status == 200
             await wait_until(lambda: core.keys == ['H'])
             assert (await response.json())['teleop']['fault'] == core.fault
+
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('state, lowering, owned', [
-    ('SHUTDOWN', True, True), ('FAULT', False, False), ('DISABLED', False, False)])
+@pytest.mark.parametrize(
+    'state, lowering, owned', [('SHUTDOWN', True, True), ('FAULT', False, False), ('DISABLED', False, False)]
+)
 def test_fault_disable_reaches_adapter_while_lowering_exhausted_or_already_disabled(state, lowering, owned):
     calls = []
     adapter = GuardedLifecycleSession.__new__(GuardedLifecycleSession)
     adapter.lifecycle = SimpleNamespace(state=state, action=lambda *args, **kwargs: calls.append('local-disable'))
-    adapter.clock = lambda: 0.
+    adapter.clock = lambda: 0.0
     adapter.owned = owned
-    adapter.controller = SimpleNamespace(owned=owned, disable=lambda: calls.append('disable'),
-        emergency_stop=lambda: calls.append('emergency-stop'))
+    adapter.controller = SimpleNamespace(
+        owned=owned, disable=lambda: calls.append('disable'), emergency_stop=lambda: calls.append('emergency-stop')
+    )
     core = TeleopCore.__new__(TeleopCore)
     core.session, core.fault, core._lowering, core.live_arm = adapter, 'original tracking fault', lowering, 'left'
     core._lower = lambda _: pytest.fail('H must not schedule another lowering cycle')
-    core._tick('H', 0.)
+    core._tick('H', 0.0)
     assert calls == ['local-disable', 'disable' if owned else 'emergency-stop']
     assert not core._lowering and not adapter.owned
     assert core.fault == 'original tracking fault' and 'Disabled at your request' in core.message
-    core._tick(None, .01)
+    core._tick(None, 0.01)
     assert len(calls) == 2  # No automatic rearm or further motion after operator Disable.
 
 
@@ -362,17 +445,18 @@ def test_fault_disable_failure_preserves_original_fault_and_reports_unconfirmed_
     core.session = SimpleNamespace(disable_now=fail, stop_error=None)
     core.fault, core._lowering, core.live_arm = 'original tracking fault', True, 'left'
     core._lower = lambda _: pytest.fail('An unconfirmed Disable must not resume lowering')
-    core._tick('H', 0.)
+    core._tick('H', 0.0)
     assert core.fault == 'original tracking fault'
     assert core.session.stop_error == 'receiver channel closed'
     assert not core._lowering
     assert 'Disable could not be confirmed' in core.message and 'receiver channel closed' in core.message
     assert 'Disabled at your request' not in core.message
-    core._tick(None, .01)
+    core._tick(None, 0.01)
 
 
 def test_velocity_feedforward_switches_between_sessions_only(setup):
     """Apply sets Motor tuning's switch for the next session; a running session keeps the law it started with."""
+
     async def run():
         update = payload(setup.teleop)
         update['velocity_feedforward'] = True
@@ -387,12 +471,14 @@ def test_velocity_feedforward_switches_between_sessions_only(setup):
         assert setup.teleop.manual.feedforward is True and not core.requests
         with pytest.raises(ValueError, match='Invalid manual tuning request'):
             setup.teleop.manual_tuning('apply', dict(payload(setup.teleop), velocity_feedforward='on'))
+
     asyncio.run(run())
 
 
 def test_status_names_the_next_sessions_law_then_the_one_the_receiver_runs(setup):
     """The teleop status row's Control cell: between sessions, the law the next one starts with; while one runs,
     the law its core reports, so a receiver that did not take the switch shows."""
+
     def law():
         snapshot = setup.teleop.snapshot()
         return snapshot['control_law'], snapshot['control_law_next']
@@ -407,28 +493,30 @@ def test_status_names_the_next_sessions_law_then_the_one_the_receiver_runs(setup
         assert law() == ('direct-velocity-feedforward', False)
         core.law = dict(position_only=True, velocity_feedforward=False)  # A release that ignores the switch.
         await wait_until(lambda: law() == ('direct-position-only', False))
-        await asyncio.to_thread(setup.teleop.stop, 2.)
+        await asyncio.to_thread(setup.teleop.stop, 2.0)
         assert law() == ('direct-velocity-feedforward', True)
+
     asyncio.run(run())
 
 
-def test_capture_failure_blocks_tuning_while_h_and_x_remain_available(setup,monkeypatch):
+def test_capture_failure_blocks_tuning_while_h_and_x_remain_available(setup, monkeypatch):
     async def run():
-        core=await start(setup)
-        original=core.view
-        monkeypatch.setattr(core,'view',lambda:dict(original(),recording_fault='camera worker failed'))
-        await wait_until(lambda:setup.teleop.snapshot().get('recording_fault'))
-        snapshot=setup.teleop.snapshot()
+        core = await start(setup)
+        original = core.view
+        monkeypatch.setattr(core, 'view', lambda: dict(original(), recording_fault='camera worker failed'))
+        await wait_until(lambda: setup.teleop.snapshot().get('recording_fault'))
+        snapshot = setup.teleop.snapshot()
         assert not snapshot['tuning']['can_apply']
         assert 'Recording failed' in snapshot['tuning']['reason']
-        before=setup.teleop.manual.bundle()
-        with pytest.raises(ValueError,match='Recording failed'):
-            setup.teleop.manual_tuning('apply',payload(setup.teleop,kp=20.))
+        before = setup.teleop.manual.bundle()
+        with pytest.raises(ValueError, match='Recording failed'):
+            setup.teleop.manual_tuning('apply', payload(setup.teleop, kp=20.0))
         # Confirm each separately; an H in the same drained burst wins over X.
-        for count,key in enumerate(('H','X'),1):
+        for count, key in enumerate(('H', 'X'), 1):
             setup.teleop.key(key)
-            await wait_until(lambda:core.keys==['H','X'][:count])
-        assert setup.teleop.manual.bundle()==before and not core.requests
+            await wait_until(lambda: core.keys == ['H', 'X'][:count])
+        assert setup.teleop.manual.bundle() == before and not core.requests
+
     asyncio.run(run())
 
 
@@ -453,7 +541,7 @@ def test_same_burst_disable_supersedes_return_and_enable_while_tuning_waits(keys
         def close(self):
             pass
 
-    run_loop(Commands(), SimpleNamespace(send=lambda message: None, close=lambda: None), core, silence_s=.1)
+    run_loop(Commands(), SimpleNamespace(send=lambda message: None, close=lambda: None), core, silence_s=0.1)
     assert core.keys == ['H']
     assert core.pending is not None and not core.release.is_set()
     assert core.closed

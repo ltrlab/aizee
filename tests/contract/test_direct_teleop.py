@@ -1,4 +1,5 @@
 """Direct one/two-arm sessions against the actual receiver; no collision backend."""
+
 import json
 import math
 import gc
@@ -13,16 +14,18 @@ from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders, Receive
 
 @pytest.mark.parametrize('previously_enabled', [False, True])
 @pytest.mark.parametrize('failed_stop', [False, True])
-def test_direct_loop_restores_gc_only_after_all_resources_close(bundle, monkeypatch,
-                                                              previously_enabled, failed_stop):
+def test_direct_loop_restores_gc_only_after_all_resources_close(bundle, monkeypatch, previously_enabled, failed_stop):
     data, path = bundle
     direct_profile(path)
     clock = Clock()
     leaders = Leaders(clock)
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
-                     open_leaders=lambda _: leaders,
-                     open_receiver=lambda c, d, r: Receiver(c, r, clock),
-                     open_backend=lambda _: pytest.fail('No geometry in direct mode'), clock=clock)
+    core = TeleopCore(
+        dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
+        open_leaders=lambda _: leaders,
+        open_receiver=lambda c, d, r: Receiver(c, r, clock),
+        open_backend=lambda _: pytest.fail('No geometry in direct mode'),
+        clock=clock,
+    )
     original = gc.isenabled()
     (gc.enable if previously_enabled else gc.disable)()
     try:
@@ -31,8 +34,10 @@ def test_direct_loop_restores_gc_only_after_all_resources_close(bundle, monkeypa
         closed = []
         core._closers.append(lambda: closed.append(gc.isenabled()))
         if failed_stop:
+
             def broken(*args, **kwargs):
                 raise RuntimeError('injected stop failure')
+
             monkeypatch.setattr(core.session, 'disable', broken)
             monkeypatch.setattr(core.session, 'fault', broken)
         core.close()
@@ -48,8 +53,12 @@ def test_direct_loop_restores_gc_only_after_all_resources_close(bundle, monkeypa
 def direct_profile(path, hz=100):
     profile = json.loads(path.read_text())
     receiver = profile['receiver']
-    receiver.update(collision_mode='disabled', loop_hz=hz, interpolation_ms=20 if hz == 50 else 0,
-                    direct=dict(command_ms=max(30, 3000//hz), velocity_timeout_ms=math.ceil(1500/hz), limit_reaction_ms=10))
+    receiver.update(
+        collision_mode='disabled',
+        loop_hz=hz,
+        interpolation_ms=20 if hz == 50 else 0,
+        direct=dict(command_ms=max(30, 3000 // hz), velocity_timeout_ms=math.ceil(1500 / hz), limit_reaction_ms=10),
+    )
     receiver.pop('collision', None)
     receiver.pop('compute_budget_s', None)
     path.write_text(json.dumps(profile))
@@ -68,16 +77,22 @@ def test_direct_session_never_opens_geometry_and_follows_with_one_update(bundle,
     def open_receiver(config, device, reference):
         receiver = Receiver(config, reference, clock)
         original = receiver.exchange
+
         def exchange(request):
             requests.append(request)
             return original(request)
+
         receiver.exchange = exchange
         opened.append((config, device, reference))
         return receiver
 
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
-                     open_leaders=lambda _: leaders, open_receiver=open_receiver,
-                     open_backend=lambda _: pytest.fail('collision backend must not be opened'), clock=clock)
+    core = TeleopCore(
+        dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
+        open_leaders=lambda _: leaders,
+        open_receiver=open_receiver,
+        open_backend=lambda _: pytest.fail('collision backend must not be opened'),
+        clock=clock,
+    )
     try:
         core.build()
         assert core.compiler is None and core.collision_mode == 'disabled'
@@ -85,11 +100,11 @@ def test_direct_session_never_opens_geometry_and_follows_with_one_update(bundle,
         assert 'collision' not in core.derived['config']
         run(core, clock, 'I')
         run(core, clock, 'E')
-        run(core, clock, 'T', until='TELEOP', limit=hz*10)
+        run(core, clock, 'T', until='TELEOP', limit=hz * 10)
         requests.clear()
         before = core.session.lifecycle.target
         for n in range(25):
-            leaders.offsets['left'][0] += .0005
+            leaders.offsets['left'][0] += 0.0005
             run(core, clock)
         assert len(requests) == 25
         assert {r['type'] for r in requests} == {'direct_update'}
@@ -97,13 +112,22 @@ def test_direct_session_never_opens_geometry_and_follows_with_one_update(bundle,
         assert core.harness.last['status']['collision_expires_at_ms'] is None
         run(core, clock, 'T')
         assert core.session.lifecycle.state == 'HOLD'
-        seconds = max(abs(q - j['zero_position']) / j['shutdown_speed']
-                      for q, j in zip(core.session.lifecycle.target, core.session.lifecycle.joints)) + 2
+        seconds = (
+            max(
+                abs(q - j['zero_position']) / j['shutdown_speed']
+                for q, j in zip(core.session.lifecycle.target, core.session.lifecycle.joints)
+            )
+            + 2
+        )
         try:
             run(core, clock, 'X', until='DISABLED', limit=math.ceil(seconds / core.period_s))
         except AssertionError:
-            evidence = dict(view=core.view(), cycle=core.session.last_cycle,
-                            feedback=core.session.last_feedback, config=core.derived)
+            evidence = dict(
+                view=core.view(),
+                cycle=core.session.last_cycle,
+                feedback=core.session.last_feedback,
+                config=core.derived,
+            )
             (path.parent / 'direct-failure.json').write_text(json.dumps(evidence, indent=2))
             print(json.dumps(core.view()['joints'], indent=2))
             raise
@@ -132,23 +156,33 @@ def test_direct_repeated_moving_goal_keeps_bounded_motion_and_loss_requires_enga
     clock, cached, frozen = Clock(), {}, [False]
     leaders = Leaders(clock)
     poll = leaders.poll
+
     def source():
         if not frozen[0]:
             cached['samples'] = poll()
         return cached['samples']
+
     leaders.poll = source
     requests = []
+
     def open_receiver(config, _, reference):
         receiver = Receiver(config, reference, clock)
         exchange = receiver.exchange
+
         def recorded(request):
             requests.append(deepcopy(request))
             return exchange(request)
+
         receiver.exchange = recorded
         return receiver
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
-        open_leaders=lambda _: leaders, open_receiver=open_receiver,
-        open_backend=lambda _: pytest.fail('no geometry'), clock=clock)
+
+    core = TeleopCore(
+        dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
+        open_leaders=lambda _: leaders,
+        open_receiver=open_receiver,
+        open_backend=lambda _: pytest.fail('no geometry'),
+        clock=clock,
+    )
     try:
         core.build()
         run(core, clock, 'I')
@@ -156,14 +190,14 @@ def test_direct_repeated_moving_goal_keeps_bounded_motion_and_loss_requires_enga
         run(core, clock, 'T', until='TELEOP', limit=1000)
         assert core.session.lifecycle.max_source_misses == 8
         previous = core.session.lifecycle.target[0]
-        leaders.offsets['left'][0] += .03
+        leaders.offsets['left'][0] += 0.03
         run(core, clock)
         target = deepcopy(core.session.last_cycle['target'])
         first = core.session.last_cycle['proposal']['joints'][0]
         goal = target[0]['position']
-        direction = math.copysign(1., goal-previous)
+        direction = math.copysign(1.0, goal - previous)
         assert direction * first['velocity'] > 0
-        assert direction * (goal-first['position']) > .005
+        assert direction * (goal - first['position']) > 0.005
         joint = core.session.lifecycle.joints[0]
         requests.clear()
         frozen[0] = True
@@ -176,15 +210,17 @@ def test_direct_repeated_moving_goal_keeps_bounded_motion_and_loss_requires_enga
             assert cycle['target'] == target  # No new sequence, timestamp or goal.
             assert core._input_timing['repeated_source'] is True
             assert core.session.lifecycle.state == 'TELEOP'
-            assert direction * (command['position']-previous['position']) > 0
-            assert direction * (goal-command['position']) >= -1e-12
+            assert direction * (command['position'] - previous['position']) > 0
+            assert direction * (goal - command['position']) >= -1e-12
             assert direction * command['velocity'] > 0
             # Unramped direct control feeds the commands' smoothed speed forward (test_velocity_feedforward), not
             # one cycle's step: a repeated sample keeps it, in the direction of travel, within every bound.
             assert joint['velocity_feedforward'] is True
             assert abs(command['velocity']) <= joint['max_velocity'] + 1e-9
-            assert abs(command['velocity']) <= abs(previous['velocity']) + (
-                joint['approach']['stop_acceleration'] * core.period_s) + 1e-9
+            assert (
+                abs(command['velocity'])
+                <= abs(previous['velocity']) + (joint['approach']['stop_acceleration'] * core.period_s) + 1e-9
+            )
             previous = command
         assert len(requests) == 2 and all(r['type'] == 'direct_update' for r in requests)
         assert core.mapper.fault is None
@@ -211,19 +247,25 @@ def test_repeated_goal_keeps_original_source_deadline_across_new_receiver_offers
     def open_receiver(config, _, reference):
         receiver = Receiver(config, reference, clock)
         exchange = receiver.exchange
+
         def recorded(request):
             offered = deepcopy((receiver.last.get('reply') or {}).get('offer'))
             reply = exchange(request)
             if request['type'] == 'direct_update':
                 requests.append(dict(request=deepcopy(request), offered=offered, reply=deepcopy(reply)))
             return reply
+
         receiver.exchange = recorded
         receivers.append(receiver)
         return receiver
 
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
-        open_leaders=lambda _: leaders, open_receiver=open_receiver,
-        open_backend=lambda _: pytest.fail('no geometry'), clock=clock)
+    core = TeleopCore(
+        dict(data, receiver={'mode': 'live', 'arm': 'left', 'motor_models': {}}),
+        open_leaders=lambda _: leaders,
+        open_receiver=open_receiver,
+        open_backend=lambda _: pytest.fail('no geometry'),
+        clock=clock,
+    )
     try:
         core.build()
         run(core, clock, 'I')
@@ -234,7 +276,7 @@ def test_repeated_goal_keeps_original_source_deadline_across_new_receiver_offers
         target = deepcopy(core.session.last_cycle['target'])
         original = deepcopy(target)
         expires = min(row['sampled_at'] for row in target) + core.session.lifecycle.target_max_age_s
-        receiver_bound = math.floor((expires-receivers[0].epoch)*1000 + 1e-7)
+        receiver_bound = math.floor((expires - receivers[0].epoch) * 1000 + 1e-7)
 
         # Exercise the session's own freshness guard up to the boundary. Helm
         # additionally withholds goals within its unchanged dispatch margin.
@@ -256,14 +298,15 @@ def test_repeated_goal_keeps_original_source_deadline_across_new_receiver_offers
         assert all(deadline <= receiver_bound for deadline in deadlines)
         # Receiver offer time and remaining source lifetime are independently
         # floored to milliseconds, so the conservative endpoint may lose 2 ms.
-        assert deadlines[-1] >= receiver_bound-2
+        assert deadlines[-1] >= receiver_bound - 2
         assert deadlines[-1] <= deadlines[-2] + 1  # Fresh token, original source expiry.
         for row, deadline in zip(requests, deadlines):
             assert row['reply']['accepted']
-            assert deadline == min(row['offered']['expires_at_ms'],
-                                   row['offered']['issued_at_ms'] + row['request']['valid_for_ms'])
+            assert deadline == min(
+                row['offered']['expires_at_ms'], row['offered']['issued_at_ms'] + row['request']['valid_for_ms']
+            )
 
-        assert clock()-min(row['sampled_at'] for row in target) >= .05
+        assert clock() - min(row['sampled_at'] for row in target) >= 0.05
         with pytest.raises(ValueError, match='stale mapped source'):
             core.session.cycle(target=deepcopy(target), started_at=clock())
         assert len(requests) == 5  # Expired source does not dispatch another direct command.
@@ -298,25 +341,28 @@ def test_direct_command_expiry_recovers_only_to_shutdown(bundle, arm):
         receiver.exchange = recorded
         return receiver
 
-    core = TeleopCore(dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
-                     open_leaders=lambda _: leaders, open_receiver=open_receiver,
-                     open_backend=lambda _: pytest.fail('recovery must not open geometry'), clock=clock)
+    core = TeleopCore(
+        dict(data, receiver={'mode': 'live', 'arm': arm, 'motor_models': {}}),
+        open_leaders=lambda _: leaders,
+        open_receiver=open_receiver,
+        open_backend=lambda _: pytest.fail('recovery must not open geometry'),
+        clock=clock,
+    )
     try:
         core.build()
         run(core, clock, 'I')
         run(core, clock, 'E')
         run(core, clock, 'T', until='TELEOP', limit=1000)
         for _ in range(25):
-            leaders.offsets['left'][0] += .001
+            leaders.offsets['left'][0] += 0.001
             run(core, clock)
         run(core, clock, limit=20)
         joints = core.session.lifecycle.joints
-        assert any(abs(q - j['zero_position']) > j['tolerance']
-                   for q, j in zip(core.session.lifecycle.target, joints))
+        assert any(abs(q - j['zero_position']) > j['tolerance'] for q, j in zip(core.session.lifecycle.target, joints))
 
         # Beyond the direct command deadline, but still inside the 150 ms lease.
         # The harness advances when the next RPC observes the stalled producer.
-        clock.now += .06
+        clock.now += 0.06
         core.tick(None, clock())
         stopped = core.harness.last['status']
         assert stopped['state'] in ('stopping', 'stopped')
@@ -330,8 +376,13 @@ def test_direct_command_expiry_recovers_only_to_shutdown(bundle, arm):
         # Even an Engage key on every recovery cycle must not follow the leaders.
         # Keep the leaders displaced so merely re-entering TELEOP could not pass.
         states = []
-        shutdown_seconds = max(abs(row['position'] - joint['zero_position']) / joint['shutdown_speed']
-                               for row, joint in zip(core.harness.last['feedback'], joints)) + 3
+        shutdown_seconds = (
+            max(
+                abs(row['position'] - joint['zero_position']) / joint['shutdown_speed']
+                for row, joint in zip(core.harness.last['feedback'], joints)
+            )
+            + 3
+        )
         for _ in range(math.ceil(shutdown_seconds / core.period_s)):
             clock.now += core.period_s
             core.tick('T', clock())
@@ -348,8 +399,10 @@ def test_direct_command_expiry_recovers_only_to_shutdown(bundle, arm):
         assert not core.session.owned and not core.session.controller.owned
         assert core.harness.last['status']['state'] == 'disarmed'
         assert not core.harness.last['hardware_enabled']
-        assert all(abs(row['position'] - joint['zero_position']) <= joint['tolerance'] + 1e-9
-                   for row, joint in zip(core.harness.last['feedback'], joints))
+        assert all(
+            abs(row['position'] - joint['zero_position']) <= joint['tolerance'] + 1e-9
+            for row, joint in zip(core.harness.last['feedback'], joints)
+        )
         assert 'lowered to the reference and disabled' in core.message
     finally:
         core.close()

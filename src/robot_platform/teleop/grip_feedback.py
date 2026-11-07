@@ -33,23 +33,42 @@ Measured on Minerva (docs/robots/minerva/GRIPPER_FORCE_FEEDBACK.md), closing eff
   the boards' 200 mA at 0.5 degrees (about 1.3 Nm), found within 70 ms. One encoder count of trigger
   (0.088 degrees) is then about 35 mA.
 """
+
 import math
 import struct
 
 FF_CMD = 0xCC
 FF_DISABLE = -32768  # INT16_MIN: that servo's torque off, freely backdrivable.
-FF_HW_CAP_MA = 200   # Firmware cap per servo; the leader rail needs its 5 V supply for more than one or two servos.
+FF_HW_CAP_MA = 200  # Firmware cap per servo; the leader rail needs its 5 V supply for more than one or two servos.
 SERVOS = 7
 
-DEFAULTS = dict(enabled=False, closing_effort_sign=-1, grip_nm=.5, hold_ms=70., wall_deg=.5, cap_ma=200.,
-                still_rad_s=.3, slip_rad_s=1., release_nm=.15, release_ms=250.)
-BOUNDS = dict(grip_nm=(.1, 3.), hold_ms=(0., 500.), wall_deg=(.2, 20.), cap_ma=(0., FF_HW_CAP_MA),
-              still_rad_s=(0., 2.), slip_rad_s=(.1, 5.), release_nm=(0., 3.), release_ms=(0., 2000.))
+DEFAULTS = dict(
+    enabled=False,
+    closing_effort_sign=-1,
+    grip_nm=0.5,
+    hold_ms=70.0,
+    wall_deg=0.5,
+    cap_ma=200.0,
+    still_rad_s=0.3,
+    slip_rad_s=1.0,
+    release_nm=0.15,
+    release_ms=250.0,
+)
+BOUNDS = dict(
+    grip_nm=(0.1, 3.0),
+    hold_ms=(0.0, 500.0),
+    wall_deg=(0.2, 20.0),
+    cap_ma=(0.0, FF_HW_CAP_MA),
+    still_rad_s=(0.0, 2.0),
+    slip_rad_s=(0.1, 5.0),
+    release_nm=(0.0, 3.0),
+    release_ms=(0.0, 2000.0),
+)
 # What the operator sets live from Helm and Helm saves: the strength (0-1) and the feel.
 SETTINGS = ('strength', 'cap_ma', 'grip_nm', 'hold_ms', 'wall_deg')
-SLIP_S = .03       # Moving faster than slip_rad_s for this long ends a grip.
-SQUEEZE_S = .03    # The squeeze's low-pass time constant: drive noise, not the grip's own changes.
-MAX_STEP_S = .1    # A late cycle counts as at most this long.
+SLIP_S = 0.03  # Moving faster than slip_rad_s for this long ends a grip.
+SQUEEZE_S = 0.03  # The squeeze's low-pass time constant: drive noise, not the grip's own changes.
+MAX_STEP_S = 0.1  # A late cycle counts as at most this long.
 
 
 def crc8(data):
@@ -102,7 +121,9 @@ def trigger_config(profile):
         trigger = item.get('trigger') if isinstance(item, dict) else None
         if trigger is None:
             continue
-        channel, sign = (trigger.get('channel'), trigger.get('open_sign')) if isinstance(trigger, dict) else (None, None)
+        channel, sign = (
+            (trigger.get('channel'), trigger.get('open_sign')) if isinstance(trigger, dict) else (None, None)
+        )
         if type(channel) is not int or not 1 <= channel <= SERVOS or type(sign) is not int or sign not in (-1, 1):
             raise ValueError(f'Leader {name}: trigger needs a channel 1-{SERVOS} and an open_sign of -1 or 1')
         triggers[name] = (channel, sign)
@@ -125,9 +146,11 @@ def validate_settings(payload):
     wall_deg) within the profile's bounds."""
     if not isinstance(payload, dict) or set(payload) - set(SETTINGS):
         raise ValueError('Force feedback settings are ' + ', '.join(SETTINGS))
-    bounds = dict(BOUNDS, strength=(0., 1.))
-    labels = {'strength': 'Force feedback strength is between 0 and 1',
-              'cap_ma': f'The maximum trigger force is 0-{FF_HW_CAP_MA} mA'}
+    bounds = dict(BOUNDS, strength=(0.0, 1.0))
+    labels = {
+        'strength': 'Force feedback strength is between 0 and 1',
+        'cap_ma': f'The maximum trigger force is 0-{FF_HW_CAP_MA} mA',
+    }
     result = {}
     for key, value in payload.items():
         low, high = bounds[key]
@@ -140,7 +163,7 @@ def validate_settings(payload):
 def past_wall(wall, reading, opens):
     """How far (rad) a trigger reading has been squeezed past its wall: toward closing, opposite `opens` (the
     reading direction that opens it); never negative. Readings a whole turn apart are the same angle."""
-    return max(0., opens * math.remainder(wall - reading, 2 * math.pi))
+    return max(0.0, opens * math.remainder(wall - reading, 2 * math.pi))
 
 
 class GripFeedback:
@@ -153,15 +176,15 @@ class GripFeedback:
     def __init__(self, config):
         self.config = validate_config(config)
         self.enabled = self.config['enabled']
-        self.strength = 1.  # The operator's scale on the push, 0-1, set live from Helm.
+        self.strength = 1.0  # The operator's scale on the push, 0-1, set live from Helm.
         sides = self.GRIPPERS.values()
-        self.squeezes = dict.fromkeys(sides, 0.)  # Low-passed, Nm.
+        self.squeezes = dict.fromkeys(sides, 0.0)  # Low-passed, Nm.
         self.gripping = dict.fromkeys(sides, False)
-        self.pushes = dict.fromkeys(sides, 0.)    # mA, strength included.
-        self.levels = dict.fromkeys(sides, 0.)    # The push against the maximum, before the strength.
-        self._held_s = dict.fromkeys(sides, 0.)     # Still and squeezing past the threshold, so far.
-        self._release_s = dict.fromkeys(sides, 0.)  # A grip's squeeze near nothing, so far.
-        self._slip_s = dict.fromkeys(sides, 0.)     # A grip's gripper moving fast, so far.
+        self.pushes = dict.fromkeys(sides, 0.0)  # mA, strength included.
+        self.levels = dict.fromkeys(sides, 0.0)  # The push against the maximum, before the strength.
+        self._held_s = dict.fromkeys(sides, 0.0)  # Still and squeezing past the threshold, so far.
+        self._release_s = dict.fromkeys(sides, 0.0)  # A grip's squeeze near nothing, so far.
+        self._slip_s = dict.fromkeys(sides, 0.0)  # A grip's gripper moving fast, so far.
 
     def set(self, *, enabled=None, **settings):
         """Switch feedback on or off, and set any of SETTINGS live."""
@@ -177,16 +200,20 @@ class GripFeedback:
         """A gripper's squeeze (its effort in the closing direction, Nm, never negative) and speed (rad/s), or None
         when the row carries no usable reading."""
         effort, velocity = row.get('effort'), row.get('velocity')
-        if (type(effort) not in (int, float) or type(velocity) not in (int, float)
-                or not math.isfinite(effort) or not math.isfinite(velocity)):
+        if (
+            type(effort) not in (int, float)
+            or type(velocity) not in (int, float)
+            or not math.isfinite(effort)
+            or not math.isfinite(velocity)
+        ):
             return None
-        return max(0., self.config['closing_effort_sign'] * effort), abs(velocity)
+        return max(0.0, self.config['closing_effort_sign'] * effort), abs(velocity)
 
     def stiffness(self):
         """The wall's spring at full strength, mA per radian of trigger past it: the maximum at wall_deg."""
         return self.config['cap_ma'] / math.radians(self.config['wall_deg'])
 
-    def update(self, rows, *, engaged, dt=.01, walls=None):
+    def update(self, rows, *, engaged, dt=0.01, walls=None):
         """{leader: wall or 0.} for this cycle, `dt` seconds after the last, or None when feedback is off (the PC
         then turns the trigger servos off). 0. leaves a trigger free.
 
@@ -197,9 +224,9 @@ class GripFeedback:
         - the reading direction that opens the trigger.
         A gripping leader missing there gets no wall. The pushes and bars follow the grip either way."""
         c = self.config
-        dt = min(max(float(dt), 0.), MAX_STEP_S) if math.isfinite(dt) else MAX_STEP_S
+        dt = min(max(float(dt), 0.0), MAX_STEP_S) if math.isfinite(dt) else MAX_STEP_S
         follow = dt / (SQUEEZE_S + dt)
-        release = min(c['release_nm'], .75 * c['grip_nm'])
+        release = min(c['release_nm'], 0.75 * c['grip_nm'])
         k = self.stiffness()
         walls = walls or {}
         by_name = {row.get('name'): row for row in rows or [] if isinstance(row, dict)}
@@ -207,28 +234,31 @@ class GripFeedback:
         for name, side in self.GRIPPERS.items():
             row = by_name.get(name)
             reading = self.reading(row) if row is not None else None
-            squeeze, speed = reading if reading is not None else (0., math.inf)
+            squeeze, speed = reading if reading is not None else (0.0, math.inf)
             self.squeezes[side] += follow * (squeeze - self.squeezes[side])
             held = self.squeezes[side]
             if reading is None:  # No reading, or a faulted drive: never felt.
-                self.gripping[side], self._held_s[side] = False, 0.
+                self.gripping[side], self._held_s[side] = False, 0.0
             elif not self.gripping[side]:
                 still = held >= c['grip_nm'] and speed <= c['still_rad_s']
-                self._held_s[side] = self._held_s[side] + dt if still else 0.
-                if still and self._held_s[side] >= c['hold_ms'] / 1000. - 1e-9:
+                self._held_s[side] = self._held_s[side] + dt if still else 0.0
+                if still and self._held_s[side] >= c['hold_ms'] / 1000.0 - 1e-9:
                     self.gripping[side] = True
-                    self._release_s[side] = self._slip_s[side] = 0.
+                    self._release_s[side] = self._slip_s[side] = 0.0
             else:
-                self._release_s[side] = self._release_s[side] + dt if held < release else 0.
-                self._slip_s[side] = self._slip_s[side] + dt if speed > c['slip_rad_s'] else 0.
-                if self._release_s[side] >= c['release_ms'] / 1000. - 1e-9 or self._slip_s[side] >= SLIP_S - 1e-9:
-                    self.gripping[side], self._held_s[side] = False, 0.
+                self._release_s[side] = self._release_s[side] + dt if held < release else 0.0
+                self._slip_s[side] = self._slip_s[side] + dt if speed > c['slip_rad_s'] else 0.0
+                if self._release_s[side] >= c['release_ms'] / 1000.0 - 1e-9 or self._slip_s[side] >= SLIP_S - 1e-9:
+                    self.gripping[side], self._held_s[side] = False, 0.0
             wall = walls.get(side) if self.gripping[side] else None
-            past = past_wall(*wall) if wall is not None else 0.
-            self.levels[side] = min(1., past / math.radians(c['wall_deg']))
+            past = past_wall(*wall) if wall is not None else 0.0
+            self.levels[side] = min(1.0, past / math.radians(c['wall_deg']))
             self.pushes[side] = self.strength * min(c['cap_ma'], k * past)
-            specs[side] = ({'wall': float(wall[0]), 'k': k * self.strength, 'cap': c['cap_ma'] * self.strength}
-                           if wall is not None and engaged else 0.)
+            specs[side] = (
+                {'wall': float(wall[0]), 'k': k * self.strength, 'cap': c['cap_ma'] * self.strength}
+                if wall is not None and engaged
+                else 0.0
+            )
         if not self.enabled:
             return None
         return specs
@@ -237,9 +267,14 @@ class GripFeedback:
         return dict({key: self.config[key] for key in SETTINGS if key != 'strength'}, strength=self.strength)
 
     def snapshot(self):
-        return dict(enabled=self.enabled, strength=self.strength, cap_ma=self.config['cap_ma'],
-                    currents_ma={side: round(value, 1) for side, value in self.pushes.items()},
-                    levels={side: round(value, 3) for side, value in self.levels.items()},
-                    squeeze_nm={side: round(value, 3) for side, value in self.squeezes.items()},
-                    gripping=dict(self.gripping), settings=self.settings(),
-                    config={key: self.config[key] for key in ('still_rad_s', 'slip_rad_s', 'release_nm', 'release_ms')})
+        return dict(
+            enabled=self.enabled,
+            strength=self.strength,
+            cap_ma=self.config['cap_ma'],
+            currents_ma={side: round(value, 1) for side, value in self.pushes.items()},
+            levels={side: round(value, 3) for side, value in self.levels.items()},
+            squeeze_nm={side: round(value, 3) for side, value in self.squeezes.items()},
+            gripping=dict(self.gripping),
+            settings=self.settings(),
+            config={key: self.config[key] for key in ('still_rad_s', 'slip_rad_s', 'release_nm', 'release_ms')},
+        )

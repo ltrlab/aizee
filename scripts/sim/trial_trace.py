@@ -12,6 +12,7 @@ A scene change that should leave the physics alone (colours, visual-only geoms) 
 commit before it and on the commit after it (put the older source first on PYTHONPATH; both runs can share one
 control_harness through ROBOT_CONTROL_HARNESS when the Rust code is the same) and compare.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKCELL = ROOT / 'config/devices/simulation/minerva-production-01-workcell.json'
 
 
-def record(out, workcell=WORKCELL, timeout=70.):
+def record(out, workcell=WORKCELL, timeout=70.0):
     import robot_platform
     from robot_platform.evaluation.demonstrator import HandoffDemonstrator
     from robot_platform.evaluation.grid import GridSpec, cube_poses
@@ -36,6 +37,7 @@ def record(out, workcell=WORKCELL, timeout=70.):
     from robot_platform.simulation import task_scene
     from robot_platform.simulation.control_harness import default_binary
     from robot_platform.simulation.workcell import load_workcell
+
     steps = {'time': [], 'qpos': [], 'qvel': [], 'surface': []}
     original = task_scene.MinervaTaskScene.step_driven
 
@@ -46,11 +48,15 @@ def record(out, workcell=WORKCELL, timeout=70.):
         steps['qvel'].append(self.data.qvel.copy())
         steps['surface'].append(hashlib.sha256(self.model.geom_surfacevel.tobytes()).digest())
         return state
+
     task_scene.MinervaTaskScene.step_driven = traced
     grid = GridSpec.for_workcell(load_workcell(workcell))
     with tempfile.TemporaryDirectory() as directory:
-        runner = TrialRunner(RunConfig(grippers='driven', timeout_s=timeout, workcell=str(workcell), grid=grid),
-                             stack=derive_stack(), directory=directory)
+        runner = TrialRunner(
+            RunConfig(grippers='driven', timeout_s=timeout, workcell=str(workcell), grid=grid),
+            stack=derive_stack(),
+            directory=directory,
+        )
         demo = HandoffDemonstrator()
         try:
             result = runner.run_trial(demo, cube_poses(grid)[0], 0)
@@ -58,15 +64,28 @@ def record(out, workcell=WORKCELL, timeout=70.):
         finally:
             runner.close()
             demo.close()
-    identity = {'source': str(Path(robot_platform.__file__).resolve().parents[1]), 'harness': str(default_binary()),
-                'harness_sha256': hashlib.sha256(default_binary().read_bytes()).hexdigest(), 'workcell': str(workcell),
-                'outcome': result['outcome'], 'events': result['events'], 'ngeom': ngeom,
-                'clipped': result['commands_clipped_cycles']}
-    np.savez_compressed(out, time=np.array(steps['time']), qpos=np.array(steps['qpos']), qvel=np.array(steps['qvel']),
-                        surface=np.frombuffer(b''.join(steps['surface']), dtype=np.uint8).reshape(-1, 32),
-                        identity=json.dumps(identity))
-    print(f"{len(steps['time'])} scene steps, {result['outcome']}: "
-          + ', '.join(f"{e['kind']} {e['scene_time']:.4f} s" for e in result['events'] if e['kind'] != 'reset'))
+    identity = {
+        'source': str(Path(robot_platform.__file__).resolve().parents[1]),
+        'harness': str(default_binary()),
+        'harness_sha256': hashlib.sha256(default_binary().read_bytes()).hexdigest(),
+        'workcell': str(workcell),
+        'outcome': result['outcome'],
+        'events': result['events'],
+        'ngeom': ngeom,
+        'clipped': result['commands_clipped_cycles'],
+    }
+    np.savez_compressed(
+        out,
+        time=np.array(steps['time']),
+        qpos=np.array(steps['qpos']),
+        qvel=np.array(steps['qvel']),
+        surface=np.frombuffer(b''.join(steps['surface']), dtype=np.uint8).reshape(-1, 32),
+        identity=json.dumps(identity),
+    )
+    print(
+        f'{len(steps["time"])} scene steps, {result["outcome"]}: '
+        + ', '.join(f'{e["kind"]} {e["scene_time"]:.4f} s' for e in result['events'] if e['kind'] != 'reset')
+    )
     return 0
 
 
@@ -74,11 +93,13 @@ def compare(a, b):
     first, second = np.load(a), np.load(b)
     ids = [json.loads(str(f['identity'])) for f in (first, second)]
     for f, identity in zip((a, b), ids):
-        print(f"{f}: {len(np.load(f)['time'])} steps, {identity['outcome']}, source {identity['source']}, "
-              f"harness {identity['harness_sha256'][:12]}")
+        print(
+            f'{f}: {len(np.load(f)["time"])} steps, {identity["outcome"]}, source {identity["source"]}, '
+            f'harness {identity["harness_sha256"][:12]}'
+        )
     same = True
     if len(first['time']) != len(second['time']):
-        print(f"different step counts: {len(first['time'])} and {len(second['time'])}")
+        print(f'different step counts: {len(first["time"])} and {len(second["time"])}')
         same = False
     count = min(len(first['time']), len(second['time']))
     for key in ('time', 'qpos', 'qvel', 'surface'):
@@ -97,7 +118,7 @@ def compare(a, b):
         print('events differ:', ids[0]['events'], ids[1]['events'], sep='\n')
         same = False
     else:
-        print('events identical: ' + ', '.join(f"{e['kind']} {e['scene_time']:.4f} s" for e in ids[0]['events']))
+        print('events identical: ' + ', '.join(f'{e["kind"]} {e["scene_time"]:.4f} s' for e in ids[0]['events']))
     print('BIT FOR BIT THE SAME' if same else 'DIFFERENT')
     return 0 if same else 1
 
@@ -108,7 +129,7 @@ def main(argv=None):
     r = sub.add_parser('record')
     r.add_argument('out')
     r.add_argument('--workcell', default=str(WORKCELL))
-    r.add_argument('--timeout', type=float, default=70.)
+    r.add_argument('--timeout', type=float, default=70.0)
     c = sub.add_parser('compare')
     c.add_argument('a')
     c.add_argument('b')

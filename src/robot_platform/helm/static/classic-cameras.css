@@ -1,62 +1,293 @@
-#camera-cards {display:grid;gap:20px;margin-top:16px}
-.camera-card {border:1px solid var(--border,#35404c);border-radius:10px;padding:14px;min-width:0}
-.camera-card h3 {margin-top:0}
-.camera-card img {display:block;max-width:100%;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain;background:#10151b;border-radius:6px}
-.camera-card img[hidden] {display:none}
-.camera-control {display:grid;grid-template-columns:minmax(110px,1fr) minmax(70px,110px) auto;gap:8px;align-items:center;margin-top:12px}
-.camera-control small {grid-column:1/-1}
-.camera-control input,.camera-control select {width:100%;min-width:0}
-.preview-view-choice{position:absolute;top:8px;left:8px;right:8px;z-index:3;display:flex;gap:6px;flex-wrap:wrap}
-.preview-view-choice[hidden],.camera-live-view[hidden],.camera-live-view img[hidden]{display:none}
-.preview-view-choice button{min-height:44px;background:#101113ed}
-.preview-view-choice button[aria-pressed=true],.camera-thumbnails button[aria-pressed=true]{border-color:var(--accent);background:#17385a}
-.camera-live-view{position:absolute;inset:0;display:grid;grid-template-rows:auto minmax(0,1fr) 94px;gap:8px;padding:64px 10px 10px;background:#0b0c0e}
-.camera-live-heading{min-width:0}.camera-live-heading p{margin:3px 0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
-.camera-focus{position:relative;min-height:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#15191e}
-.camera-focus>img{width:100%;height:100%;object-fit:contain}
-#camera-focus-placeholder{padding:16px;text-align:center;color:var(--muted);overflow-wrap:anywhere}
-.camera-focus-caption{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;gap:8px;padding:8px;background:#0b0c0ee8;font-size:12px}
-.camera-thumbnails{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;min-height:0}
-.camera-thumbnails button{min-width:0;padding:4px!important;display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:2px;text-align:left;overflow:hidden}
-.camera-thumbnails img{width:100%;height:100%;object-fit:contain;min-height:0}
-.camera-thumbnails b{font-size:12px}.camera-thumbnails span{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-.camera-thumbnails button[data-fresh=true] span{color:var(--good)}
-body[data-camera-view=cameras] .model-toolbar{display:none}
-body[data-camera-view=cameras] #model-view{display:none}
-body[data-camera-view=model] .preview-view-choice:not([hidden])~.model-toolbar{top:68px}
-body[data-touch=on] .preview-view-choice button{font-size:14px;padding:8px;min-width:0}
-body[data-touch=on][data-camera-view=cameras][data-tab=settings]{--aside:min(48vw,520px)}
-@media(max-width:1100px){body[data-touch=on][data-camera-view=cameras] header .brand small{display:none}}
-@media(max-height:600px){.camera-live-view{grid-template-rows:auto minmax(0,1fr) 72px;gap:5px}.camera-live-heading .eyebrow{display:none}.camera-focus-caption{padding:4px;font-size:11px}}
-@media(max-height:540px){.camera-live-view{grid-template-rows:auto minmax(0,1fr) 52px}.camera-thumbnails img{display:none}.camera-thumbnails button{grid-template-rows:1fr 1fr}}
-@media(max-width:700px){body[data-touch=on][data-camera-view=cameras] main{grid-template-rows:minmax(180px,42%) minmax(0,1fr)}.camera-live-view{grid-template-rows:auto minmax(0,1fr) 52px}.camera-thumbnails img{display:none}}
+#camera-cards {
+  display: grid;
+  gap: 20px;
+  margin-top: 16px;
+}
+.camera-card {
+  border: 1px solid var(--border, #35404c);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+.camera-card h3 {
+  margin-top: 0;
+}
+.camera-card img {
+  display: block;
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4/3;
+  object-fit: contain;
+  background: #10151b;
+  border-radius: 6px;
+}
+.camera-card img[hidden] {
+  display: none;
+}
+.camera-control {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(70px, 110px) auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.camera-control small {
+  grid-column: 1/-1;
+}
+.camera-control input,
+.camera-control select {
+  width: 100%;
+  min-width: 0;
+}
+.preview-view-choice {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preview-view-choice[hidden],
+.camera-live-view[hidden],
+.camera-live-view img[hidden] {
+  display: none;
+}
+.preview-view-choice button {
+  min-height: 44px;
+  background: #101113ed;
+}
+.preview-view-choice button[aria-pressed='true'],
+.camera-thumbnails button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: #17385a;
+}
+.camera-live-view {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) 94px;
+  gap: 8px;
+  padding: 64px 10px 10px;
+  background: #0b0c0e;
+}
+.camera-live-heading {
+  min-width: 0;
+}
+.camera-live-heading p {
+  margin: 3px 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.camera-focus {
+  position: relative;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #15191e;
+}
+.camera-focus > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+#camera-focus-placeholder {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.camera-focus-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: #0b0c0ee8;
+  font-size: 12px;
+}
+.camera-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 0;
+}
+.camera-thumbnails button {
+  min-width: 0;
+  padding: 4px !important;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 2px;
+  text-align: left;
+  overflow: hidden;
+}
+.camera-thumbnails img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  min-height: 0;
+}
+.camera-thumbnails b {
+  font-size: 12px;
+}
+.camera-thumbnails span {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.camera-thumbnails button[data-fresh='true'] span {
+  color: var(--good);
+}
+body[data-camera-view='cameras'] .model-toolbar {
+  display: none;
+}
+body[data-camera-view='cameras'] #model-view {
+  display: none;
+}
+body[data-camera-view='model'] .preview-view-choice:not([hidden]) ~ .model-toolbar {
+  top: 68px;
+}
+body[data-touch='on'] .preview-view-choice button {
+  font-size: 14px;
+  padding: 8px;
+  min-width: 0;
+}
+body[data-touch='on'][data-camera-view='cameras'][data-tab='settings'] {
+  --aside: min(48vw, 520px);
+}
+@media (max-width: 1100px) {
+  body[data-touch='on'][data-camera-view='cameras'] header .brand small {
+    display: none;
+  }
+}
+@media (max-height: 600px) {
+  .camera-live-view {
+    grid-template-rows: auto minmax(0, 1fr) 72px;
+    gap: 5px;
+  }
+  .camera-live-heading .eyebrow {
+    display: none;
+  }
+  .camera-focus-caption {
+    padding: 4px;
+    font-size: 11px;
+  }
+}
+@media (max-height: 540px) {
+  .camera-live-view {
+    grid-template-rows: auto minmax(0, 1fr) 52px;
+  }
+  .camera-thumbnails img {
+    display: none;
+  }
+  .camera-thumbnails button {
+    grid-template-rows: 1fr 1fr;
+  }
+}
+@media (max-width: 700px) {
+  body[data-touch='on'][data-camera-view='cameras'] main {
+    grid-template-rows: minmax(180px, 42%) minmax(0, 1fr);
+  }
+  .camera-live-view {
+    grid-template-rows: auto minmax(0, 1fr) 52px;
+  }
+  .camera-thumbnails img {
+    display: none;
+  }
+}
 
 /* In Model view the Cameras/Model bar has its own strip: the 3D view starts below it instead of under it, and the bar
    only takes clicks on its buttons. */
-.preview-view-choice{right:auto;pointer-events:none}.preview-view-choice>*{pointer-events:auto}
-body[data-camera-view=model] .preview-view-choice:not([hidden])~#model-view{height:calc(100% - 60px);margin-top:60px}
+.preview-view-choice {
+  right: auto;
+  pointer-events: none;
+}
+.preview-view-choice > * {
+  pointer-events: auto;
+}
+body[data-camera-view='model'] .preview-view-choice:not([hidden]) ~ #model-view {
+  height: calc(100% - 60px);
+  margin-top: 60px;
+}
 
 /* Teleop on a wide screen: the three cameras stacked in a column on the left, the model beside them (between the
    cameras and the controls). The column keeps clear of the session controls along the bottom. */
 /* The column is as wide as three 4:3 pictures that fill the height allow (header, padding and gaps: ~98 px), so the
    pictures, not the letterbox, grow; the model keeps at least 64 % of the view's width. Stacked, there is no pause
    button or heading: each caption says its camera's state, and Retry shows over the column only after a failure. */
-body{--camera-column:clamp(260px,calc((100vh - 98px) * 4 / 9 + 20px),36vw)}
-body[data-camera-view=stacked] .camera-live-view{right:auto;width:var(--camera-column);grid-template-rows:minmax(0,1fr);
-  gap:6px;padding:8px 10px 10px}
-body[data-camera-view=stacked] .camera-live-heading{display:none}
+body {
+  --camera-column: clamp(260px, calc((100vh - 98px) * 4 / 9 + 20px), 36vw);
+}
+body[data-camera-view='stacked'] .camera-live-view {
+  right: auto;
+  width: var(--camera-column);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+body[data-camera-view='stacked'] .camera-live-heading {
+  display: none;
+}
 /* Captions over the pictures: each picture takes its whole tile. */
-body[data-camera-view=stacked] .camera-thumbnails{gap:8px}
-body[data-camera-view=stacked] .camera-thumbnails button{position:relative;display:block;padding:0!important}
-body[data-camera-view=stacked] .camera-thumbnails img{position:absolute;inset:0}
-body[data-camera-view=stacked] .camera-thumbnails :is(b,span){position:absolute;bottom:0;padding:3px 8px;max-width:60%}
-body[data-camera-view=stacked] .camera-thumbnails b{left:0}body[data-camera-view=stacked] .camera-thumbnails span{right:0}
+body[data-camera-view='stacked'] .camera-thumbnails {
+  gap: 8px;
+}
+body[data-camera-view='stacked'] .camera-thumbnails button {
+  position: relative;
+  display: block;
+  padding: 0 !important;
+}
+body[data-camera-view='stacked'] .camera-thumbnails img {
+  position: absolute;
+  inset: 0;
+}
+body[data-camera-view='stacked'] .camera-thumbnails :is(b, span) {
+  position: absolute;
+  bottom: 0;
+  padding: 3px 8px;
+  max-width: 60%;
+}
+body[data-camera-view='stacked'] .camera-thumbnails b {
+  left: 0;
+}
+body[data-camera-view='stacked'] .camera-thumbnails span {
+  right: 0;
+}
 /* The session controls start right of the camera column (Teleop stacked, Replay) instead of covering its bottom. */
-body.has-controls:is([data-camera-view=stacked],[data-tab=replay]) .global-controls{left:calc(var(--camera-column) + 12px);
-  flex-wrap:wrap}
-body[data-camera-view=stacked] .camera-thumbnails :is(b,span){background:rgba(10,12,15,.85)}
-body[data-camera-view=stacked] .camera-thumbnails b{color:var(--text)}
-body[data-camera-view=stacked] .camera-focus{display:none}
-body[data-camera-view=stacked] .camera-thumbnails{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,minmax(0,1fr))}
-body[data-camera-view=stacked] #model-view{width:calc(100% - var(--camera-column));margin-left:var(--camera-column)}
-body[data-camera-view=stacked] .camera-thumbnails button[aria-pressed=true]{border-color:#3a3f46;background:#1f2226}
+body.has-controls:is([data-camera-view='stacked'], [data-tab='replay']) .global-controls {
+  left: calc(var(--camera-column) + 12px);
+  flex-wrap: wrap;
+}
+body[data-camera-view='stacked'] .camera-thumbnails :is(b, span) {
+  background: rgba(10, 12, 15, 0.85);
+}
+body[data-camera-view='stacked'] .camera-thumbnails b {
+  color: var(--text);
+}
+body[data-camera-view='stacked'] .camera-focus {
+  display: none;
+}
+body[data-camera-view='stacked'] .camera-thumbnails {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+}
+body[data-camera-view='stacked'] #model-view {
+  width: calc(100% - var(--camera-column));
+  margin-left: var(--camera-column);
+}
+body[data-camera-view='stacked'] .camera-thumbnails button[aria-pressed='true'] {
+  border-color: #3a3f46;
+  background: #1f2226;
+}

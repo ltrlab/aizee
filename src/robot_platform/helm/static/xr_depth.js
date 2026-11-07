@@ -8,38 +8,45 @@
 // at its rig's origin, looking down -Z; the rig goes where the head camera saw from (world-locked, below) or where
 // the eyes are (xr_scene.js).
 import * as THREE from 'three';
-import {EDGE_SHARE} from './xr_fill.js';
+import { EDGE_SHARE } from './xr_fill.js';
 
-export {EDGE_SHARE};
+export { EDGE_SHARE };
 // The colour picture behind the depth, just past its 2.5 m range, in the colour camera's own view: where the depth
 // has no reading (too far, or behind something), the picture fills in (the user, 2026-10-31).
 export const BACKDROP_M = 3;
-export const FILL_SHADE = .75;  // A filled reading's colour, dimmed: guessed, not seen.
+export const FILL_SHADE = 0.75; // A filled reading's colour, dimmed: guessed, not seen.
 
 // The backdrop's corners in the rig's frame, with their texture coordinates: the colour picture's edges (pixel
 // centres at whole numbers) at `distance` ahead of the colour camera, which sits where the registration puts it.
 export function backdropCorners(colorK, toColor, distance = BACKDROP_M) {
   const [r, t] = [toColor.rotation, toColor.translation];
   const [w, h] = [colorK.width, colorK.height];
-  return [[-.5, -.5], [w - .5, -.5], [w - .5, h - .5], [-.5, h - .5]].map(([u, v]) => {
-    const c = [(u - colorK.cx) / colorK.fx * distance, (v - colorK.cy) / colorK.fy * distance, distance];
-    const d = [0, 1, 2].map(j => r[0][j] * (c[0] - t[0]) + r[1][j] * (c[1] - t[1]) + r[2][j] * (c[2] - t[2]));
-    return {position: [d[0], -d[1], -d[2]], uv: [(u + .5) / w, (v + .5) / h]};  // Depth optical: p = R^T (c - t).
+  return [
+    [-0.5, -0.5],
+    [w - 0.5, -0.5],
+    [w - 0.5, h - 0.5],
+    [-0.5, h - 0.5],
+  ].map(([u, v]) => {
+    const c = [((u - colorK.cx) / colorK.fx) * distance, ((v - colorK.cy) / colorK.fy) * distance, distance];
+    const d = [0, 1, 2].map((j) => r[0][j] * (c[0] - t[0]) + r[1][j] * (c[1] - t[1]) + r[2][j] * (c[2] - t[2]));
+    return { position: [d[0], -d[1], -d[2]], uv: [(u + 0.5) / w, (v + 0.5) / h] }; // Depth optical: p = R^T (c - t).
   });
 }
 
 // A reading's point in the rig's frame (x right, y up, -z ahead): the vertex shader's placement, for the tests.
 export function depthPoint(u, v, z, k) {
-  return [(u - k.cx) / k.fx * z, -(v - k.cy) / k.fy * z, -z];
+  return [((u - k.cx) / k.fx) * z, (-(v - k.cy) / k.fy) * z, -z];
 }
 
 // Where a point of the depth sensor's optical frame (x right, y down, z ahead) lands in the color picture, as a
 // texture coordinate (0 to 1, the top row at 0): the vertex shader's colouring, for the tests.
 export function colorUv([x, y, z], colorK, toColor) {
   const [r, t] = [toColor.rotation, toColor.translation];
-  const c = [0, 1, 2].map(i => r[i][0] * x + r[i][1] * y + r[i][2] * z + t[i]);
-  return [(colorK.fx * c[0] / c[2] + colorK.cx + .5) / colorK.width,
-    (colorK.fy * c[1] / c[2] + colorK.cy + .5) / colorK.height];
+  const c = [0, 1, 2].map((i) => r[i][0] * x + r[i][1] * y + r[i][2] * z + t[i]);
+  return [
+    ((colorK.fx * c[0]) / c[2] + colorK.cx + 0.5) / colorK.width,
+    ((colorK.fy * c[1]) / c[2] + colorK.cy + 0.5) / colorK.height,
+  ];
 }
 
 // World-locked: the 3D picture where the head camera saw it in the room, from the head's measured pose at each
@@ -51,9 +58,12 @@ const FLIP = new THREE.Matrix4().makeScale(1, -1, -1);
 const UNIT = new THREE.Vector3(1, 1, 1);
 
 // The eyes' pose at the zero: where they were, turned to Helm's zero (its yaw and pitch, no roll).
-export function zeroAnchor(eye, {yaw, pitch}, target = new THREE.Matrix4()) {
-  return target.compose(new THREE.Vector3().copy(eye),
-    new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')), UNIT);
+export function zeroAnchor(eye, { yaw, pitch }, target = new THREE.Matrix4()) {
+  return target.compose(
+    new THREE.Vector3().copy(eye),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')),
+    UNIT,
+  );
 }
 
 // A pose [x, y, z, qx, qy, qz, qw] (neck.head_pose.pose7) as a matrix.
@@ -72,8 +82,26 @@ export function depthRig(world, pose, toColor, target = new THREE.Matrix4()) {
   target.copy(world).multiply(poseMatrix(pose));
   if (toColor) {
     const [r, t] = [toColor.rotation, toColor.translation];
-    target.multiply(new THREE.Matrix4().set(r[0][0], r[0][1], r[0][2], t[0], r[1][0], r[1][1], r[1][2], t[1],
-      r[2][0], r[2][1], r[2][2], t[2], 0, 0, 0, 1));
+    target.multiply(
+      new THREE.Matrix4().set(
+        r[0][0],
+        r[0][1],
+        r[0][2],
+        t[0],
+        r[1][0],
+        r[1][1],
+        r[1][2],
+        t[1],
+        r[2][0],
+        r[2][1],
+        r[2][2],
+        t[2],
+        0,
+        0,
+        0,
+        1,
+      ),
+    );
   }
   return target.multiply(FLIP);
 }
@@ -166,13 +194,25 @@ void main() {
 function layerMaterial() {
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      depthMap: {value: null}, sourceMap: {value: null}, depthK: {value: new THREE.Vector4(1, 1, 0, 0)},
-      depthScale: {value: .001},
-      colorMap: {value: null}, colorK: {value: new THREE.Vector4(1, 1, 0, 0)}, colorSize: {value: new THREE.Vector2(1, 1)},
-      toColorR: {value: new THREE.Matrix3()}, toColorT: {value: new THREE.Vector3()}, registered: {value: 0},
-      edgeShare: {value: EDGE_SHARE}, opacity: {value: 1}, fillShade: {value: FILL_SHADE},
-      range: {value: new THREE.Vector2(.15, 2.5)}},
-    vertexShader: VERTEX, fragmentShader: FRAGMENT, side: THREE.DoubleSide});
+      depthMap: { value: null },
+      sourceMap: { value: null },
+      depthK: { value: new THREE.Vector4(1, 1, 0, 0) },
+      depthScale: { value: 0.001 },
+      colorMap: { value: null },
+      colorK: { value: new THREE.Vector4(1, 1, 0, 0) },
+      colorSize: { value: new THREE.Vector2(1, 1) },
+      toColorR: { value: new THREE.Matrix3() },
+      toColorT: { value: new THREE.Vector3() },
+      registered: { value: 0 },
+      edgeShare: { value: EDGE_SHARE },
+      opacity: { value: 1 },
+      fillShade: { value: FILL_SHADE },
+      range: { value: new THREE.Vector2(0.15, 2.5) },
+    },
+    vertexShader: VERTEX,
+    fragmentShader: FRAGMENT,
+    side: THREE.DoubleSide,
+  });
   material.toneMapped = false;
   return material;
 }
@@ -188,7 +228,7 @@ export class DepthView {
     this.material = layerMaterial();
     this.behindMaterial = layerMaterial();
     this.materials = [this.material, this.behindMaterial];
-    this.backdropMaterial = new THREE.MeshBasicMaterial({side: THREE.DoubleSide, toneMapped: false});
+    this.backdropMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false });
     const backdrop = new THREE.BufferGeometry();
     backdrop.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
     backdrop.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(8), 2));
@@ -196,17 +236,17 @@ export class DepthView {
     this.backdrop = new THREE.Mesh(backdrop, this.backdropMaterial);
     this.backdrop.frustumCulled = false;
     this.backdrop.visible = false;
-    this.backdrop.renderOrder = -2;  // Farthest first, as a see-through picture needs.
+    this.backdrop.renderOrder = -2; // Farthest first, as a see-through picture needs.
     this.backdropKey = null;
     this.rig.add(this.backdrop);
-    this.filled = this.behindCount = 0;  // The pixels each fill gave a reading, in the last frame.
+    this.filled = this.behindCount = 0; // The pixels each fill gave a reading, in the last frame.
   }
 
   // The colour picture behind the depth, where the registration puts the colour camera (only with one).
   placeBackdrop(colorK, toColor, colorTexture) {
     const key = JSON.stringify([colorK, toColor]);
     if (key !== this.backdropKey) {
-      const {position, uv} = this.backdrop.geometry.attributes;
+      const { position, uv } = this.backdrop.geometry.attributes;
       backdropCorners(colorK, toColor).forEach((corner, i) => {
         position.setXYZ(i, ...corner.position);
         uv.setXY(i, ...corner.uv);
@@ -233,7 +273,10 @@ export class DepthView {
     const indices = new Uint32Array((width - 1) * (height - 1) * 6);
     for (let v = 0, i = 0; v < height - 1; v++) {
       for (let u = 0; u < width - 1; u++, i += 6) {
-        const a = v * width + u, b = a + 1, c = a + width, d = c + 1;
+        const a = v * width + u,
+          b = a + 1,
+          c = a + width,
+          d = c + 1;
         indices.set([a, c, b, b, c, d], i);
       }
     }
@@ -246,12 +289,17 @@ export class DepthView {
     }
     for (const texture of Object.values(this.textures || {})) texture.dispose();
     const layer = () => {
-      const texture = new THREE.DataTexture(new Float32Array(width * height * 2), width, height, THREE.RGFormat,
-        THREE.FloatType);
+      const texture = new THREE.DataTexture(
+        new Float32Array(width * height * 2),
+        width,
+        height,
+        THREE.RGFormat,
+        THREE.FloatType,
+      );
       texture.minFilter = texture.magFilter = THREE.NearestFilter;
       return texture;
     };
-    this.textures = {foreground: layer(), background: layer()};
+    this.textures = { foreground: layer(), background: layer() };
     this.material.uniforms.depthMap.value = this.textures.foreground;
     this.behindMaterial.uniforms.depthMap.value = this.textures.background;
     for (const material of this.materials) material.uniforms.sourceMap.value = this.textures.foreground;
@@ -259,7 +307,7 @@ export class DepthView {
     this.behind = new THREE.Mesh(geometry, this.behindMaterial);
     this.behind.renderOrder = -1;
     for (const mesh of [this.mesh, this.behind]) {
-      mesh.frustumCulled = false;  // Its positions are pixels until the shader places them.
+      mesh.frustumCulled = false; // Its positions are pixels until the shader places them.
       this.rig.add(mesh);
     }
     this.size = [width, height];
@@ -274,19 +322,21 @@ export class DepthView {
     }
     this.filled = layers.filled || 0;
     this.behindCount = layers.behind || 0;
-    const k = meta.intrinsics, ck = meta.color_intrinsics, toColor = meta.to_color;
+    const k = meta.intrinsics,
+      ck = meta.color_intrinsics,
+      toColor = meta.to_color;
     const registered = ck && toColor && colorTexture ? 1 : 0;
     for (const material of this.materials) {
       const u = material.uniforms;
       u.depthK.value.set(k.fx, k.fy, k.cx, k.cy);
       u.depthScale.value = meta.scale;
-      u.range.value.set(...(meta.range_m || [.15, 2.5]));
+      u.range.value.set(...(meta.range_m || [0.15, 2.5]));
       u.colorMap.value = colorTexture;
       u.registered.value = registered;
       if (registered) {
         u.colorK.value.set(ck.fx, ck.fy, ck.cx, ck.cy);
         u.colorSize.value.set(ck.width, ck.height);
-        u.toColorR.value.set(...toColor.rotation.flat());  // Row by row; three keeps it column-major for the shader.
+        u.toColorR.value.set(...toColor.rotation.flat()); // Row by row; three keeps it column-major for the shader.
         u.toColorT.value.set(...toColor.translation);
       }
     }

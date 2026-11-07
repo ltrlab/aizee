@@ -7,6 +7,7 @@ with `python3 -c "$(cat grab_head_depth.py)"` on the Jetson (the Minerva termina
 and unpack the JSON into what scripts/sim/head_depth_check.py reads: depth_median.npy, depth_count.npy, depth_mad.npy,
 head.jpg and header.json.
 """
+
 import base64, json, time, zlib
 import msgpack, numpy as np, zmq
 
@@ -30,7 +31,7 @@ try:
         d = head['depth']
         raw = parts[names.index('depth') + 1]
         depth = np.frombuffer(raw, dtype='<u2').reshape(d['height'], d['width'])
-        if time.monotonic() - started < .3:
+        if time.monotonic() - started < 0.3:
             continue  # Skip anything queued before we joined.
         frames.append(depth.copy())
         header, jpeg = head, parts[names.index('color') + 1]
@@ -45,10 +46,13 @@ if frames:
     median = np.nanmedian(stack, axis=0)
     count = np.sum(np.isfinite(stack), axis=0).astype(np.uint8)
     mad = np.nanmedian(np.abs(stack - median[None]), axis=0)
-    median = np.nan_to_num(median, nan=0.).round().astype('<u2')
-    mad = np.nan_to_num(mad, nan=0.).clip(0, 65535).round().astype('<u2')
+    median = np.nan_to_num(median, nan=0.0).round().astype('<u2')
+    mad = np.nan_to_num(mad, nan=0.0).clip(0, 65535).round().astype('<u2')
     for name, array in (('median', median), ('count', count), ('mad', mad)):
-        result[name] = {'dtype': str(array.dtype), 'shape': list(array.shape),
-                        'zlib_base64': base64.b64encode(zlib.compress(array.tobytes(), 6)).decode()}
+        result[name] = {
+            'dtype': str(array.dtype),
+            'shape': list(array.shape),
+            'zlib_base64': base64.b64encode(zlib.compress(array.tobytes(), 6)).decode(),
+        }
     result['color_jpeg_base64'] = base64.b64encode(jpeg).decode()
 print(json.dumps(result))

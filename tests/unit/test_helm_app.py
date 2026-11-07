@@ -1,4 +1,5 @@
 """Helm session, web API and live link, without hardware."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -17,7 +18,7 @@ SEED = ROOT / 'docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json'
 
 class Clock:
     def __init__(self):
-        self.now = 1000.
+        self.now = 1000.0
 
     def __call__(self):
         return self.now
@@ -34,12 +35,24 @@ def helm(tmp_path):
 
 def frame(session, sequence, positions=None, stream='stream-1'):
     positions = positions or {}
-    return {'kind': 'positions', 'request_id': stream, 'sequence': sequence,
-            'asset_id': session.asset_id, 'scan_seconds': .28, 'roundtrip_seconds': .3,
-            'enable_requested': False, 'parameter_writes_requested': False,
-            'motors': [{**{k: m[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')},
-                        'position_rad': positions.get(m['name'], 0.), 'reset_confirmed': True}
-                       for m in session.reference['motors']]}
+    return {
+        'kind': 'positions',
+        'request_id': stream,
+        'sequence': sequence,
+        'asset_id': session.asset_id,
+        'scan_seconds': 0.28,
+        'roundtrip_seconds': 0.3,
+        'enable_requested': False,
+        'parameter_writes_requested': False,
+        'motors': [
+            {
+                **{k: m[k] for k in ('name', 'bus', 'id', 'uid', 'firmware')},
+                'position_rad': positions.get(m['name'], 0.0),
+                'reset_confirmed': True,
+            }
+            for m in session.reference['motors']
+        ],
+    }
 
 
 def sweep(session, motor, values, start=1):
@@ -68,6 +81,7 @@ def run_client(session, link, scenario):
     async def run():
         async with TestClient(TestServer(create_app(session, link, token='secret'))) as client:
             return await scenario(client)
+
     return asyncio.run(run())
 
 
@@ -84,23 +98,25 @@ def test_session_starts_disconnected_with_every_motor_and_seeded_directions(helm
 
 
 def test_live_frames_drive_the_model_and_record_limits(helm):
-    sweep(helm, 'left_arm_j2', [0., -.6, -.6, .9, .9])
+    sweep(helm, 'left_arm_j2', [0.0, -0.6, -0.6, 0.9, 0.9])
     guide = helm.guide()
-    assert guide['live'] and guide['positions']['left_arm_j2'] == pytest.approx(.9)
+    assert guide['live'] and guide['positions']['left_arm_j2'] == pytest.approx(0.9)
     row = next(r for r in helm.snapshot()['limits']['rows'] if r['name'] == 'left_arm_j2')
-    assert (row['min_rad'], row['max_rad']) == (pytest.approx(-.6), pytest.approx(.9))
+    assert (row['min_rad'], row['max_rad']) == (pytest.approx(-0.6), pytest.approx(0.9))
     assert (helm.evidence / 'frames.jsonl').read_text().count('\n') == 5
 
 
 def test_confirm_and_save_writes_a_persistent_bound_calibration(helm, tmp_path):
     helm.link_state('reading', 'live')
-    sweep(helm, 'left_arm_j2', [0., -.6, -.6, .9, .9])
+    sweep(helm, 'left_arm_j2', [0.0, -0.6, -0.6, 0.9, 0.9])
     helm.limits('confirm', 'left_arm_j2')
     result = helm.save_limits()
     saved = json.loads((tmp_path / 'limits.json').read_text())
-    assert result['joints'] == 1 and saved['joints']['left_arm_j2']['max_rad'] == pytest.approx(.9)
+    assert result['joints'] == 1 and saved['joints']['left_arm_j2']['max_rad'] == pytest.approx(0.9)
     assert saved['reference'] == helm.reference['id'] and saved['reference_sha256'] == helm.bindings['reference']
-    assert saved['joints']['left_arm_j2']['uid'] == next(m['uid'] for m in helm.reference['motors'] if m['name'] == 'left_arm_j2')
+    assert saved['joints']['left_arm_j2']['uid'] == next(
+        m['uid'] for m in helm.reference['motors'] if m['name'] == 'left_arm_j2'
+    )
     assert helm.snapshot()['limits']['pending'] == 0
     helm.close()
     reopened = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=tmp_path / 'limits.json')
@@ -112,7 +128,7 @@ def test_confirm_and_save_writes_a_persistent_bound_calibration(helm, tmp_path):
 
 
 def test_confirm_and_direction_edits_need_fresh_live_readings(helm):
-    sweep(helm, 'left_arm_j2', [0., -.6, -.6, .9, .9])
+    sweep(helm, 'left_arm_j2', [0.0, -0.6, -0.6, 0.9, 0.9])
     helm.test_clock.now += 5
     with pytest.raises(ValueError, match='connected'):
         helm.limits('confirm', 'left_arm_j2')
@@ -164,13 +180,16 @@ def test_web_api_requires_the_token_and_drives_the_same_session(helm):
         # allows only 0.45 s between the last frame and the request.
         await client.get('/api/calibration-guide')
         helm.link_state('reading', 'live')
-        sweep(helm, 'right_arm_j4', [0., -.4, -.4, .7, .7])
+        sweep(helm, 'right_arm_j4', [0.0, -0.4, -0.4, 0.7, 0.7])
         guide = await (await client.get('/api/calibration-guide')).json()
         assert guide['live'] and not guide['stale']
-        rejected = await client.post('/api/helm/limits', json={'action': 'confirm', 'motor': 'right_arm_j5'}, headers=headers)
+        rejected = await client.post(
+            '/api/helm/limits', json={'action': 'confirm', 'motor': 'right_arm_j5'}, headers=headers
+        )
         assert rejected.status == 422 and 'Swept range is only 0.000' in (await rejected.json())['error']
-        state = await (await client.post('/api/helm/limits', json={'action': 'confirm', 'motor': 'right_arm_j4'},
-                                         headers=headers)).json()
+        state = await (
+            await client.post('/api/helm/limits', json={'action': 'confirm', 'motor': 'right_arm_j4'}, headers=headers)
+        ).json()
         assert state['limits']['pending'] == 1
         saved = await client.post('/api/helm/limits/save', json={}, headers=headers)
         assert saved.status == 200 and (await saved.json())['limits']['saved_joints'] == 1
@@ -188,8 +207,10 @@ def test_the_connection_is_the_tether_until_wifi_is_chosen_and_the_reader_steps_
         headers = {'X-Helm-Token': 'secret'}
         state = await (await client.get('/api/helm/state')).json()
         assert state['robot']['connection'] == 'tether' and state['robot']['address'] == '10.42.0.1'
-        assert state['robot']['connections'] == [{'key': 'tether', 'address': '10.42.0.1'},
-                                                 {'key': 'wifi', 'address': wifi}]
+        assert state['robot']['connections'] == [
+            {'key': 'tether', 'address': '10.42.0.1'},
+            {'key': 'wifi', 'address': wifi},
+        ]
         state = await (await client.post('/api/helm/connection', json={'connection': 'wifi'}, headers=headers)).json()
         assert state['robot']['connection'] == 'wifi' and state['robot']['address'] == wifi and helm.address == wifi
         bad = await client.post('/api/helm/connection', json={'connection': 'bluetooth'}, headers=headers)
@@ -197,8 +218,7 @@ def test_the_connection_is_the_tether_until_wifi_is_chosen_and_the_reader_steps_
         await client.post('/api/helm/connect', json={}, headers=headers)
         assert link.running
         # The reader steps aside for the change (the live view starts it again over the tether).
-        state = await (await client.post('/api/helm/connection', json={'connection': 'tether'},
-                                         headers=headers)).json()
+        state = await (await client.post('/api/helm/connection', json={'connection': 'tether'}, headers=headers)).json()
         assert state['robot']['address'] == '10.42.0.1' and not link.running
 
     run_client(helm, link, scenario)
@@ -210,6 +230,7 @@ class FakeClient:
     Each step is a report, or (frames delivered first, report). A failed
     preflight delivers no frames; a mid-stream dropout delivers some first.
     """
+
     def __init__(self, session, reports, frames=2):
         self.session, self.reports, self.frames = session, list(reports), frames
         self.closed = False
@@ -235,9 +256,15 @@ class FakeClient:
 
 def cleanup(session, reason=None, **change):
     buses = {m['bus'] for m in session.reference['motors']}
-    report = {'success': True, 'asset_id': session.asset_id, 'identity_verified': True,
-              'enable_requested': False, 'parameter_writes_requested': False,
-              'after': {bus: {'flags': ['NOARP']} for bus in buses}, 'completion_reason': reason}
+    report = {
+        'success': True,
+        'asset_id': session.asset_id,
+        'identity_verified': True,
+        'enable_requested': False,
+        'parameter_writes_requested': False,
+        'after': {bus: {'flags': ['NOARP']} for bus in buses},
+        'completion_reason': reason,
+    }
     report.update(change)
     return report
 
@@ -254,7 +281,7 @@ def test_link_delivers_frames_and_disconnect_confirms_cleanup(helm):
     for _ in range(200):
         if helm.frame and helm.frame['sequence'] == 2:
             break
-        threading.Event().wait(.01)
+        threading.Event().wait(0.01)
     assert helm.feed['state'] == 'reading' and helm.frame['sequence'] == 2
     link.disconnect()
     assert helm.feed['state'] == 'disconnected' and client.closed
@@ -262,27 +289,39 @@ def test_link_delivers_frames_and_disconnect_confirms_cleanup(helm):
 
 
 def dropout(helm, *names, code='motors_unresponsive'):
-    return cleanup(helm, success=False, identity_verified=None, error_code=code, unresponsive=list(names),
-                   error='Not answering: ' + ', '.join(names))
+    return cleanup(
+        helm,
+        success=False,
+        identity_verified=None,
+        error_code=code,
+        unresponsive=list(names),
+        error='Not answering: ' + ', '.join(names),
+    )
 
 
-def wait_until(condition, timeout=5.):
-    for _ in range(int(timeout / .01)):
+def wait_until(condition, timeout=5.0):
+    for _ in range(int(timeout / 0.01)):
         if condition():
             return True
-        threading.Event().wait(.01)
+        threading.Event().wait(0.01)
     return False
 
 
 def test_link_waits_for_a_dropped_motor_and_resumes_when_it_answers(helm):
     # Mid-stream dropout, motor still off at the first retries, then back after a power cycle.
-    client = FakeClient(helm, [(3, dropout(helm, 'left_arm_j5', code='incomplete_scans')),
-                               (0, dropout(helm, 'left_arm_j5', 'left_arm_j6', 'left_gripper')),
-                               (0, dropout(helm, 'left_arm_j5')), (2, 'wait')])
+    client = FakeClient(
+        helm,
+        [
+            (3, dropout(helm, 'left_arm_j5', code='incomplete_scans')),
+            (0, dropout(helm, 'left_arm_j5', 'left_arm_j6', 'left_gripper')),
+            (0, dropout(helm, 'left_arm_j5')),
+            (2, 'wait'),
+        ],
+    )
     states = []
     original = helm.link_state
     helm.link_state = lambda state, message, **kw: (states.append((state, message)), original(state, message, **kw))
-    link = LiveLink(helm, lambda: client, retry_delays=(.01, .02))
+    link = LiveLink(helm, lambda: client, retry_delays=(0.01, 0.02))
     link.connect()
     assert wait_until(lambda: client.streams == 4 and helm.frame and helm.frame['request_id'] == 'stream-4')
     assert helm.feed['state'] == 'reading' and link.running
@@ -295,7 +334,7 @@ def test_link_waits_for_a_dropped_motor_and_resumes_when_it_answers(helm):
 
 def test_disconnect_while_waiting_stops_retrying(helm):
     client = FakeClient(helm, [(0, dropout(helm, 'left_arm_j5'))] * 50)
-    link = LiveLink(helm, lambda: client, retry_delays=(30.,))
+    link = LiveLink(helm, lambda: client, retry_delays=(30.0,))
     link.connect()
     assert wait_until(lambda: helm.feed['state'] == 'waiting')
     link.disconnect()
@@ -313,12 +352,14 @@ def test_link_renews_a_healthy_expiry(helm):
 
 @pytest.mark.parametrize('report', ['uid', 'cleanup', 'transport', 'unknown'])
 def test_link_stops_instead_of_retrying_anything_but_a_clean_dropout(helm, report):
-    step = {'uid': cleanup(helm, success=False, error='Motor UID mismatch: left_arm_j5'),
-            'cleanup': dropout(helm, 'left_arm_j5') | {'after': {'canL': {'flags': ['UP']}, 'canR': {'flags': []}}},
-            'transport': OSError('SSH channel closed'),
-            'unknown': {'success': False, 'error': 'Wrong host machine identity', 'enable_requested': False}}[report]
+    step = {
+        'uid': cleanup(helm, success=False, error='Motor UID mismatch: left_arm_j5'),
+        'cleanup': dropout(helm, 'left_arm_j5') | {'after': {'canL': {'flags': ['UP']}, 'canR': {'flags': []}}},
+        'transport': OSError('SSH channel closed'),
+        'unknown': {'success': False, 'error': 'Wrong host machine identity', 'enable_requested': False},
+    }[report]
     client = FakeClient(helm, [(0, step)])
-    link = LiveLink(helm, lambda: client, retry_delays=(.01,))
+    link = LiveLink(helm, lambda: client, retry_delays=(0.01,))
     link.connect()
     wait_for(link)
     assert client.streams == 1 and helm.feed['state'] == 'fault' and client.closed
@@ -329,14 +370,20 @@ def test_link_stops_instead_of_retrying_anything_but_a_clean_dropout(helm, repor
 def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live_readings(tmp_path):
     # The right arm rested with its shoulder swivel 1.22 rad and its wrist 0.58 rad off its reference (2026-09-30).
     from robot_platform.helm.tune import TuneSession
+
     clock = Clock()
-    helm = HelmSession(PROFILE, runs=tmp_path / 'runs', limits=ROOT / 'config/devices/minerva-production-01-joint-limits.json',
-                       seed=SEED, clock=clock)
+    helm = HelmSession(
+        PROFILE,
+        runs=tmp_path / 'runs',
+        limits=ROOT / 'config/devices/minerva-production-01-joint-limits.json',
+        seed=SEED,
+        clock=clock,
+    )
     tune = TuneSession(helm, ROOT / 'config/devices/minerva-teleop.json')
     started = []
     tune.start = lambda *, confirm=False: started.append((confirm, tune._bundle()))
     link = FakeLink()
-    resting = {'right_arm_j1': 1.22, 'right_arm_j6': .58}
+    resting = {'right_arm_j1': 1.22, 'right_arm_j6': 0.58}
 
     async def scenario(client):
         headers = {'X-Helm-Token': 'secret'}
@@ -349,7 +396,7 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         state = await (await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)).json()
         offer = state['tune']['return_offer']
         assert [row['motor'] for row in offer['joints'] if row['moves']] == ['right_arm_j1', 'right_arm_j6']
-        assert 1.22 / offer['speed'] < offer['seconds'] < (1.22 + .58) / offer['speed'] and not started
+        assert 1.22 / offer['speed'] < offer['seconds'] < (1.22 + 0.58) / offer['speed'] and not started
         # It moved after it was shown: nothing starts.
         helm.on_frame(frame(helm, 2, dict(resting, right_arm_j1=1.1)))
         moved = await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True}, headers=headers)
@@ -357,8 +404,9 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         assert not started and link.running
         # Shown again and confirmed as it reads: the reader disconnects, then the return starts from that pose.
         await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
-        state = await (await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True},
-                                         headers=headers)).json()
+        state = await (
+            await client.post('/api/helm/tune/return', json={'arm': 'right', 'confirm': True}, headers=headers)
+        ).json()
         assert link.calls == ['connect', 'disconnect'] and len(started) == 1
         confirm, bundle = started[0]
         assert confirm and bundle['mode'] == 'return' and bundle['arm'] == 'right'
@@ -373,13 +421,17 @@ def test_an_arm_returns_to_its_reference_only_from_a_pose_confirmed_against_live
         # A reading outside its swept range is not moved from.
         helm.on_frame(frame(helm, 4, {'right_arm_j5': 6.2}))
         outside = await client.post('/api/helm/tune/return', json={'arm': 'right'}, headers=headers)
-        assert outside.status == 422 and 'Right wrist J5 reads +6.20 rad, outside its swept' in (await outside.json())['error']
+        assert (
+            outside.status == 422
+            and 'Right wrist J5 reads +6.20 rad, outside its swept' in (await outside.json())['error']
+        )
 
     from aiohttp.test_utils import TestClient, TestServer
 
     async def run():
         async with TestClient(TestServer(create_app(helm, link, tune=tune, token='secret'))) as client:
             return await scenario(client)
+
     try:
         asyncio.run(run())
     finally:

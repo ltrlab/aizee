@@ -13,21 +13,27 @@
 // picture back in front. It all starts in front of where the session began: WebXR's 'local' space has the head at its
 // origin, looking down -Z. The ring and the alert draw over the 3D picture, which surrounds them.
 import * as THREE from 'three';
-import {DepthView, depthRig, robotToWorld, zeroAnchor} from './xr_depth.js';
-import {WristScreens} from './xr_wrists.js';
-import {RobotModel} from './xr_model.js';
-import {SplatMap} from './xr_splat.js';
-import {SIZES, drawAlert, drawCard, drawPlaceholder, drawRing} from './xr_panels.js';
-import {FOLLOW_OFFSET, SLIDERS, SWITCHES, loadView, lookAngles, offsetOf, opacityStep, saveView} from './xr_view.js';
+import { DepthView, depthRig, robotToWorld, zeroAnchor } from './xr_depth.js';
+import { WristScreens } from './xr_wrists.js';
+import { RobotModel } from './xr_model.js';
+import { SplatMap } from './xr_splat.js';
+import { SIZES, drawAlert, drawCard, drawPlaceholder, drawRing } from './xr_panels.js';
+import { FOLLOW_OFFSET, SLIDERS, SWITCHES, loadView, lookAngles, offsetOf, opacityStep, saveView } from './xr_view.js';
 
-const SCREEN_W = 1.12, SCREEN_H = 0.84;
+const SCREEN_W = 1.12,
+  SCREEN_H = 0.84;
 // The ring: this wide, this far ahead and this far below where the eyes look as it opens; it stays there while open.
 // About 36 degrees across, as at first (0.36 m at 0.55 m), a little farther off to focus on. Its card, as wide, sits
 // just over it.
-export const RING_W = .46, RING_AHEAD_M = .7, RING_BELOW = 20 * Math.PI / 180;
-export const CARD_H = RING_W * SIZES.card[1] / SIZES.card[0], CARD_GAP_M = .015;
+export const RING_W = 0.46,
+  RING_AHEAD_M = 0.7,
+  RING_BELOW = (20 * Math.PI) / 180;
+export const CARD_H = (RING_W * SIZES.card[1]) / SIZES.card[0],
+  CARD_GAP_M = 0.015;
 // The alert: low in view, following the eyes; about 38 degrees across.
-export const ALERT_W = .62, ALERT_AHEAD_M = .9, ALERT_BELOW = 24 * Math.PI / 180;
+export const ALERT_W = 0.62,
+  ALERT_AHEAD_M = 0.9,
+  ALERT_BELOW = (24 * Math.PI) / 180;
 
 function drawable([width, height]) {
   const canvas = document.createElement('canvas');
@@ -35,13 +41,15 @@ function drawable([width, height]) {
   canvas.height = height;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  return {canvas, context: canvas.getContext('2d'), texture};
+  return { canvas, context: canvas.getContext('2d'), texture };
 }
 
 // A screen of text: drawn over the 3D picture around it (never hidden inside it).
 function panelMesh(width, height, texture) {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide, depthTest: false}));
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide, depthTest: false }),
+  );
   mesh.renderOrder = 3;
   mesh.visible = false;
   return mesh;
@@ -51,15 +59,17 @@ export class HeadsetScene {
   // `storage`: where the picture's view is remembered (the headset browser's localStorage), or null. `onDepth` and
   // `onHands`: called with the 3D and Wrists switches' new states (xr.js asks Helm for the depth, or the wrist
   // cameras, then). `robot`: Minerva's model (xr_model.js), `map`: her splat map (xr_splat.js); tests pass their own.
-  constructor(renderer, {storage = null, onDepth = () => {}, onHands = () => {}, robot = new RobotModel(),
-    map = new SplatMap()} = {}) {
+  constructor(
+    renderer,
+    { storage = null, onDepth = () => {}, onHands = () => {}, robot = new RobotModel(), map = new SplatMap() } = {},
+  ) {
     this.renderer = renderer;
     this.storage = storage;
     this.onDepth = onDepth;
     this.onHands = onHands;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(70, 1, .05, 50);  // WebXR's own cameras replace it while presenting.
-    this.eye = new THREE.Vector3();  // This frame's eye position and look (yaw, pitch; no roll).
+    this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 50); // WebXR's own cameras replace it while presenting.
+    this.eye = new THREE.Vector3(); // This frame's eye position and look (yaw, pitch; no roll).
     this.look = new THREE.Quaternion();
     this.looked = false;
     this.euler = new THREE.Euler();
@@ -72,11 +82,11 @@ export class HeadsetScene {
     this.placeholder = drawable(SIZES.picture);
     this.video = new THREE.Texture();
     this.video.colorSpace = THREE.SRGBColorSpace;
-    this.video.flipY = false;  // ImageBitmaps upload top row first: the screen's UVs are flipped instead.
+    this.video.flipY = false; // ImageBitmaps upload top row first: the screen's UVs are flipped instead.
     const picture = new THREE.PlaneGeometry(SCREEN_W, SCREEN_H);
     const uv = picture.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
-    this.screenMaterial = new THREE.MeshBasicMaterial({map: this.placeholder.texture, side: THREE.DoubleSide});
+    this.screenMaterial = new THREE.MeshBasicMaterial({ map: this.placeholder.texture, side: THREE.DoubleSide });
     this.placeholder.texture.flipY = false;
     this.screen = new THREE.Group();
     this.picture = new THREE.Mesh(picture, this.screenMaterial);
@@ -95,7 +105,7 @@ export class HeadsetScene {
     this.ring.add(this.card);
     this.cardDrawn = null;
     this.alertCanvas = drawable(SIZES.alert);
-    this.alert = panelMesh(ALERT_W, ALERT_W * SIZES.alert[1] / SIZES.alert[0], this.alertCanvas.texture);
+    this.alert = panelMesh(ALERT_W, (ALERT_W * SIZES.alert[1]) / SIZES.alert[0], this.alertCanvas.texture);
     this.alertDrawn = null;
     this.scene.add(this.ring, this.alert);
 
@@ -105,10 +115,10 @@ export class HeadsetScene {
     this.scene.add(this.depth.rig);
     // World-locked, from Helm's zero for the head (the yaw and pitch the operator looked at as they zeroed it) and
     // where the eyes were then (`anchor`, taken at the next frame after a zero), and each depth frame's head pose.
-    this.zero = {yaw: 0, pitch: 0};
+    this.zero = { yaw: 0, pitch: 0 };
     this.anchor = null;
     this.anchorPending = true;
-    this.depthHead = null;  // The last depth frame's head pose (camera_video_worker), null without a session.
+    this.depthHead = null; // The last depth frame's head pose (camera_video_worker), null without a session.
     this.depthToColor = null;
     this.worldLocked = false;
     this.world = new THREE.Matrix4();
@@ -129,16 +139,16 @@ export class HeadsetScene {
   }
 
   place() {
-    this.screen.position.set(0, -.08, -1.45);
+    this.screen.position.set(0, -0.08, -1.45);
     this.screen.lookAt(0, 0, 0);
   }
 
   // A ring item for the view (xr_session.ringMenu's View level): a switch toggled, a slider's value (saved once it
   // is let go: `done`), or the picture recentred. False for an item that is not the view's.
-  choose({id, value, done}) {
+  choose({ id, value, done }) {
     const [kind, name] = id.split(':');
     if (kind === 'view' && SWITCHES.includes(name)) {
-      const set = {follow: 'setFollow', depth: 'setDepth', model: 'setModel', hands: 'setHands', map: 'setMap'}[name];
+      const set = { follow: 'setFollow', depth: 'setDepth', model: 'setModel', hands: 'setHands', map: 'setMap' }[name];
       this[set](!this.view[name]);
     } else if (kind === 'slider' && SLIDERS.includes(name)) {
       this.setSlider(name, value);
@@ -152,7 +162,7 @@ export class HeadsetScene {
   }
 
   setFollow(follow) {
-    this.view.follow = follow;  // Off, it stays where it is now; on, it goes in front of the eyes at the next frame.
+    this.view.follow = follow; // Off, it stays where it is now; on, it goes in front of the eyes at the next frame.
     this.applyView();
     this.save();
   }
@@ -205,7 +215,7 @@ export class HeadsetScene {
   }
 
   save() {
-    saveView(this.storage, {...this.view, offset: this.followOffset.toArray()});
+    saveView(this.storage, { ...this.view, offset: this.followOffset.toArray() });
   }
 
   // Following: where the picture sits in front of the eyes (in the frame of their yaw and pitch), turned to face them.
@@ -235,7 +245,7 @@ export class HeadsetScene {
     this.robot.setOpacity(this.view.opacity);
     this.map.setOpacity(this.view.opacity);
     this.wrists.setOpacity(this.view.wristOpacity);
-    const depth = this.view.depth && this.depthFramed;  // Until the first depth comes, the flat picture stays.
+    const depth = this.view.depth && this.depthFramed; // Until the first depth comes, the flat picture stays.
     this.picture.visible = !depth;
     this.depth.rig.visible = depth;
     this.wrists.group.visible = this.view.hands;
@@ -243,7 +253,7 @@ export class HeadsetScene {
   }
 
   // A frame's depth ({meta, layers}, xr_camera.js) with the picture it came with (showFrame, just before).
-  showDepth({meta, layers}) {
+  showDepth({ meta, layers }) {
     this.depth.show(meta, layers, this.video);
     this.depthHead = meta.head || null;
     this.depthToColor = meta.to_color || null;
@@ -257,15 +267,19 @@ export class HeadsetScene {
   // The 3D picture for the status (xr_status.panelRows): whether it shows, whether it is world-locked, and how near
   // its frame's head pose came to the frame's capture.
   get depthState() {
-    return {on: this.view.depth, shown: this.view.depth && this.depthFramed, locked: this.worldLocked,
-      skew_ms: this.depthHead?.skew_ms ?? null};
+    return {
+      on: this.view.depth,
+      shown: this.view.depth && this.depthFramed,
+      locked: this.worldLocked,
+      skew_ms: this.depthHead?.skew_ms ?? null,
+    };
   }
 
   // Helm's zero for the head (its status replies): a new one anchors the 3D at the eyes of the next frame.
   setZero(zero) {
     if (!zero || !Number.isFinite(zero.yaw) || !Number.isFinite(zero.pitch)) return;
     if (zero.yaw === this.zero.yaw && zero.pitch === this.zero.pitch) return;
-    this.zero = {yaw: zero.yaw, pitch: zero.pitch};
+    this.zero = { yaw: zero.yaw, pitch: zero.pitch };
     this.anchorPending = true;
   }
 
@@ -280,8 +294,11 @@ export class HeadsetScene {
     this.worldLocked = !!(this.depthHead && this.anchor);
     if (this.worldLocked) {
       robotToWorld(this.anchor, this.depthHead.zero, this.world);
-      depthRig(this.world, this.depthHead.pose, this.depthToColor, this.rigPose)
-        .decompose(this.depth.rig.position, this.depth.rig.quaternion, this.depth.rig.scale);
+      depthRig(this.world, this.depthHead.pose, this.depthToColor, this.rigPose).decompose(
+        this.depth.rig.position,
+        this.depth.rig.quaternion,
+        this.depth.rig.scale,
+      );
     }
     this.placeRobot();
   }
@@ -292,7 +309,11 @@ export class HeadsetScene {
   placeRobot() {
     const locked = this.view.depth && this.depthFramed && this.worldLocked;
     const wanted = (this.view.model || this.view.hands) && locked;
-    if (wanted && !this.robot.model) this.robot.load().then(() => this.placeRobot(), () => {});
+    if (wanted && !this.robot.model)
+      this.robot.load().then(
+        () => this.placeRobot(),
+        () => {},
+      );
     this.robot.place(wanted ? this.world : null, this.view.model);
     this.robot.track(wanted && !!this.robot.model);
     this.map.show(this.view.map);
@@ -305,7 +326,7 @@ export class HeadsetScene {
     if (!this.view.depth) return [false, 'Wrists show on the model with the 3D on'];
     if (!this.worldLocked) return [false, 'Wrists show on the model once a session places it'];
     if (!this.robot.placed) return [false, 'Wrists: the model is loading'];
-    if (!Object.values(this.wrists.screens).some(screen => screen.mount)) return [false, 'Wrists: no camera mounts'];
+    if (!Object.values(this.wrists.screens).some((screen) => screen.mount)) return [false, 'Wrists: no camera mounts'];
     return [true, null];
   }
 
@@ -326,7 +347,7 @@ export class HeadsetScene {
 
   // This frame's eyes, from its viewer pose: where they are, and their look (yaw and pitch; no roll).
   see(pose) {
-    const {position, orientation} = pose.transform;
+    const { position, orientation } = pose.transform;
     const [yaw, pitch] = lookAngles([orientation.x, orientation.y, orientation.z, orientation.w]);
     this.look.setFromEuler(this.euler.set(pitch, yaw, 0, 'YXZ'));
     this.eye.set(position.x, position.y, position.z);
@@ -342,7 +363,10 @@ export class HeadsetScene {
 
   // `mesh` this far ahead of the eyes and this far below their look, facing them.
   inView(mesh, ahead, below) {
-    mesh.position.set(0, -Math.sin(below) * ahead, -Math.cos(below) * ahead).applyQuaternion(this.look).add(this.eye);
+    mesh.position
+      .set(0, -Math.sin(below) * ahead, -Math.cos(below) * ahead)
+      .applyQuaternion(this.look)
+      .add(this.eye);
     mesh.lookAt(this.eye);
     mesh.updateMatrixWorld(true);
   }
@@ -359,7 +383,8 @@ export class HeadsetScene {
       this.inView(this.ring, RING_AHEAD_M, RING_BELOW);
       this.ring.visible = true;
     }
-    const ring = JSON.stringify(drawing), card = JSON.stringify([drawing, status]);
+    const ring = JSON.stringify(drawing),
+      card = JSON.stringify([drawing, status]);
     if (ring !== this.ringDrawn) {
       this.ringDrawn = ring;
       drawRing(this.ringCanvas.context, drawing);
@@ -415,7 +440,7 @@ export class HeadsetScene {
       this.screenMaterial.map = this.video;
       this.screenMaterial.needsUpdate = true;
     }
-    previous?.close?.();  // An ImageBitmap's pixels go now, not at collection.
+    previous?.close?.(); // An ImageBitmap's pixels go now, not at collection.
   }
 
   // Whether the picture is current: a stale one dims.

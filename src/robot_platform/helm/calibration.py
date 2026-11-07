@@ -9,6 +9,7 @@ was read through (the digital twin's correction holds only for that reference, v
 in its own process (one BLAS thread, lowered priority) and keeps its result.json. Nothing here moves a motor or
 changes a camera setting.
 """
+
 import base64
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -23,7 +24,7 @@ import time
 from robot_platform.vision.board import load_board
 from robot_platform.vision.rig import DEFAULT_RIG, ROOT, load_rig
 
-SOLVE_TIMEOUT_S = 300.
+SOLVE_TIMEOUT_S = 300.0
 RECORDING = ('starting', 'recording', 'stopping', 'finishing')
 COVERAGE = (4, 3)  # The image grid (columns, rows) a camera's tag corners are counted over, as the solve reports it.
 MAX_REPLY = 1024 * 1024
@@ -31,7 +32,7 @@ MAX_REPLY = 1024 * 1024
 # the split, robot_platform.ops.cpu_partition) and the lower priority, as helm.episode_worker.background does. A
 # helper started over SSH could run on every CPU, the arms' loop's too: a map capture there stretched the loop's
 # cycles until an arm command expired (2026-11-01).
-BACKGROUND = '''
+BACKGROUND = """
 import json as _json, os as _os
 try:
     _os.sched_setaffinity(0, _json.load(open('/etc/minerva/cpu-partition.json'))['background'])
@@ -41,10 +42,10 @@ try:
     _os.nice(10)
 except Exception:
     pass
-'''
+"""
 
 
-def run_helper(request, *, timeout_s=15., script='calibration_still.py', python='python3', popen=subprocess.Popen):
+def run_helper(request, *, timeout_s=15.0, script='calibration_still.py', python='python3', popen=subprocess.Popen):
     """Run a robot helper's remote_main(request) (helm.calibration_still, or `script` beside it: helm.scene_capture)
     in the robot's python3, as a child of Helm on Minerva, off the arms' loop's CPUs; its result.
 
@@ -52,11 +53,22 @@ def run_helper(request, *, timeout_s=15., script='calibration_still.py', python=
     scope) runs on the loop's CPUs as well, and a still's logout stalled the arms' receiver until a command expired
     (2026-11-02, 10 ms after the session closed). The child starts as such a login started it: from the home folder,
     without Helm's PYTHONPATH."""
-    source = (Path(__file__).with_name(script).read_text(encoding='utf-8') + BACKGROUND
-              + '\nremote_main(' + repr(request) + ')\n')
+    source = (
+        Path(__file__).with_name(script).read_text(encoding='utf-8')
+        + BACKGROUND
+        + '\nremote_main('
+        + repr(request)
+        + ')\n'
+    )
     environment = {name: value for name, value in os.environ.items() if name not in ('PYTHONPATH', 'PYTHONHOME')}
-    process = popen([python, '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    cwd=os.path.expanduser('~'), env=environment)
+    process = popen(
+        [python, '-'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=os.path.expanduser('~'),
+        env=environment,
+    )
     try:
         stdout, stderr = process.communicate(source.encode('utf-8'), timeout=timeout_s)
     except subprocess.TimeoutExpired:
@@ -77,8 +89,18 @@ class CameraCalibration:
     """Call capture/solve from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
     `reference()` the arms' mechanical reference digest Helm's session binds."""
 
-    def __init__(self, *, teleop, root, reference=lambda: None, rig=DEFAULT_RIG, remote=None, solver=None,
-                 clock=time.time, sleep=time.sleep):
+    def __init__(
+        self,
+        *,
+        teleop,
+        root,
+        reference=lambda: None,
+        rig=DEFAULT_RIG,
+        remote=None,
+        solver=None,
+        clock=time.time,
+        sleep=time.sleep,
+    ):
         self.config = load_rig(rig)
         self.board = load_board(self.config['board'])
         self.teleop, self.reference = teleop, reference
@@ -103,8 +125,15 @@ class CameraCalibration:
 
     def _load(self, folder):
         self.run = folder
-        self.stills = [json.loads(line) for line in (folder / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
-                       if line.strip()] if (folder / 'stills.jsonl').is_file() else []
+        self.stills = (
+            [
+                json.loads(line)
+                for line in (folder / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            if (folder / 'stills.jsonl').is_file()
+            else []
+        )
         result = folder / 'result.json'
         self.result = _summary(json.loads(result.read_text(encoding='utf-8'))) if result.is_file() else None
 
@@ -145,14 +174,17 @@ class CameraCalibration:
             # The still's decoding shares the camera CPUs with the recorder, whose capture bound is 30 ms.
             raise ValueError('Stop the recording first: a calibration still would share its CPUs')
         arm = self.config['cameras'][role]['arm']
-        rows = [r for r in ((view.get('telemetry') or {}).get('rows') or [])
-                if str(r.get('joint', '')).startswith(f'{arm}_arm_j')]
+        rows = [
+            r
+            for r in ((view.get('telemetry') or {}).get('rows') or [])
+            if str(r.get('joint', '')).startswith(f'{arm}_arm_j')
+        ]
         if not rows:
             raise ValueError(f'The session reports no {arm} arm joints')
         if any(r.get('source') != 'measured' for r in rows):
             raise ValueError('Calibration stills need the real arms (a live receiver), not a virtual one')
         if any(r.get('stale') or r.get('position') is None for r in rows):
-            raise ValueError(f'The {arm} arm\'s joint readings are stale; capture again')
+            raise ValueError(f"The {arm} arm's joint readings are stale; capture again")
         return {r['joint']: float(r['position']) for r in rows}
 
     def capture(self, role):
@@ -178,16 +210,30 @@ class CameraCalibration:
         _check_still([first, before], still['still_rad'], 'before the frames')
         index = len(self.stills) + 1
         name = f'{index:03d}-{role}'
-        reply = self.remote({'operation': 'still', 'role': role, 'frames': still['frames'],
-                             'family': self.board.family, 'tags': sorted(self.board.tags),
-                             'path': str(self.run / 'images' / f'{name}.png')})
+        reply = self.remote(
+            {
+                'operation': 'still',
+                'role': role,
+                'frames': still['frames'],
+                'family': self.board.family,
+                'tags': sorted(self.board.tags),
+                'path': str(self.run / 'images' / f'{name}.png'),
+            }
+        )
         after = self._joints(role)
         moved = _check_still([first, before, after], still['still_rad'], 'while the frames were taken')
         thumbnail = reply.pop('thumbnail', None)
         captured_at = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
-        record = dict(name=name, camera=role, captured_at=captured_at,
-                      joints={k: (before[k] + after[k]) / 2 for k in sorted(before)}, moved_rad=moved,
-                      link=self.config['cameras'][role]['link'], reference_sha256=self.reference(), **reply)
+        record = dict(
+            name=name,
+            camera=role,
+            captured_at=captured_at,
+            joints={k: (before[k] + after[k]) / 2 for k in sorted(before)},
+            moved_rad=moved,
+            link=self.config['cameras'][role]['link'],
+            reference_sha256=self.reference(),
+            **reply,
+        )
         with open(self.run / 'stills.jsonl', 'a', encoding='utf-8') as file:
             file.write(json.dumps(record) + '\n')
         self.stills.append(record)
@@ -206,8 +252,7 @@ class CameraCalibration:
             if index is None:
                 raise ValueError(f'No {role} still to undo')
             removed = self.stills.pop(index)
-            (self.run / 'stills.jsonl').write_text(''.join(json.dumps(s) + '\n' for s in self.stills),
-                                                   encoding='utf-8')
+            (self.run / 'stills.jsonl').write_text(''.join(json.dumps(s) + '\n' for s in self.stills), encoding='utf-8')
             if self.last and self.last.get('name') == removed['name']:
                 self.last = self._thumbnail = None
             return self.snapshot()
@@ -243,18 +288,36 @@ class CameraCalibration:
     # -- state --------------------------------------------------------------------------------------------------
 
     def snapshot(self):
-        counts = {role: dict(stills=sum(1 for s in self.stills if s['camera'] == role),
-                             tagged=sum(1 for s in self.stills if s['camera'] == role and s.get('tags')))
-                  for role in self.config['cameras']}
+        counts = {
+            role: dict(
+                stills=sum(1 for s in self.stills if s['camera'] == role),
+                tagged=sum(1 for s in self.stills if s['camera'] == role and s.get('tags')),
+            )
+            for role in self.config['cameras']
+        }
         # For the page's guide: each still taken (when, and how many tags it saw), and where in each camera's image
         # its tags have been seen.
-        taken = [dict(name=s['name'], camera=s['camera'], tags=len(s.get('tags') or {}), at=s.get('captured_at'))
-                 for s in self.stills]
-        coverage = {role: _coverage([s for s in self.stills if s['camera'] == role], camera['size'])
-                    for role, camera in self.config['cameras'].items()}
-        return dict(run=self.run.name if self.run else None, counts=counts, busy=self.busy, solving=self.solving,
-                    error=self.error, last=self.last, result=self.result, cameras=list(self.config['cameras']),
-                    frames=self.config['still']['frames'], taken=taken, coverage=coverage)
+        taken = [
+            dict(name=s['name'], camera=s['camera'], tags=len(s.get('tags') or {}), at=s.get('captured_at'))
+            for s in self.stills
+        ]
+        coverage = {
+            role: _coverage([s for s in self.stills if s['camera'] == role], camera['size'])
+            for role, camera in self.config['cameras'].items()
+        }
+        return dict(
+            run=self.run.name if self.run else None,
+            counts=counts,
+            busy=self.busy,
+            solving=self.solving,
+            error=self.error,
+            last=self.last,
+            result=self.result,
+            cameras=list(self.config['cameras']),
+            frames=self.config['still']['frames'],
+            taken=taken,
+            coverage=coverage,
+        )
 
 
 def _coverage(stills, size):
@@ -285,12 +348,18 @@ def _still_summary(record):
     blacks = [p['black']['luma'] for p in light.values() if 'black' in p]
     ratios = [(p['white'].get('r_over_g'), p['white'].get('b_over_g')) for p in light.values() if 'white' in p]
     middle = lambda values: sorted(values)[len(values) // 2] if values else None  # noqa: E731
-    return dict(name=record['name'], camera=record['camera'], tags=sorted(int(t) for t in record.get('tags', {})),
-                others=record.get('others', []), moved_mrad=round(record['moved_rad'] * 1e3, 2),
-                white=middle(whites), black=middle(blacks),
-                r_over_g=middle([r for r, _ in ratios if r is not None]),
-                b_over_g=middle([b for _, b in ratios if b is not None]),
-                noise=(record.get('noise') or {}).get('luma_sigma_median'))
+    return dict(
+        name=record['name'],
+        camera=record['camera'],
+        tags=sorted(int(t) for t in record.get('tags', {})),
+        others=record.get('others', []),
+        moved_mrad=round(record['moved_rad'] * 1e3, 2),
+        white=middle(whites),
+        black=middle(blacks),
+        r_over_g=middle([r for r, _ in ratios if r is not None]),
+        b_over_g=middle([b for _, b in ratios if b is not None]),
+        noise=(record.get('noise') or {}).get('luma_sigma_median'),
+    )
 
 
 def _summary(result):
@@ -303,20 +372,32 @@ def _summary(result):
         cameras = {}
         for name, camera in report['cameras'].items():
             cross = (report.get('cross_validation') or {}).get('cameras', {}).get(name, {})
-            cameras[name] = dict(rms_px=camera['rms_px'], holdout_px=cross.get('rms_px'),
-                                 stills=len(camera['stills']), outliers=[s['name'] for s in camera['stills']
-                                                                        if s.get('outlier')],
-                                 focal=[camera['intrinsics']['fx'], camera['intrinsics']['fy']],
-                                 centre=[camera['intrinsics']['cx'], camera['intrinsics']['cy']],
-                                 distortion=camera['distortion'][:2],
-                                 mount_mm=[round(v * 1e3, 1) for v in camera['mount']['xyz_m']],
-                                 mount_rpy_deg=camera['mount']['rpy_deg'],
-                                 mount_sigma_mm=camera['mount'].get('sigma_xyz_mm'),
-                                 cells_seen=camera['coverage']['cells_seen'])
+            cameras[name] = dict(
+                rms_px=camera['rms_px'],
+                holdout_px=cross.get('rms_px'),
+                stills=len(camera['stills']),
+                outliers=[s['name'] for s in camera['stills'] if s.get('outlier')],
+                focal=[camera['intrinsics']['fx'], camera['intrinsics']['fy']],
+                centre=[camera['intrinsics']['cx'], camera['intrinsics']['cy']],
+                distortion=camera['distortion'][:2],
+                mount_mm=[round(v * 1e3, 1) for v in camera['mount']['xyz_m']],
+                mount_rpy_deg=camera['mount']['rpy_deg'],
+                mount_sigma_mm=camera['mount'].get('sigma_xyz_mm'),
+                cells_seen=camera['coverage']['cells_seen'],
+            )
         placement = report['board']['placement']
         difference = (report.get('per_camera_placement') or {}).get('difference')
-        models[key] = dict(cameras=cameras, board_mm=[round(v * 1e3, 1) for v in placement['xyz_m']],
-                           board_rpy_deg=placement['rpy_deg'], left_vs_right=difference,
-                           robot_in_board=report.get('robot_in_board'))
-    return dict(models=models, recommended=result.get('recommended'), solved_at=result.get('solved_at'),
-                link_check=result.get('link_check'), notes=result.get('notes', []))
+        models[key] = dict(
+            cameras=cameras,
+            board_mm=[round(v * 1e3, 1) for v in placement['xyz_m']],
+            board_rpy_deg=placement['rpy_deg'],
+            left_vs_right=difference,
+            robot_in_board=report.get('robot_in_board'),
+        )
+    return dict(
+        models=models,
+        recommended=result.get('recommended'),
+        solved_at=result.get('solved_at'),
+        link_check=result.get('link_check'),
+        notes=result.get('notes', []),
+    )

@@ -49,42 +49,42 @@ from python.training.jepa_model import ACTJEPAPolicy
 
 def load_policy(path: str, device: torch.device):
     ckpt = torch.load(path, map_location=device, weights_only=False)
-    config = dict(ckpt["config"])
-    stats = _stats_to_numpy(ckpt["dataset_stats"])
-    state_dict = ckpt["model_state_dict"]
+    config = dict(ckpt['config'])
+    stats = _stats_to_numpy(ckpt['dataset_stats'])
+    state_dict = ckpt['model_state_dict']
     kind = _detect_model_kind(config, state_dict)
 
-    num_joints = config.get("num_joints", 7)
-    state_mode = config.get("state_mode", "qpos_qcmd")
-    state_dim = config.get("state_dim", num_joints * _STATE_MODE_K.get(state_mode, 1))
-    config["num_joints"] = num_joints
-    config["state_mode"] = state_mode
-    config["state_dim"] = state_dim
-    config["action_mode"] = config.get("action_mode", "absolute")
+    num_joints = config.get('num_joints', 7)
+    state_mode = config.get('state_mode', 'qpos_qcmd')
+    state_dim = config.get('state_dim', num_joints * _STATE_MODE_K.get(state_mode, 1))
+    config['num_joints'] = num_joints
+    config['state_mode'] = state_mode
+    config['state_dim'] = state_dim
+    config['action_mode'] = config.get('action_mode', 'absolute')
 
     kwargs = dict(
-        chunk_size=config["chunk_size"],
-        d_model=config["d_model"],
-        dim_feedforward=config.get("dim_feedforward", 2048),
-        z_dim=config["z_dim"],
-        nhead=config["nhead"],
-        num_encoder_layers=config["num_encoder_layers"],
-        num_decoder_layers=config["num_decoder_layers"],
-        kl_weight=config.get("kl_weight", 10.0),
+        chunk_size=config['chunk_size'],
+        d_model=config['d_model'],
+        dim_feedforward=config.get('dim_feedforward', 2048),
+        z_dim=config['z_dim'],
+        nhead=config['nhead'],
+        num_encoder_layers=config['num_encoder_layers'],
+        num_decoder_layers=config['num_decoder_layers'],
+        kl_weight=config.get('kl_weight', 10.0),
         pretrained_encoder=False,
         num_joints=num_joints,
         state_dim=state_dim,
     )
-    if kind == "act_jepa":
+    if kind == 'act_jepa':
         policy = ACTJEPAPolicy(
             **kwargs,
-            predictor_layers=config.get("predictor_layers", 4),
-            predictor_heads=config.get("predictor_heads", 8),
-            predictor_ff=config.get("predictor_ff", 1024),
-            lambda_obs=config.get("lambda_obs", 0.5),
-            lambda_reg=config.get("lambda_reg", 0.05),
-            sigreg_slices=config.get("sigreg_slices", 1024),
-            sigreg_points=config.get("sigreg_points", 17),
+            predictor_layers=config.get('predictor_layers', 4),
+            predictor_heads=config.get('predictor_heads', 8),
+            predictor_ff=config.get('predictor_ff', 1024),
+            lambda_obs=config.get('lambda_obs', 0.5),
+            lambda_reg=config.get('lambda_reg', 0.05),
+            sigreg_slices=config.get('sigreg_slices', 1024),
+            sigreg_points=config.get('sigreg_points', 17),
         )
     else:
         policy = ACTPolicy(**kwargs)
@@ -94,26 +94,30 @@ def load_policy(path: str, device: torch.device):
 
 
 def replay_episode_mae(
-    policy: torch.nn.Module, stats: Dict, config: Dict, device: torch.device,
-    episode_path: Path, frames: int,
+    policy: torch.nn.Module,
+    stats: Dict,
+    config: Dict,
+    device: torch.device,
+    episode_path: Path,
+    frames: int,
 ) -> np.ndarray:
     """Return per-joint MAE [J] over `frames` evenly-spaced frames."""
-    state_mode = config["state_mode"]
-    action_mode = config["action_mode"]
-    chunk_size = config["chunk_size"]
+    state_mode = config['state_mode']
+    action_mode = config['action_mode']
+    chunk_size = config['chunk_size']
     errs: List[np.ndarray] = []
-    with h5py.File(episode_path, "r") as f:
-        T = f["observations/qpos"].shape[0]
+    with h5py.File(episode_path, 'r') as f:
+        T = f['observations/qpos'].shape[0]
         n = min(frames, max(1, T - chunk_size))
         idxs = np.linspace(0, T - chunk_size - 1, num=n, dtype=np.int64)
         for t in idxs:
-            qpos = f["observations/qpos"][t]
-            qcmd = f["observations/qcmd"][t] if "observations/qcmd" in f else None
-            torques = f["observations/torques"][t] if "observations/torques" in f else None
-            gripper = f["observations/images/gripper"][t]
-            gt_chunk = f["actions"][t:t + chunk_size]
+            qpos = f['observations/qpos'][t]
+            qcmd = f['observations/qcmd'][t] if 'observations/qcmd' in f else None
+            torques = f['observations/torques'][t] if 'observations/torques' in f else None
+            gripper = f['observations/images/gripper'][t]
+            gt_chunk = f['actions'][t : t + chunk_size]
 
-            qn = (qpos - stats["qpos_mean"]) / stats["qpos_std"]
+            qn = (qpos - stats['qpos_mean']) / stats['qpos_std']
             state_v = _build_state(qpos, qcmd, torques, stats, state_mode)
             qt = torch.from_numpy(qn).unsqueeze(0).to(device)
             st = torch.from_numpy(state_v).unsqueeze(0).to(device)
@@ -129,8 +133,8 @@ def parse_checkpoints(values: List[str]) -> List[Tuple[str, Path]]:
     """Parse name:path pairs; if no colon, derive name from filename stem."""
     out = []
     for v in values:
-        if ":" in v and not v[1:3] == ":\\":  # avoid eating Windows drive letters
-            name, p = v.split(":", 1)
+        if ':' in v and not v[1:3] == ':\\':  # avoid eating Windows drive letters
+            name, p = v.split(':', 1)
         else:
             p = v
             name = Path(v).parent.name or Path(v).stem
@@ -139,57 +143,60 @@ def parse_checkpoints(values: List[str]) -> List[Tuple[str, Path]]:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Compare ACT vs ACT-JEPA checkpoints")
-    p.add_argument("--data-dir", required=True)
-    p.add_argument("--checkpoint", "-c", action="append", required=True,
-                   help="name:path pair, may be passed multiple times")
-    p.add_argument("--episodes-cap", type=int, default=5,
-                   help="Number of episodes to evaluate (default 5).")
-    p.add_argument("--frames-per-episode", type=int, default=40)
-    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--csv", default=None, help="Optional CSV output path")
-    p.add_argument("--json", default=None, help="Optional JSON output path")
+    p = argparse.ArgumentParser(description='Compare ACT vs ACT-JEPA checkpoints')
+    p.add_argument('--data-dir', required=True)
+    p.add_argument(
+        '--checkpoint', '-c', action='append', required=True, help='name:path pair, may be passed multiple times'
+    )
+    p.add_argument('--episodes-cap', type=int, default=5, help='Number of episodes to evaluate (default 5).')
+    p.add_argument('--frames-per-episode', type=int, default=40)
+    p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+    p.add_argument('--csv', default=None, help='Optional CSV output path')
+    p.add_argument('--json', default=None, help='Optional JSON output path')
     args = p.parse_args()
 
     device = torch.device(args.device)
     pairs = parse_checkpoints(args.checkpoint)
-    paths = sorted(Path(args.data_dir).glob("episode_*.hdf5"))[: args.episodes_cap]
+    paths = sorted(Path(args.data_dir).glob('episode_*.hdf5'))[: args.episodes_cap]
     if not paths:
-        print(f"No episodes in {args.data_dir}", file=sys.stderr); sys.exit(1)
+        print(f'No episodes in {args.data_dir}', file=sys.stderr)
+        sys.exit(1)
 
-    print(f"Comparing {len(pairs)} checkpoint(s) on {len(paths)} episode(s) "
-          f"({args.frames_per_episode} frames each)  device={device}\n")
+    print(
+        f'Comparing {len(pairs)} checkpoint(s) on {len(paths)} episode(s) '
+        f'({args.frames_per_episode} frames each)  device={device}\n'
+    )
 
     results: Dict[str, np.ndarray] = {}
     J = None
     for name, path in pairs:
         if not path.exists():
-            print(f"[skip] {name}: {path} not found"); continue
+            print(f'[skip] {name}: {path} not found')
+            continue
         policy, stats, config, kind = load_policy(str(path), device)
-        J = config["num_joints"]
-        ep_errs = [replay_episode_mae(policy, stats, config, device, ep,
-                                      args.frames_per_episode) for ep in paths]
+        J = config['num_joints']
+        ep_errs = [replay_episode_mae(policy, stats, config, device, ep, args.frames_per_episode) for ep in paths]
         mae = np.stack(ep_errs).mean(axis=0)
         results[name] = mae
-        print(f"[done] {name}  kind={kind}  mean MAE={mae.mean():.4f}")
+        print(f'[done] {name}  kind={kind}  mean MAE={mae.mean():.4f}')
         del policy
-        if device.type == "cuda":
+        if device.type == 'cuda':
             torch.cuda.empty_cache()
 
     if not results:
         sys.exit(1)
 
     # Pretty table
-    print("\nPer-joint MAE (rad)")
-    print("-" * (12 + 12 * len(results)))
-    header = f"{'joint':<10}" + "".join(f"{name:>12}" for name in results)
+    print('\nPer-joint MAE (rad)')
+    print('-' * (12 + 12 * len(results)))
+    header = f'{"joint":<10}' + ''.join(f'{name:>12}' for name in results)
     print(header)
-    print("-" * (12 + 12 * len(results)))
+    print('-' * (12 + 12 * len(results)))
     for j in range(J):
-        row = f"j{j:<9}" + "".join(f"{results[name][j]:>12.4f}" for name in results)
+        row = f'j{j:<9}' + ''.join(f'{results[name][j]:>12.4f}' for name in results)
         print(row)
-    print("-" * (12 + 12 * len(results)))
-    row = f"{'mean':<10}" + "".join(f"{results[name].mean():>12.4f}" for name in results)
+    print('-' * (12 + 12 * len(results)))
+    row = f'{"mean":<10}' + ''.join(f'{results[name].mean():>12.4f}' for name in results)
     print(row)
 
     if len(results) >= 2:
@@ -198,23 +205,25 @@ def main():
         print(f"\nDelta vs '{names[0]}' (negative = better):")
         for nm in names[1:]:
             delta = results[nm] - base
-            print(f"  {nm}: mean delta = {delta.mean():+.4f} rad  "
-                  f"(per joint: [{', '.join(f'{d:+.3f}' for d in delta)}])")
+            print(
+                f'  {nm}: mean delta = {delta.mean():+.4f} rad  (per joint: [{", ".join(f"{d:+.3f}" for d in delta)}])'
+            )
 
     if args.csv:
         import csv
-        with open(args.csv, "w", newline="") as f:
+
+        with open(args.csv, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["joint"] + list(results.keys()))
+            w.writerow(['joint'] + list(results.keys()))
             for j in range(J):
-                w.writerow([f"j{j}"] + [f"{results[n][j]:.6f}" for n in results])
-            w.writerow(["mean"] + [f"{results[n].mean():.6f}" for n in results])
-        print(f"\nWrote CSV: {args.csv}")
+                w.writerow([f'j{j}'] + [f'{results[n][j]:.6f}' for n in results])
+            w.writerow(['mean'] + [f'{results[n].mean():.6f}' for n in results])
+        print(f'\nWrote CSV: {args.csv}')
     if args.json:
         out = {name: results[name].tolist() for name in results}
         Path(args.json).write_text(json.dumps(out, indent=2))
-        print(f"Wrote JSON: {args.json}")
+        print(f'Wrote JSON: {args.json}')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

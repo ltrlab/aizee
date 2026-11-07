@@ -8,6 +8,7 @@ harness run and log ``NaN`` before the rig exists (NullEncoder), then swap to a
 real serial encoder (e.g. an AS5048A read by an RP2040/Arduino) with no code
 change.
 """
+
 from __future__ import annotations
 
 import math
@@ -41,9 +42,11 @@ class SerialEncoder(ExternalEncoder):
     ``invert`` flips sign if the sensor turns opposite the joint.
     """
 
-    def __init__(self, port: str, baud: int = 921600, offset_rad: float = 0.0,
-                 invert: bool = False, timeout: float = 0.01) -> None:
+    def __init__(
+        self, port: str, baud: int = 921600, offset_rad: float = 0.0, invert: bool = False, timeout: float = 0.01
+    ) -> None:
         import serial  # lazy import; pyserial only needed on the bench machine
+
         self._ser = serial.Serial(port, baud, timeout=timeout)
         self.offset_rad = offset_rad
         self.sign = -1.0 if invert else 1.0
@@ -58,7 +61,7 @@ class SerialEncoder(ExternalEncoder):
             line = self._ser.readline()
         if line is None:
             line = self._ser.readline()
-        text = line.decode(errors="ignore").strip() if line else ""
+        text = line.decode(errors='ignore').strip() if line else ''
         if text:
             try:
                 self._last = self.sign * (float(text) - self.offset_rad)

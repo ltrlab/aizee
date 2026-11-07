@@ -25,6 +25,7 @@ These are unresolved protocol-scale conflicts, not evidence of saturation.
 Run robot-platform sim audit and verify installed firmware/captured frames
 before interpreting measurements. A verified bench profile is required for CAN.
 """
+
 from __future__ import annotations
 
 import math
@@ -32,8 +33,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 
 HOST_CAN_ID = 0xAA
-POS_MAX = 4.0 * math.pi          # ±4π rad, all models
-_EXT_ID_MASK = 0x1FFFFFFF        # 29-bit extended CAN id
+POS_MAX = 4.0 * math.pi  # ±4π rad, all models
+_EXT_ID_MASK = 0x1FFFFFFF  # 29-bit extended CAN id
 
 
 class MotorMsg(IntEnum):
@@ -66,26 +67,26 @@ class Param(IntEnum):
     LOC_REF = 0x7016
     LIMIT_SPD = 0x7017
     LIMIT_CUR = 0x7018
-    MECHPOS = 0x7019        # manual: load-side angle; confirm installed firmware/reference
-    IQF = 0x701A            # filtered iq (current) — proxy for the Kt fit
+    MECHPOS = 0x7019  # manual: load-side angle; confirm installed firmware/reference
+    IQF = 0x701A  # filtered iq (current) — proxy for the Kt fit
     MECHVEL = 0x701B
-    VBUS = 0x701C           # bus voltage (affects torque/speed headroom)
+    VBUS = 0x701C  # bus voltage (affects torque/speed headroom)
 
 
 @dataclass(frozen=True)
 class ModelScale:
     name: str
-    vel_max: float      # rad/s
-    torque_max: float   # Nm
+    vel_max: float  # rad/s
+    torque_max: float  # Nm
     kp_max: float
     kd_max: float
 
 
 MODELS: dict[str, ModelScale] = {
-    "RS04": ModelScale("RS04", 15.0, 120.0, 5000.0, 100.0),
-    "RS03": ModelScale("RS03", 50.0, 60.0, 5000.0, 100.0),
-    "RS02": ModelScale("RS02", 44.0, 17.0, 500.0, 5.0),
-    "RS00": ModelScale("RS00", 30.0, 2.0, 100.0, 5.0),
+    'RS04': ModelScale('RS04', 15.0, 120.0, 5000.0, 100.0),
+    'RS03': ModelScale('RS03', 50.0, 60.0, 5000.0, 100.0),
+    'RS02': ModelScale('RS02', 44.0, 17.0, 500.0, 5.0),
+    'RS00': ModelScale('RS00', 30.0, 2.0, 100.0, 5.0),
 }
 
 
@@ -104,8 +105,9 @@ def _enc_unsigned(value: float, vmax: float) -> int:
     return int(_clamp(u, 0.0, float(0xFFFF)))
 
 
-def build_control(model: str, motor_id: int, pos: float, vel: float,
-                  kp: float, kd: float, torque: float) -> tuple[int, bytes]:
+def build_control(
+    model: str, motor_id: int, pos: float, vel: float, kp: float, kd: float, torque: float
+) -> tuple[int, bytes]:
     """MIT control frame -> (extended arbitration_id, 8 data bytes).
     Mirrors robstride.rs::build_control_frame exactly."""
     m = MODELS[model]
@@ -115,27 +117,43 @@ def build_control(model: str, motor_id: int, pos: float, vel: float,
     kd_u = _enc_unsigned(kd, m.kd_max)
     tau_u = _enc_signed(torque, m.torque_max)
     arb = ((int(MotorMsg.CONTROL) << 24) | (tau_u << 8) | (motor_id & 0xFF)) & _EXT_ID_MASK
-    data = bytes((
-        (pos_u >> 8) & 0xFF, pos_u & 0xFF,
-        (vel_u >> 8) & 0xFF, vel_u & 0xFF,
-        (kp_u >> 8) & 0xFF, kp_u & 0xFF,
-        (kd_u >> 8) & 0xFF, kd_u & 0xFF,
-    ))
+    data = bytes(
+        (
+            (pos_u >> 8) & 0xFF,
+            pos_u & 0xFF,
+            (vel_u >> 8) & 0xFF,
+            vel_u & 0xFF,
+            (kp_u >> 8) & 0xFF,
+            kp_u & 0xFF,
+            (kd_u >> 8) & 0xFF,
+            kd_u & 0xFF,
+        )
+    )
     return arb, data
 
 
-def build_simple(motor_id: int, msg: MotorMsg, data: bytes = b"\x00" * 8) -> tuple[int, bytes]:
+def build_simple(motor_id: int, msg: MotorMsg, data: bytes = b'\x00' * 8) -> tuple[int, bytes]:
     """Enable / Disable / ZeroPos / SaveConfig — host id in bits 8..15
     (robstride.rs::build_arb_id)."""
     arb = ((int(msg) << 24) | (HOST_CAN_ID << 8) | (motor_id & 0xFF)) & _EXT_ID_MASK
-    data = (bytes(data) + b"\x00" * 8)[:8]
+    data = (bytes(data) + b'\x00' * 8)[:8]
     return arb, data
 
 
-def build_enable(motor_id: int):       return build_simple(motor_id, MotorMsg.ENABLE)
-def build_disable(motor_id: int):      return build_simple(motor_id, MotorMsg.DISABLE)
-def build_zero_pos(motor_id: int):     return build_simple(motor_id, MotorMsg.ZERO_POS, bytes((1, 0, 0, 0, 0, 0, 0, 0)))
-def build_save_config(motor_id: int):  return build_simple(motor_id, MotorMsg.SAVE_CONFIG)
+def build_enable(motor_id: int):
+    return build_simple(motor_id, MotorMsg.ENABLE)
+
+
+def build_disable(motor_id: int):
+    return build_simple(motor_id, MotorMsg.DISABLE)
+
+
+def build_zero_pos(motor_id: int):
+    return build_simple(motor_id, MotorMsg.ZERO_POS, bytes((1, 0, 0, 0, 0, 0, 0, 0)))
+
+
+def build_save_config(motor_id: int):
+    return build_simple(motor_id, MotorMsg.SAVE_CONFIG)
 
 
 def build_read_param(motor_id: int, param: int) -> tuple[int, bytes]:
@@ -148,15 +166,15 @@ def build_read_param(motor_id: int, param: int) -> tuple[int, bytes]:
 class Feedback:
     motor_id: int
     mode: MotorMode
-    position: float     # reported rad; physical reference must be verified per firmware
-    velocity: float     # rad/s
-    torque: float       # Nm (from current * Kt, i.e. what we validate externally)
+    position: float  # reported rad; physical reference must be verified per firmware
+    velocity: float  # rad/s
+    torque: float  # Nm (from current * Kt, i.e. what we validate externally)
     temperature: float  # °C
     error_bits: int
     received_at: float | None = None
     sequence: int = 0
     kernel_timestamp: float | None = None
-    raw_hex: str = ""
+    raw_hex: str = ''
 
 
 def is_feedback_frame(arb_id: int) -> bool:
@@ -166,7 +184,7 @@ def is_feedback_frame(arb_id: int) -> bool:
 def decode_feedback(arb_id: int, data: bytes, model: str) -> Feedback:
     """Type-2 feedback frame -> Feedback. Mirrors robstride.rs::parse_feedback."""
     if len(data) != 8:
-        raise ValueError(f"feedback needs 8 data bytes, got {len(data)}")
+        raise ValueError(f'feedback needs 8 data bytes, got {len(data)}')
     m = MODELS[model]
     motor_id = (arb_id >> 8) & 0xFF
     error_bits = (arb_id >> 16) & 0x3F

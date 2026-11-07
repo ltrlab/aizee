@@ -33,7 +33,7 @@ scp -i "$SSH_KEY" -q "$REPO_DIR/scripts/aizee-can-up" "$REPO_DIR/scripts/aizee-r
 {
     cat "$PASS_FILE"
     echo
-    cat << SUDO_CMDS
+    cat <<SUDO_CMDS
 set -e
 # CAN helpers (strip CRLF from the Windows checkout).
 for helper in aizee-can-up aizee-reset-usb-can aizee-can-reset; do

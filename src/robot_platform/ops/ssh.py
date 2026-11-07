@@ -4,6 +4,7 @@ The device profile names the address and machine id; the calibration profile's
 connection block names the user, key file (relative to that profile) and host
 key fingerprint. Nothing here runs a command with elevated privileges.
 """
+
 import base64
 import hashlib
 import json
@@ -35,11 +36,12 @@ def robot_identity(profile_path=DEFAULT_PROFILE):
     return device, plan['connection'], profile_path.parent
 
 
-def pinned(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8., key=None):
+def pinned(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.0, key=None):
     """An SSH client to the robot computer whose host key is the profile's (`key`: a private key file instead of the
     profile's). connect() also checks the machine id; a key restricted to one command (the GELLO bridge's relay)
     cannot, so its caller checks it another way (helm.bridge's welcome)."""
     import paramiko
+
     device, connection, directory = robot_identity(profile_path)
     expected = connection['host_key_sha256']
 
@@ -49,23 +51,32 @@ def pinned(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8., key=None
             if actual != expected:
                 raise paramiko.SSHException('SSH host fingerprint mismatch')
             client.get_host_keys().add(hostname, key.get_name(), key)
+
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(PinnedHost())
-    client.connect(address or device['address'], username=connection['username'],
-                   key_filename=str(Path(key).expanduser().resolve() if key else key_file(connection, directory)),
-                   look_for_keys=False, allow_agent=False, timeout=timeout, auth_timeout=timeout,
-                   banner_timeout=timeout)
+    client.connect(
+        address or device['address'],
+        username=connection['username'],
+        key_filename=str(Path(key).expanduser().resolve() if key else key_file(connection, directory)),
+        look_for_keys=False,
+        allow_agent=False,
+        timeout=timeout,
+        auth_timeout=timeout,
+        banner_timeout=timeout,
+    )
     return client
 
 
-def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
+def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.0):
     """An SSH client to the robot computer, refusing any other host or machine."""
     device, _connection, _directory = robot_identity(profile_path)
     client = pinned(profile_path, address=address, timeout=timeout)
     expired = threading.Event()
+
     def identity_expired():
         expired.set()
         client.close()  # Also interrupts subsystem negotiation before SFTP exposes its channel.
+
     watchdog = threading.Timer(timeout, identity_expired)
     watchdog.daemon = True
     watchdog.start()
@@ -91,8 +102,7 @@ def connect(profile_path=DEFAULT_PROFILE, *, address=TETHER, timeout=8.):
     return client
 
 
-
-def open_command(client, command, *, timeout=3.):
+def open_command(client, command, *, timeout=3.0):
     """Bound exec-request acknowledgment as well as channel-open/I/O timeouts.
 
     Paramiko's Channel._wait_for_event does not use its socket timeout. Closing
@@ -100,9 +110,11 @@ def open_command(client, command, *, timeout=3.):
     a channel. Only camera helpers use this wrapper; control transports are unchanged.
     """
     expired = threading.Event()
+
     def expire():
         expired.set()
         client.close()
+
     watchdog = threading.Timer(timeout, expire)
     watchdog.daemon = True
     watchdog.start()
@@ -120,7 +132,7 @@ def open_command(client, command, *, timeout=3.):
     return result
 
 
-def run(client, command, *, timeout=60., stdin=None):
+def run(client, command, *, timeout=60.0, stdin=None):
     """(exit status, stdout, stderr) of one remote command."""
     channel_in, out, err = client.exec_command(command, timeout=timeout)
     if stdin is not None:

@@ -7,6 +7,7 @@
 - penetrating: starts at the fixture's start and drives the left gripper down through the table.
   Must be ineligible (forbidden penetration).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,8 +25,10 @@ def fixture_model_coordinates(fixture):
     """{fixture joint name: (model joint, model coordinate per fixture unit)}: the fixture's own explicit map
     (arm joints are their model joints; a gripper value times the fixture-only scale is its slide)."""
     scale = fixture['gripper_test_scale_m_per_motor_rad']
-    return {name: (name, 1.) if 'arm' in name else (f"{name.split('_')[0]}_gripper_finger_a_slide", scale)
-            for name in fixture['joint_names']}
+    return {
+        name: (name, 1.0) if 'arm' in name else (f'{name.split("_")[0]}_gripper_finger_a_slide', scale)
+        for name in fixture['joint_names']
+    }
 
 
 def fixture_trajectory(joint_names, joint_map, fixture=None):
@@ -45,6 +48,7 @@ def fixture_trajectory(joint_names, joint_map, fixture=None):
 
     def motor(values):
         return np.array([(values[i] * unit - offset) / scale for i, unit, scale, offset in columns])
+
     waypoints = fixture['waypoints']
     q = motor(waypoints[0]['q'])
     rows = [q]
@@ -74,10 +78,13 @@ class FixtureReplayPolicy:
         return self.rows[index:]
 
     def describe(self):
-        return {'kind': 'open-loop replay', 'fixture': str(self.fixture),
-                'sha256': hashlib.sha256(self.fixture.read_bytes()).hexdigest(),
-                'rows': None if self.rows is None else len(self.rows),
-                'note': 'frozen offline IK; prepositioned start; no feedback'}
+        return {
+            'kind': 'open-loop replay',
+            'fixture': str(self.fixture),
+            'sha256': hashlib.sha256(self.fixture.read_bytes()).hexdigest(),
+            'rows': None if self.rows is None else len(self.rows),
+            'note': 'frozen offline IK; prepositioned start; no feedback',
+        }
 
 
 class HoldStillPolicy:
@@ -97,17 +104,20 @@ class HoldStillPolicy:
         return self.held[None, :]
 
     def describe(self):
-        return {'kind': 'hold the start pose', 'pose': 'receiver initial pose (arms hanging)' if self.pose is None
-                else self.pose.tolist()}
+        return {
+            'kind': 'hold the start pose',
+            'pose': 'receiver initial pose (arms hanging)' if self.pose is None else self.pose.tolist(),
+        }
 
 
 class PenetratingPolicy:
     """From the fixture's prepositioned start (gripper open just above the table), lower the left shoulder pitch
     (left_arm_j2) by `depth_rad` over `duration_s` and hold: the jaw pads go down into the table."""
-    name = 'penetrating'
-    action_dt = .05
 
-    def __init__(self, depth_rad=.3, duration_s=1., joint='left_arm_j2', fixture=FIXTURE):
+    name = 'penetrating'
+    action_dt = 0.05
+
+    def __init__(self, depth_rad=0.3, duration_s=1.0, joint='left_arm_j2', fixture=FIXTURE):
         self.depth_rad, self.duration_s, self.joint, self.fixture = depth_rad, duration_s, joint, Path(fixture)
         self.rows = None
 
@@ -127,8 +137,12 @@ class PenetratingPolicy:
         return self.rows[index:]
 
     def describe(self):
-        return {'kind': 'deliberate table penetration (negative control)', 'joint': self.joint,
-                'depth_rad': self.depth_rad, 'duration_s': self.duration_s}
+        return {
+            'kind': 'deliberate table penetration (negative control)',
+            'joint': self.joint,
+            'depth_rad': self.depth_rad,
+            'duration_s': self.duration_s,
+        }
 
 
 class MinervaCheckpointPolicy:
@@ -154,10 +168,13 @@ class MinervaCheckpointPolicy:
     ):
         import sys
         import torch
+
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
         from python.training.minerva_dataset import (
-            denormalize_actions, imagenet_normalize, normalize_actions,
+            denormalize_actions,
+            imagenet_normalize,
+            normalize_actions,
         )
         from python.training.minerva_model import MinervaPolicy
 
@@ -179,8 +196,7 @@ class MinervaCheckpointPolicy:
         cfg = ckpt['config']
         self.config = dict(cfg)
         self.stats = {
-            k: (np.asarray(v, dtype=np.float32) if isinstance(v, list) else v)
-            for k, v in ckpt['dataset_stats'].items()
+            k: (np.asarray(v, dtype=np.float32) if isinstance(v, list) else v) for k, v in ckpt['dataset_stats'].items()
         }
         self.num_joints = int(cfg['num_joints'])
         self.chunk_size = int(cfg['chunk_size'])
@@ -188,10 +204,7 @@ class MinervaCheckpointPolicy:
         self.action_mode = str(cfg['action_mode'])
         self.flow_steps = int(cfg.get('flow_steps', 8))
         self.camera_roles = tuple(cfg.get('cameras', ('left_wrist', 'right_wrist', 'head')))
-        self.image_shapes = {
-            c: tuple(int(x) for x in shape)
-            for c, shape in (cfg.get('image_shapes') or {}).items()
-        }
+        self.image_shapes = {c: tuple(int(x) for x in shape) for c, shape in (cfg.get('image_shapes') or {}).items()}
         self.ckpt_joint_names = tuple(cfg.get('joint_names') or ())
         self.action_dt = float(action_dt)
         self.execute_steps = int(execute_steps) if execute_steps is not None else max(1, self.chunk_size // 2)
@@ -227,19 +240,16 @@ class MinervaCheckpointPolicy:
         names = tuple(context.joint_names)
         if self.num_joints == len(names):
             if self.ckpt_joint_names and self.ckpt_joint_names != names:
-                raise ValueError(
-                    f'Checkpoint joint order {self.ckpt_joint_names} != plant joint order {names}'
-                )
+                raise ValueError(f'Checkpoint joint order {self.ckpt_joint_names} != plant joint order {names}')
             self._active_indices = np.arange(len(names), dtype=int)
         elif self.num_joints == 17 and len(names) == 14:
             from python.common.minerva_constants import MINERVA_JOINTS
+
             if tuple(MINERVA_JOINTS[:14]) != names:
                 raise ValueError(f'17-DoF checkpoint active prefix {MINERVA_JOINTS[:14]} != {names}')
             self._active_indices = np.arange(14, dtype=int)
         else:
-            raise ValueError(
-                f'Incompatible checkpoint num_joints={self.num_joints} for {len(names)}-axis plant'
-            )
+            raise ValueError(f'Incompatible checkpoint num_joints={self.num_joints} for {len(names)}-axis plant')
         self._prev_chunk = None
         self._gen.manual_seed(self.seed * 1000 + int(context.index))
 
@@ -252,6 +262,7 @@ class MinervaCheckpointPolicy:
 
     def _prepare_image(self, cam: str, img: np.ndarray) -> np.ndarray:
         from PIL import Image
+
         arr = np.asarray(img, dtype=np.uint8)
         target_shape = self.image_shapes.get(cam)
         if target_shape is not None and arr.shape[:2] != target_shape[:2]:
@@ -306,17 +317,23 @@ class MinervaCheckpointPolicy:
         state_t = torch.from_numpy(state.astype(np.float32)).unsqueeze(0).to(self.device)
 
         prefix_t = None
-        if (self.use_rtc and self._prev_chunk is not None
-                and 0 < self.execute_steps < self.chunk_size):
-            overlap = self._prev_chunk[self.execute_steps:]
+        if self.use_rtc and self._prev_chunk is not None and 0 < self.execute_steps < self.chunk_size:
+            overlap = self._prev_chunk[self.execute_steps :]
             if len(overlap) > 0:
                 overlap_n = self._normalize_actions(overlap, s, self.action_mode, qpos=q)
                 prefix_t = torch.from_numpy(overlap_n).unsqueeze(0).to(self.device)
 
-        chunk_n = self.model.select_action(
-            state_t, images_t, num_steps=self.flow_steps,
-            prefix_actions=prefix_t, generator=self._gen,
-        )[0].cpu().numpy()
+        chunk_n = (
+            self.model.select_action(
+                state_t,
+                images_t,
+                num_steps=self.flow_steps,
+                prefix_actions=prefix_t,
+                generator=self._gen,
+            )[0]
+            .cpu()
+            .numpy()
+        )
         chunk_full = self._denormalize_actions(chunk_n, s, self.action_mode, qpos=q)
         self._prev_chunk = chunk_full.copy()
 
@@ -347,11 +364,16 @@ class MinervaCheckpointPolicy:
 
 def _handoff_demonstrator():
     from .demonstrator import HandoffDemonstrator
+
     return HandoffDemonstrator()
 
 
-REFERENCE = {'fixture_replay': FixtureReplayPolicy, 'hold_still': HoldStillPolicy, 'penetrating': PenetratingPolicy,
-             'handoff_demonstrator': _handoff_demonstrator}
+REFERENCE = {
+    'fixture_replay': FixtureReplayPolicy,
+    'hold_still': HoldStillPolicy,
+    'penetrating': PenetratingPolicy,
+    'handoff_demonstrator': _handoff_demonstrator,
+}
 
 
 def load_policy(spec):
@@ -363,9 +385,11 @@ def load_policy(spec):
         return MinervaCheckpointPolicy(spec.partition(':')[2])
     if spec.startswith('lerobot:'):
         from robot_platform.data.lerobot_policy import ExportedPolicy
+
         return ExportedPolicy(Path(spec.partition(':')[2]).expanduser())
     module, sep, attribute = spec.partition(':')
     if not sep:
-        raise ValueError(f"policy is one of {sorted(REFERENCE)}, 'checkpoint:<path>', 'lerobot:<dir>', "
-                         "or 'module:factory'")
+        raise ValueError(
+            f"policy is one of {sorted(REFERENCE)}, 'checkpoint:<path>', 'lerobot:<dir>', or 'module:factory'"
+        )
     return getattr(importlib.import_module(module), attribute)()

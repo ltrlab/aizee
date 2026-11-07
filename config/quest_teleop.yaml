@@ -7,12 +7,13 @@ gripper_closed_rad: 0.785
 max_joint_vel: 4.0
 cartesian_max_vel_m_s: 0.6
 ik_pos_weight: 1.0
-ik_ori_weight: 1.0    # was 0.3.  At 0.3 the IK weighed position 3.3x more
-                      # than orientation; when a wrist twist required effort
-                      # from the wrist joints (limits / singularities) the
-                      # solver leaked the rotation into gantry_end because
-                      # the orientation residual was cheap.  Equal weight
-                      # forces the IK to honour rotation as much as position.
+ik_ori_weight:
+  1.0 # was 0.3.  At 0.3 the IK weighed position 3.3x more
+  # than orientation; when a wrist twist required effort
+  # from the wrist joints (limits / singularities) the
+  # solver leaked the rotation into gantry_end because
+  # the orientation residual was cheap.  Equal weight
+  # forces the IK to honour rotation as much as position.
 ik_damping: 0.05
 # ik_joint_weights left at default (all 1.0) — uniform damping.  A 4x
 # weight on the gantry stage was too aggressive: gantry joints are the

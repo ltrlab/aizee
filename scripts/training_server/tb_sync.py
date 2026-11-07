@@ -3,6 +3,7 @@ train/ and val/ loss scalars train_minerva writes when TensorBoard is on, plus s
 each new epoch once. Also writes a fixed comparison run from a JSON of per-epoch losses (v2 on the laptop).
 
     python tb_sync.py --run train-v3 [--compare v2.json] [--every 60]"""
+
 import argparse
 import json
 import os
@@ -15,7 +16,7 @@ ROOT = Path(os.environ.get('AIZEE_SIM', Path.home() / 'aizee-sim'))
 p = argparse.ArgumentParser()
 p.add_argument('--run', required=True)
 p.add_argument('--compare', type=Path)
-p.add_argument('--every', type=float, default=60.)
+p.add_argument('--every', type=float, default=60.0)
 a = p.parse_args()
 
 if a.compare:
@@ -45,9 +46,9 @@ while True:
             epoch, phase = r['epoch'], r['phase']
             for k, v in r['loss'].items():
                 writer.add_scalar(f'{phase}/{k}', v, epoch)
-            writer.add_scalar(f'timing/{phase}_s_per_step', r.get('s_per_step', 0.), epoch)
-            writer.add_scalar(f'timing/{phase}_epoch_minutes', r.get('wall_s', 0.) / 60, epoch)
+            writer.add_scalar(f'timing/{phase}_s_per_step', r.get('s_per_step', 0.0), epoch)
+            writer.add_scalar(f'timing/{phase}_epoch_minutes', r.get('wall_s', 0.0) / 60, epoch)
             if phase == 'train':
-                writer.add_scalar('gpu/max_allocated_gib', r.get('gpu_max_allocated_gib', 0.), epoch)
+                writer.add_scalar('gpu/max_allocated_gib', r.get('gpu_max_allocated_gib', 0.0), epoch)
             writer.flush()
     time.sleep(a.every)

@@ -1,4 +1,5 @@
 """Robot releases: allowlist build, manifest verification, activation and pruning."""
+
 import json
 import os
 import tarfile
@@ -19,8 +20,11 @@ def write_release(root, files, lock=None):
     for key, data in contents.items():
         (root / key).parent.mkdir(parents=True, exist_ok=True)
         (root / key).write_bytes(data)
-    manifest = {'id': 'x', 'files': {k: {'sha256': _sha(v), 'size': len(v)} for k, v in contents.items()},
-                'verified': {'assets_lock_sha256': _sha(lock)}}
+    manifest = {
+        'id': 'x',
+        'files': {k: {'sha256': _sha(v), 'size': len(v)} for k, v in contents.items()},
+        'verified': {'assets_lock_sha256': _sha(lock)},
+    }
     (root / MANIFEST).write_text(json.dumps(manifest))
     return manifest
 
@@ -71,13 +75,22 @@ def test_a_built_release_is_small_complete_and_verifiable(tmp_path):
     assert {'numpy', 'scipy', 'msgpack', 'zmq', 'h5py', 'PIL'} <= set(manifest['requires']['modules'])
     assert 'mujoco' not in manifest['requires']['modules']  # Task simulation runs on the host.
     keys = set(manifest['files'])
-    assert {'bin/guarded_controller', 'bin/control_harness', 'lib/librobot_collision.so', LOCK,
-            'config/devices/minerva-teleop.json', 'urdf/minerva/minerva.urdf',
-            # Helm on Minerva: its page, the 3D viewer and its dependency lock; never the CAD meshes.
-            'src/robot_platform/helm/static/index.html', 'src/robot_platform/helm/static/helm.js',
-            'src/robot_platform/viewer/static/vendor/three.module.js', 'requirements/helm-robot.lock',
-            # The buses' motor models, which Helm's direct tuning reads.
-            'config/hardware_minerva_left.yaml', 'config/hardware_minerva_right.yaml'} <= keys
+    assert {
+        'bin/guarded_controller',
+        'bin/control_harness',
+        'lib/librobot_collision.so',
+        LOCK,
+        'config/devices/minerva-teleop.json',
+        'urdf/minerva/minerva.urdf',
+        # Helm on Minerva: its page, the 3D viewer and its dependency lock; never the CAD meshes.
+        'src/robot_platform/helm/static/index.html',
+        'src/robot_platform/helm/static/helm.js',
+        'src/robot_platform/viewer/static/vendor/three.module.js',
+        'requirements/helm-robot.lock',
+        # The buses' motor models, which Helm's direct tuning reads.
+        'config/hardware_minerva_left.yaml',
+        'config/hardware_minerva_right.yaml',
+    } <= keys
     assert not any(key.endswith(('.stl', '.glb', '.gltf')) for key in keys)
     assert not any(key.endswith('.py') and '/static/' in key for key in keys)
     assert manifest['verified']['meshes'] > 0 and archive.stat().st_size < 10e6
@@ -95,7 +108,10 @@ def test_each_binary_is_only_as_stale_as_its_own_crate(tmp_path):
         (tmp_path / key).parent.mkdir(parents=True)
         (tmp_path / key).write_text('//')
         os.utime(tmp_path / key, (stamp, stamp))
-    files = {'bin/guarded_controller': tmp_path / 'guarded_controller', 'lib/librobot_collision.so': tmp_path / 'lib.so'}
+    files = {
+        'bin/guarded_controller': tmp_path / 'guarded_controller',
+        'lib/librobot_collision.so': tmp_path / 'lib.so',
+    }
     for path, stamp in zip(files.values(), (200, 75)):
         path.write_bytes(elf)
         os.utime(path, (stamp, stamp))

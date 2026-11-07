@@ -2277,7 +2277,14 @@ fn deferred_ramp_fixture() -> (Controller, Loopback) {
     (c, h)
 }
 
-fn move_deferred(c: &mut Controller, h: &mut Loopback, now: u64, sequence: u64, q: f64, v: f64) -> Reply {
+fn move_deferred(
+    c: &mut Controller,
+    h: &mut Loopback,
+    now: u64,
+    sequence: u64,
+    q: f64,
+    v: f64,
+) -> Reply {
     let offer = c.handle_deferred(now, Request::Offer, h).offer.unwrap().id;
     let checked = robot_control::collision::MotionEnvelope {
         offer,
@@ -2324,7 +2331,10 @@ fn a_stream_of_deferred_moves_keeps_its_velocity_through_every_handover() {
         let ((t0, q0, _), (t1, q1, v1)) = (pair[0], pair[1]);
         assert_eq!(v1, speed, "zero-velocity tick at {t1} ms: {driven:?}");
         let expected = speed * (t1 - t0) as f64 / 1000.0;
-        assert!((q1 - q0 - expected).abs() < 1e-9, "{t0}->{t1}: {q0} -> {q1}");
+        assert!(
+            (q1 - q0 - expected).abs() < 1e-9,
+            "{t0}->{t1}: {q0} -> {q1}"
+        );
     }
 }
 
@@ -2347,7 +2357,10 @@ fn a_deferred_move_that_is_not_followed_stops_at_its_target_once_its_ramp_has_ru
     assert_eq!(h.feedback[0].velocity, 0.0);
     assert!((h.feedback[0].position - 0.02).abs() < 1e-12);
     c.tick(tick_ms(20), &mut h);
-    assert_eq!((h.feedback[0].position, h.feedback[0].velocity), (0.02, 0.0));
+    assert_eq!(
+        (h.feedback[0].position, h.feedback[0].velocity),
+        (0.02, 0.0)
+    );
 }
 
 #[test]
@@ -2376,8 +2389,14 @@ fn a_command_a_tick_late_takes_over_without_the_joint_braking_or_passing_its_tar
     for pair in driven[1..].windows(2) {
         let ((_, q0, _, _), (t1, q1, v1, goal)) = (pair[0], pair[1]);
         assert_eq!(v1, speed, "braked at {t1} ms: {driven:?}");
-        assert!(q1 <= goal + 1e-12, "passed the target at {t1} ms: {q1} > {goal}");
-        assert!(q1 >= q0 - 1e-12 && q1 - q0 <= speed * 0.003 + 1e-12, "{t1} ms: {q0} -> {q1}");
+        assert!(
+            q1 <= goal + 1e-12,
+            "passed the target at {t1} ms: {q1} > {goal}"
+        );
+        assert!(
+            q1 >= q0 - 1e-12 && q1 - q0 <= speed * 0.003 + 1e-12,
+            "{t1} ms: {q0} -> {q1}"
+        );
     }
 }
 

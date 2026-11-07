@@ -4,6 +4,7 @@ CPU only.
 
 usage: python export_obs.py <training source root> <weights export.pt> <episode.hdf5> <out.pt>
 """
+
 import json
 import os
 import sys
@@ -20,12 +21,37 @@ blob = torch.load(sys.argv[2], map_location='cpu', weights_only=False)
 episode, out = Path(sys.argv[3]), sys.argv[4]
 cfg = blob['config']
 stats = {k: (np.asarray(v, dtype=np.float32) if isinstance(v, list) else v) for k, v in blob['dataset_stats'].items()}
-dataset = MinervaEpisodeDataset([episode], chunk_size=cfg['chunk_size'], state_mode=cfg['state_mode'],
-                                action_mode=cfg['action_mode'], dataset_stats=stats, allowed_authorities=('policy',))
+dataset = MinervaEpisodeDataset(
+    [episode],
+    chunk_size=cfg['chunk_size'],
+    state_mode=cfg['state_mode'],
+    action_mode=cfg['action_mode'],
+    dataset_stats=stats,
+    allowed_authorities=('policy',),
+)
 index = len(dataset) // 3
 obs, chunk = dataset[index]
-torch.save({'state': obs['state'], 'images': obs['images'], 'actions': chunk, 'episode': episode.name,
-            'index': index, 'frames': len(dataset)}, out)
-print(json.dumps({'episode': episode.name, 'index': index, 'frames': len(dataset), 'state': list(obs['state'].shape),
-                  'images': {k: list(v.shape) for k, v in obs['images'].items()}, 'actions': list(chunk.shape),
-                  'bytes': os.path.getsize(out)}))
+torch.save(
+    {
+        'state': obs['state'],
+        'images': obs['images'],
+        'actions': chunk,
+        'episode': episode.name,
+        'index': index,
+        'frames': len(dataset),
+    },
+    out,
+)
+print(
+    json.dumps(
+        {
+            'episode': episode.name,
+            'index': index,
+            'frames': len(dataset),
+            'state': list(obs['state'].shape),
+            'images': {k: list(v.shape) for k, v in obs['images'].items()},
+            'actions': list(chunk.shape),
+            'bytes': os.path.getsize(out),
+        }
+    )
+)

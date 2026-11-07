@@ -40,26 +40,26 @@ from robot_platform.robots import load_robot
 # Joint layout
 # ---------------------------------------------------------------------------
 
-_ROBOT_SPEC = load_robot("minerva")
-LEFT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups["left"][:-1])
-RIGHT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups["right"][:-1])
-HEAD_JOINTS: List[str] = list(_ROBOT_SPEC.groups["head"])
-LIFT_JOINTS: List[str] = list(_ROBOT_SPEC.groups["lift"])
+_ROBOT_SPEC = load_robot('minerva')
+LEFT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups['left'][:-1])
+RIGHT_ARM_JOINTS: List[str] = list(_ROBOT_SPEC.groups['right'][:-1])
+HEAD_JOINTS: List[str] = list(_ROBOT_SPEC.groups['head'])
+LIFT_JOINTS: List[str] = list(_ROBOT_SPEC.groups['lift'])
 
 # Full canonical order — this IS the policy action/qpos ordering.
 MINERVA_JOINTS: List[str] = list(_ROBOT_SPEC.joint_names)
-NUM_MINERVA_JOINTS: int = len(MINERVA_JOINTS)          # 17
+NUM_MINERVA_JOINTS: int = len(MINERVA_JOINTS)  # 17
 assert NUM_MINERVA_JOINTS == 17, MINERVA_JOINTS
 
 # Index slices into the 17-vector, by kinematic group. Handy for per-group
 # safety limits, gains, gripper handling, and logging.
 IDX: Dict[str, slice] = {
-    "left_arm":     slice(0, 6),
-    "left_gripper": slice(6, 7),
-    "right_arm":    slice(7, 13),
-    "right_gripper": slice(13, 14),
-    "head":         slice(14, 16),
-    "lift":         slice(16, 17),
+    'left_arm': slice(0, 6),
+    'left_gripper': slice(6, 7),
+    'right_arm': slice(7, 13),
+    'right_gripper': slice(13, 14),
+    'head': slice(14, 16),
+    'lift': slice(16, 17),
 }
 GRIPPER_INDICES: Tuple[int, int] = (6, 13)
 ARM_INDICES: List[int] = list(range(0, 6)) + list(range(7, 13))
@@ -73,26 +73,24 @@ LIFT_INDEX: int = 16
 # ---------------------------------------------------------------------------
 
 _ARM_LIMITS_6DOF: List[Tuple[float, float]] = [
-    (-3.141593,  3.141593),   # j1  (was: swivel)
-    (-1.750000,  0.000000),   # j2  (was: gantry_base)
-    ( 0.000000,  3.141593),   # j3  (was: gantry_mid)
-    (-1.000000,  2.199115),   # j4  (was: gantry_end)
-    (-0.785398,  0.785398),   # j5  (was: wrist_pitch)
-    (-1.000000,  1.000000),   # j6  (was: wrist_swivel)
+    (-3.141593, 3.141593),  # j1  (was: swivel)
+    (-1.750000, 0.000000),  # j2  (was: gantry_base)
+    (0.000000, 3.141593),  # j3  (was: gantry_mid)
+    (-1.000000, 2.199115),  # j4  (was: gantry_end)
+    (-0.785398, 0.785398),  # j5  (was: wrist_pitch)
+    (-1.000000, 1.000000),  # j6  (was: wrist_swivel)
 ]
-_GRIPPER_LIMITS: Tuple[float, float] = (0.0, 1.0)          # normalized closed..open
+_GRIPPER_LIMITS: Tuple[float, float] = (0.0, 1.0)  # normalized closed..open
 _HEAD_LIMITS: List[Tuple[float, float]] = [
-    (-1.570796, 1.570796),    # head_pan   PLACEHOLDER
-    (-0.785398, 0.785398),    # head_tilt  PLACEHOLDER
+    (-1.570796, 1.570796),  # head_pan   PLACEHOLDER
+    (-0.785398, 0.785398),  # head_tilt  PLACEHOLDER
 ]
-_LIFT_LIMITS: Tuple[float, float] = (0.0, 0.30)           # metres  PLACEHOLDER
+_LIFT_LIMITS: Tuple[float, float] = (0.0, 0.30)  # metres  PLACEHOLDER
 
 JOINT_LIMITS: np.ndarray = np.array(
-    _ARM_LIMITS_6DOF + [_GRIPPER_LIMITS]
-    + _ARM_LIMITS_6DOF + [_GRIPPER_LIMITS]
-    + _HEAD_LIMITS + [_LIFT_LIMITS],
+    _ARM_LIMITS_6DOF + [_GRIPPER_LIMITS] + _ARM_LIMITS_6DOF + [_GRIPPER_LIMITS] + _HEAD_LIMITS + [_LIFT_LIMITS],
     dtype=np.float32,
-)                                                          # [17, 2]
+)  # [17, 2]
 assert JOINT_LIMITS.shape == (NUM_MINERVA_JOINTS, 2)
 
 # ---------------------------------------------------------------------------
@@ -109,21 +107,13 @@ _ARM_KP_6DOF = [150.0, 220.0, 215.0, 50.0, 8.0, 3.0]
 # j1 kd 18->20 for a little extra margin at full extension; j3 stays 14. (Big kd hikes
 # are avoided — they cap velocity at ~motor_torque/kd, which is what made j1 sluggish
 # originally; the damping is bought mostly with the kp drop above instead.)
-_ARM_KD_6DOF = [20.0,  15.0,  14.0,  4.0,  1.0, 1.0]
+_ARM_KD_6DOF = [20.0, 15.0, 14.0, 4.0, 1.0, 1.0]
 _GRIPPER_KP, _GRIPPER_KD = 2.0, 1.0
-_HEAD_KP, _HEAD_KD = [8.0, 8.0], [1.0, 1.0]                # PLACEHOLDER
-_LIFT_KP, _LIFT_KD = 80.0, 5.0                            # PLACEHOLDER (holds torso weight)
+_HEAD_KP, _HEAD_KD = [8.0, 8.0], [1.0, 1.0]  # PLACEHOLDER
+_LIFT_KP, _LIFT_KD = 80.0, 5.0  # PLACEHOLDER (holds torso weight)
 
-KP: List[float] = (
-    _ARM_KP_6DOF + [_GRIPPER_KP]
-    + _ARM_KP_6DOF + [_GRIPPER_KP]
-    + _HEAD_KP + [_LIFT_KP]
-)
-KD: List[float] = (
-    _ARM_KD_6DOF + [_GRIPPER_KD]
-    + _ARM_KD_6DOF + [_GRIPPER_KD]
-    + _HEAD_KD + [_LIFT_KD]
-)
+KP: List[float] = _ARM_KP_6DOF + [_GRIPPER_KP] + _ARM_KP_6DOF + [_GRIPPER_KP] + _HEAD_KP + [_LIFT_KP]
+KD: List[float] = _ARM_KD_6DOF + [_GRIPPER_KD] + _ARM_KD_6DOF + [_GRIPPER_KD] + _HEAD_KD + [_LIFT_KD]
 assert len(KP) == len(KD) == NUM_MINERVA_JOINTS
 
 # Nominal per-joint saturation torque (Nm) — the conservative "safe" torque per
@@ -140,24 +130,22 @@ assert len(KP) == len(KD) == NUM_MINERVA_JOINTS
 # the wrist (coupling) or a per-joint gravity trim.
 _ARM_SAT_6DOF = [20.0, 24.0, 18.0, 8.0, 5.0, 0.5]
 _GRIPPER_SAT = 0.5
-_HEAD_SAT = [5.0, 5.0]     # PLACEHOLDER
-_LIFT_SAT = 40.0           # PLACEHOLDER (holds torso weight)
+_HEAD_SAT = [5.0, 5.0]  # PLACEHOLDER
+_LIFT_SAT = 40.0  # PLACEHOLDER (holds torso weight)
 SAT_TORQUE: np.ndarray = np.array(
-    _ARM_SAT_6DOF + [_GRIPPER_SAT]
-    + _ARM_SAT_6DOF + [_GRIPPER_SAT]
-    + _HEAD_SAT + [_LIFT_SAT],
+    _ARM_SAT_6DOF + [_GRIPPER_SAT] + _ARM_SAT_6DOF + [_GRIPPER_SAT] + _HEAD_SAT + [_LIFT_SAT],
     dtype=np.float32,
 )
 assert SAT_TORQUE.shape == (NUM_MINERVA_JOINTS,)
 
 # Per-step velocity guard (rad/step or m/step) for the deploy-time safety clamp.
 # Arms/grippers move fast; head + lift are deliberately slower.
-MAX_DELTA_ARM: float = 0.30       # rad/step  (~6 rad/s at 20 Hz)
-MAX_DELTA_GRIPPER: float = 0.50   # normalized/step
-MAX_DELTA_HEAD: float = 0.15      # rad/step
-MAX_DELTA_LIFT: float = 0.01      # m/step    (slow prismatic)
+MAX_DELTA_ARM: float = 0.30  # rad/step  (~6 rad/s at 20 Hz)
+MAX_DELTA_GRIPPER: float = 0.50  # normalized/step
+MAX_DELTA_HEAD: float = 0.15  # rad/step
+MAX_DELTA_LIFT: float = 0.01  # m/step    (slow prismatic)
 
-RECORD_HZ: int = 20               # control / record rate
+RECORD_HZ: int = 20  # control / record rate
 
 # ---------------------------------------------------------------------------
 # Gripper force-feedback (leader haptics)
@@ -177,25 +165,30 @@ RECORD_HZ: int = 20               # control / record rate
 #     (servo wiring + mount); GRIP_FF_SIGN is the default — flip it on the bench
 #     (the GUI's Invert toggle) if the feedback assists a squeeze instead of
 #     resisting it.
-GRIP_FF_GAIN_MA_PER_NM: float = 400.0   # leader mA per Nm of follower grasp torque
-GRIP_FF_DEADBAND_NM: float = 0.02       # ignore hold/friction torque below this (Nm)
-GRIP_FF_CAP_MA: int = 200               # max leader resist current = firmware hard cap (USB-power limited)
-GRIP_FF_SIGN: int = -1                  # +1/-1: current sign that OPENS the leader gripper
-GRIP_FF_SMOOTH: float = 0.4             # EMA factor on the output current (1=raw, →0 smoother)
+GRIP_FF_GAIN_MA_PER_NM: float = 400.0  # leader mA per Nm of follower grasp torque
+GRIP_FF_DEADBAND_NM: float = 0.02  # ignore hold/friction torque below this (Nm)
+GRIP_FF_CAP_MA: int = 200  # max leader resist current = firmware hard cap (USB-power limited)
+GRIP_FF_SIGN: int = -1  # +1/-1: current sign that OPENS the leader gripper
+GRIP_FF_SMOOTH: float = 0.4  # EMA factor on the output current (1=raw, →0 smoother)
 
 # Camera stream identities feeding the policy (order matters — used for the
 # learned camera-identity embedding in minerva_model.py).
 CAMERAS: List[str] = [camera.name for camera in _ROBOT_SPEC.cameras]
-WRIST_CAMERAS: List[str] = ["left_wrist", "right_wrist"]
-SCENE_CAMERA: str = "head"
+WRIST_CAMERAS: List[str] = ['left_wrist', 'right_wrist']
+SCENE_CAMERA: str = 'head'
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def max_delta_vector(arm: float = MAX_DELTA_ARM, gripper: float = MAX_DELTA_GRIPPER,
-                     head: float = MAX_DELTA_HEAD, lift: float = MAX_DELTA_LIFT) -> np.ndarray:
+
+def max_delta_vector(
+    arm: float = MAX_DELTA_ARM,
+    gripper: float = MAX_DELTA_GRIPPER,
+    head: float = MAX_DELTA_HEAD,
+    lift: float = MAX_DELTA_LIFT,
+) -> np.ndarray:
     """Per-joint per-step delta cap [17] for the velocity guard. Defaults to the
     module constants; pass overrides (e.g. from config/minerva.yaml `safety:`)."""
     v = np.full(NUM_MINERVA_JOINTS, arm, dtype=np.float32)
@@ -207,8 +200,7 @@ def max_delta_vector(arm: float = MAX_DELTA_ARM, gripper: float = MAX_DELTA_GRIP
     return v
 
 
-def lead_cap_vector(kp: Sequence[float], max_delta: np.ndarray,
-                    sat: Sequence[float] | None = None) -> np.ndarray:
+def lead_cap_vector(kp: Sequence[float], max_delta: np.ndarray, sat: Sequence[float] | None = None) -> np.ndarray:
     """Per-joint LEAD cap [17] = min(max_delta, SAT / kp): the largest command-minus-
     actual error whose PD torque (kp·lead) stays within the joint's saturation. Bounds
     engage + tracking torque — much tighter than the flat velocity guard on high-kp
@@ -297,13 +289,34 @@ def apply_safety_limits(
 
 
 __all__ = [
-    "MINERVA_JOINTS", "NUM_MINERVA_JOINTS", "IDX", "GRIPPER_INDICES",
-    "ARM_INDICES", "HEAD_INDICES", "LIFT_INDEX",
-    "JOINT_LIMITS", "KP", "KD", "SAT_TORQUE", "RECORD_HZ",
-    "CAMERAS", "WRIST_CAMERAS", "SCENE_CAMERA",
-    "MAX_DELTA_ARM", "MAX_DELTA_GRIPPER", "MAX_DELTA_HEAD", "MAX_DELTA_LIFT",
-    "GRIP_FF_GAIN_MA_PER_NM", "GRIP_FF_DEADBAND_NM", "GRIP_FF_CAP_MA",
-    "GRIP_FF_SIGN", "GRIP_FF_SMOOTH", "grip_ff_current",
-    "max_delta_vector", "lead_cap_vector", "build_qpos", "clamp_positions",
-    "apply_safety_limits",
+    'MINERVA_JOINTS',
+    'NUM_MINERVA_JOINTS',
+    'IDX',
+    'GRIPPER_INDICES',
+    'ARM_INDICES',
+    'HEAD_INDICES',
+    'LIFT_INDEX',
+    'JOINT_LIMITS',
+    'KP',
+    'KD',
+    'SAT_TORQUE',
+    'RECORD_HZ',
+    'CAMERAS',
+    'WRIST_CAMERAS',
+    'SCENE_CAMERA',
+    'MAX_DELTA_ARM',
+    'MAX_DELTA_GRIPPER',
+    'MAX_DELTA_HEAD',
+    'MAX_DELTA_LIFT',
+    'GRIP_FF_GAIN_MA_PER_NM',
+    'GRIP_FF_DEADBAND_NM',
+    'GRIP_FF_CAP_MA',
+    'GRIP_FF_SIGN',
+    'GRIP_FF_SMOOTH',
+    'grip_ff_current',
+    'max_delta_vector',
+    'lead_cap_vector',
+    'build_qpos',
+    'clamp_positions',
+    'apply_safety_limits',
 ]

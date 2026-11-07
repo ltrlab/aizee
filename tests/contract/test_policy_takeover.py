@@ -2,6 +2,7 @@
 the operator takes over (O, or pedal B through the loop worker) and the arms hold where they are; Resume aligns them
 to the leaders and they follow; handing back holds again, previews the policy from there and aligns to it. Each frame
 the capture records says who drove it: the policy, or a correction."""
+
 from collections import deque
 from types import SimpleNamespace
 
@@ -14,9 +15,13 @@ from robot_platform.simulation.native_collision import library_path
 from tests.contract.test_helm_teleop_live import bundle, Clock, Leaders  # noqa: F401
 from tests.contract.test_policy_mode import ScriptedWorker, Sway, SWAY
 
-pytestmark = [pytest.mark.integration, pytest.mark.skipif(
-    not default_binary().is_file() or not library_path().is_file(),
-    reason='Build control_harness and the robot_collision library first')]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not default_binary().is_file() or not library_path().is_file(),
+        reason='Build control_harness and the robot_collision library first',
+    ),
+]
 
 
 def build(data, clock, leaders):
@@ -25,8 +30,13 @@ def build(data, clock, leaders):
     def open_policy(spec, names, context, cameras=None):
         workers.append(ScriptedWorker(sway, names, context))
         return workers[-1]
-    core = TeleopCore(dict(data, source={'kind': 'policy', 'policy': 'sway', 'takeover': True}),
-                      open_leaders=lambda _profile: leaders, open_policy=open_policy, clock=clock)
+
+    core = TeleopCore(
+        dict(data, source={'kind': 'policy', 'policy': 'sway', 'takeover': True}),
+        open_leaders=lambda _profile: leaders,
+        open_policy=open_policy,
+        clock=clock,
+    )
     core.build()
     return core, sway
 
@@ -80,7 +90,7 @@ def test_take_over_with_the_leaders_then_hand_back_to_the_policy(bundle):
         asked, held = core.source.requests, measured(core)
         run(core, clock, limit=30)
         assert core.source.requests == asked
-        assert max(abs(measured(core)[n] - held[n]) for n in names) < .01
+        assert max(abs(measured(core)[n] - held[n]) for n in names) < 0.01
 
         # Resume aligns the arms to the leaders (at their zero: the reference pose), then they follow them.
         run(core, clock, 'T', until=lambda c: state(c) == 'TELEOP', limit=2000)
@@ -88,13 +98,13 @@ def test_take_over_with_the_leaders_then_hand_back_to_the_policy(bundle):
         assert core.status_view()['pedals']['actions']['b']['action'] == 'hand_back'
         reference = {row['name']: row['position'] for row in core.last_target}
         for _ in range(20):  # Raise the left leader's first joint 0.2 rad at 1 rad/s: a correction.
-            leaders.offsets['left'][0] += .01
+            leaders.offsets['left'][0] += 0.01
             run(core, clock)
         run(core, clock, limit=100)
         target = {row['name']: row['position'] for row in core.last_target}
-        assert abs(target['left_arm_j1'] - reference['left_arm_j1']) > .05  # The leader moved its joint...
+        assert abs(target['left_arm_j1'] - reference['left_arm_j1']) > 0.05  # The leader moved its joint...
         assert all(abs(target[n] - reference[n]) < 1e-6 for n in names if n != 'left_arm_j1')  # ...and only it.
-        assert max(abs(measured(core)[n] - target[n]) for n in names) < .02  # The arms followed the leaders.
+        assert max(abs(measured(core)[n] - target[n]) for n in names) < 0.02  # The arms followed the leaders.
         assert core.source.requests == asked
 
         # Hand back: hold again, preview the policy from where the arms are, align to it, and the policy drives.
@@ -110,7 +120,7 @@ def test_take_over_with_the_leaders_then_hand_back_to_the_policy(bundle):
             run(core, clock, limit=10)
             expected = dict(zip(names, sway.at(clock.now)))
             errors.append(max(abs(measured(core)[n] - expected[n]) for n in SWAY))
-        assert max(errors) < .05 and core._capture_label()['authority'] == 'policy'
+        assert max(errors) < 0.05 and core._capture_label()['authority'] == 'policy'
 
         # Return lowers the arms as in teleop. Disabled, O only chooses who drives once the arms are engaged again.
         run(core, clock, 'X', until=lambda c: state(c) == 'DISABLED', limit=4000)
@@ -128,9 +138,13 @@ def test_a_policy_session_without_takeover_opens_no_leaders_and_refuses_o(bundle
     def open_policy(spec, names, context, cameras=None):
         workers.append(ScriptedWorker(Sway(), names, context))
         return workers[-1]
-    core = TeleopCore(dict(data, source={'kind': 'policy', 'policy': 'sway'}), clock=clock,
-                      open_leaders=lambda _profile: pytest.fail('a policy without takeover opened the leaders'),
-                      open_policy=open_policy)
+
+    core = TeleopCore(
+        dict(data, source={'kind': 'policy', 'policy': 'sway'}),
+        clock=clock,
+        open_leaders=lambda _profile: pytest.fail('a policy without takeover opened the leaders'),
+        open_policy=open_policy,
+    )
     core.build()
     try:
         assert core.driver is None and core.leaders is None
@@ -157,6 +171,7 @@ def test_pedal_b_takes_over_and_hands_back_through_the_loop_worker(bundle, monke
         ticks.append((state(core), key, core.driver, core.pedals.paused))
         assert core.fault is None, core.message
         assert len(ticks) < 6000, f'Pedal workflow stuck at stage {stage}'
+
     core.tick = tick
 
     def add(pedal):
@@ -164,8 +179,18 @@ def test_pedal_b_takes_over_and_hands_back_through_the_loop_worker(bundle, monke
         view = core.status_view()['pedals']
         identity += 1
         labels.append(view['actions'][pedal]['label'])
-        queue.append(('pedal', identity, dict(session_id=view['session_id'], press_id=identity, pedal=pedal,
-                                              revision=view['actions'][pedal]['revision'])))
+        queue.append(
+            (
+                'pedal',
+                identity,
+                dict(
+                    session_id=view['session_id'],
+                    press_id=identity,
+                    pedal=pedal,
+                    revision=view['actions'][pedal]['revision'],
+                ),
+            )
+        )
 
     class Commands:
         def poll(self):
@@ -211,14 +236,25 @@ def test_pedal_b_takes_over_and_hands_back_through_the_loop_worker(bundle, monke
 
         def close(self):
             pass
-    monkeypatch.setattr(teleop, 'time', SimpleNamespace(time=clock, sleep=lambda s: setattr(clock, 'now', clock.now + s)))
+
+    monkeypatch.setattr(
+        teleop, 'time', SimpleNamespace(time=clock, sleep=lambda s: setattr(clock, 'now', clock.now + s))
+    )
     try:
         teleop.run_loop(Commands(), SimpleNamespace(send=sent.append, close=lambda: None), core, silence_s=None)
     finally:
         core.close()
     assert stage == 9
-    assert labels == ['Idle', 'Enable / Hold', 'Engage / Align', 'Take over', 'Resume: you drive',
-                      'Hand back to policy', 'Resume: policy drives', 'Shutdown to reference']
+    assert labels == [
+        'Idle',
+        'Enable / Hold',
+        'Engage / Align',
+        'Take over',
+        'Resume: you drive',
+        'Hand back to policy',
+        'Resume: policy drives',
+        'Shutdown to reference',
+    ]
     replies = {m[1]: m[2:] for m in sent if m[0] == 'reply'}
     assert all(replies[i][0] is None for i in range(1, identity + 1)), replies
     switches = [(s, k, d) for s, k, d, _ in ticks if k == 'O']

@@ -3,13 +3,20 @@
 Proposals are not acknowledgements or permission to enable hardware. A guarded
 adapter must certify and acknowledge every batch, and call fault() on failure.
 """
+
 from copy import deepcopy
 from collections import deque
 import math
 import time
 
-from robot_platform.control.approach import (command_speed, command_step, end_margin, friction_feedforward, lead_toward,
-                                             ramp_effort)
+from robot_platform.control.approach import (
+    command_speed,
+    command_step,
+    end_margin,
+    friction_feedforward,
+    lead_toward,
+    ramp_effort,
+)
 from robot_platform.control.gravity import gravity_effort
 from robot_platform.control.plain_data import plain_copy
 
@@ -25,22 +32,24 @@ def _source_stamp(row):
 
 def validate_trial(trial):
     """An explicit bounded position-only experiment, never an implicit default."""
-    if trial is not None and (not isinstance(trial, dict)
-            or set(trial) != {'motor', 'max_velocity', 'max_excursion_rad'}
-            or not isinstance(trial.get('motor'), str) or not trial['motor']
-            or any(not _finite(trial.get(k)) or trial[k] <= 0
-                   for k in ('max_velocity', 'max_excursion_rad'))):
+    if trial is not None and (
+        not isinstance(trial, dict)
+        or set(trial) != {'motor', 'max_velocity', 'max_excursion_rad'}
+        or not isinstance(trial.get('motor'), str)
+        or not trial['motor']
+        or any(not _finite(trial.get(k)) or trial[k] <= 0 for k in ('max_velocity', 'max_excursion_rad'))
+    ):
         raise ValueError('Trial needs a motor and positive finite speed and excursion bounds')
     return deepcopy(trial)
 
 
 # Settling speed is judged over at least this long, whatever the loop rate: one 20 ms cycle's change in position
 # reads the drives' position steps and noise as twice the speed of a 40 ms one, and alignment never settled.
-SETTLE_WINDOW_S = .04
+SETTLE_WINDOW_S = 0.04
 # How hard a gripper may squeeze while Shutdown returns it to its reference. Its command used to run on to the
 # closed reference regardless: holding something, the right gripper squeezed 6.2 Nm and skipped gear teeth when a
 # fault returned it (2026-10-13). Grip in teleop is the operator's and is not limited here.
-RETURN_SQUEEZE_NM = 1.
+RETURN_SQUEEZE_NM = 1.0
 # Direct velocity feed-forward (`velocity_feedforward` joints): the velocity sent is the least-squares slope of the
 # last few slewed commands over their cycle times, not one cycle's step. Steps fed forward pulsed the drives (Kd x
 # each jump, about 100 ms apart) while the leaders repeated one sample in ten (2026-10-10); a slope over ~30 ms stays
@@ -49,21 +58,35 @@ FEED_SAMPLES = 4
 # Toward an end none is fed from this long before the joint, at its speed, reaches where the braking curve holds
 # its command: fed forward, a joint enters the curve faster than the lead's position-only bound assumes
 # (lifecycle._approach near_end).
-FEED_END_LOOKAHEAD_S = .1
+FEED_END_LOOKAHEAD_S = 0.1
 
 
 def direct_law(joints):
     """Manual tuning's control laws: every joint position-only, or every arm joint with direct velocity
     feed-forward (grippers then carry none: their squeeze is their stiffness times their lead)."""
-    return (all(j.get('position_only') is True for j in joints)
-            or all(j.get('velocity_feedforward') is True or (j.get('gripper') is True and not j.get('position_only'))
-                   for j in joints))
+    return all(j.get('position_only') is True for j in joints) or all(
+        j.get('velocity_feedforward') is True or (j.get('gripper') is True and not j.get('position_only'))
+        for j in joints
+    )
+
 
 class TeleopLifecycle:
     """Shared semantic operations, independent of each GUI's key bindings."""
-    def __init__(self, joints, *, feedback_max_age_s=.03, target_max_age_s=.05,
-                 max_skew_s=.02, max_step_s=.08, settle_time_s=.1, max_source_misses=2,
-                 allow_repeated_source=False, trial=None, clock=time.perf_counter):
+
+    def __init__(
+        self,
+        joints,
+        *,
+        feedback_max_age_s=0.03,
+        target_max_age_s=0.05,
+        max_skew_s=0.02,
+        max_step_s=0.08,
+        settle_time_s=0.1,
+        max_source_misses=2,
+        allow_repeated_source=False,
+        trial=None,
+        clock=time.perf_counter,
+    ):
         if not isinstance(joints, (list, tuple)) or not joints:
             raise ValueError('A complete ordered joint configuration is required')
         self._joints = tuple(deepcopy(joints))
@@ -73,8 +96,9 @@ class TeleopLifecycle:
         self.trial = validate_trial(trial)
         self._trial_origin = None
         if self.trial:
-            if (self.trial['motor'] not in [j.get('name') for j in self._joints]
-                    or not all(j.get('position_only') is True for j in self._joints)):
+            if self.trial['motor'] not in [j.get('name') for j in self._joints] or not all(
+                j.get('position_only') is True for j in self._joints
+            ):
                 raise ValueError('Trial needs its selected motor and position-only commands on every joint')
             # Applied after saved servo settings, without weakening receiver feedback limits.
             for joint in self._joints:
@@ -84,37 +108,76 @@ class TeleopLifecycle:
         for joint in self._joints:
             if type(joint.get('position_only', False)) is not bool:
                 raise ValueError('position_only must be a boolean')
-            if type(joint.get('velocity_feedforward', False)) is not bool or joint.get('velocity_feedforward') and (
-                    joint.get('position_only') or joint.get('gripper') or joint.get('interpolation_s')
-                    or not joint.get('direct_velocity')):
+            if (
+                type(joint.get('velocity_feedforward', False)) is not bool
+                or joint.get('velocity_feedforward')
+                and (
+                    joint.get('position_only')
+                    or joint.get('gripper')
+                    or joint.get('interpolation_s')
+                    or not joint.get('direct_velocity')
+                )
+            ):
                 raise ValueError('Velocity feed-forward is a direct, uninterpolated arm-joint law')
             if not isinstance(joint, dict) or not isinstance(joint.get('name'), str) or not joint['name']:
                 raise ValueError('Every joint needs a unique name')
             names.append(joint['name'])
-            fields = ('lower', 'upper', 'hold_kp', 'hold_kd', 'max_velocity', 'align_speed',
-                      'shutdown_speed', 'max_lead', 'tolerance', 'settled_velocity', 'zero_position')
+            fields = (
+                'lower',
+                'upper',
+                'hold_kp',
+                'hold_kd',
+                'max_velocity',
+                'align_speed',
+                'shutdown_speed',
+                'max_lead',
+                'tolerance',
+                'settled_velocity',
+                'zero_position',
+            )
             if any(not _finite(joint.get(key)) for key in fields):
                 raise ValueError('Joint limits, gains, speeds and tolerances must be finite')
-            if (joint['lower'] >= joint['upper'] or not joint['lower'] <= joint['zero_position'] <= joint['upper']
-                    or joint['hold_kp'] < 0 or joint['hold_kd'] < 0
-                    or any(joint[key] <= 0 for key in ('max_velocity', 'align_speed', 'shutdown_speed',
-                                                     'max_lead', 'tolerance', 'settled_velocity'))
-                    or max(joint['align_speed'], joint['shutdown_speed']) > joint['max_velocity']):
+            if (
+                joint['lower'] >= joint['upper']
+                or not joint['lower'] <= joint['zero_position'] <= joint['upper']
+                or joint['hold_kp'] < 0
+                or joint['hold_kd'] < 0
+                or any(
+                    joint[key] <= 0
+                    for key in (
+                        'max_velocity',
+                        'align_speed',
+                        'shutdown_speed',
+                        'max_lead',
+                        'tolerance',
+                        'settled_velocity',
+                    )
+                )
+                or max(joint['align_speed'], joint['shutdown_speed']) > joint['max_velocity']
+            ):
                 raise ValueError('Invalid joint interval, reference, gains or motion bounds')
         if len(set(names)) != len(names):
             raise ValueError('Joint names must be unique')
         for joint in self._joints:
             for term in joint.get('gravity') or ():
-                if (len(term) != 2 or not _finite(term[0]) or not isinstance(term[1], dict)
-                        or any(name not in names or term[1][name] not in (-1, 1) for name in term[1])):
-                    raise ValueError('Gravity terms must be finite and name this lifecycle\'s joints')
+                if (
+                    len(term) != 2
+                    or not _finite(term[0])
+                    or not isinstance(term[1], dict)
+                    or any(name not in names or term[1][name] not in (-1, 1) for name in term[1])
+                ):
+                    raise ValueError("Gravity terms must be finite and name this lifecycle's joints")
         self.names = tuple(names)
         values = (feedback_max_age_s, target_max_age_s, max_skew_s, max_step_s)
-        if (any(not _finite(value) or value <= 0 for value in values)
-                or not _finite(settle_time_s) or settle_time_s < 0
-                or max_skew_s > min(feedback_max_age_s, target_max_age_s)
-                or type(allow_repeated_source) is not bool
-                or type(max_source_misses) is not int or not 0 <= max_source_misses <= 10):
+        if (
+            any(not _finite(value) or value <= 0 for value in values)
+            or not _finite(settle_time_s)
+            or settle_time_s < 0
+            or max_skew_s > min(feedback_max_age_s, target_max_age_s)
+            or type(allow_repeated_source) is not bool
+            or type(max_source_misses) is not int
+            or not 0 <= max_source_misses <= 10
+        ):
             raise ValueError('Finite positive freshness, skew and cycle bounds are required')
         self.feedback_max_age_s, self.target_max_age_s = feedback_max_age_s, target_max_age_s
         self.max_skew_s, self.max_step_s, self.settle_time_s = max_skew_s, max_step_s, settle_time_s
@@ -148,21 +211,24 @@ class TeleopLifecycle:
         if self.state not in ('DISABLED', 'HOLD') or self.trial is not None:
             raise ValueError('Manual tuning requires DISABLED or HOLD and no fixed trial profile')
         if [r.get('motor') for r in settings] != list(self.names) or not direct_law(self._joints):
-            raise ValueError('Manual tuning needs every joint in order, position-only or with direct velocity '
-                             'feed-forward')
+            raise ValueError(
+                'Manual tuning needs every joint in order, position-only or with direct velocity feed-forward'
+            )
         updated = plain_copy(self._joints)
-        held = list(self._manual_hold or self.target or (0.,) * len(updated))
+        held = list(self._manual_hold or self.target or (0.0,) * len(updated))
         for i, (row, joint, base) in enumerate(zip(settings, updated, self._manual_base)):
-            if (type(row.get('follow')) is not bool
-                    or any(not _finite(row.get(k)) or row[k] < 0 for k in ('kp', 'kd'))
-                    or not _finite(row.get('speed')) or not 0 < row['speed'] <= base['max_velocity']
-                    or (row.get('travel_rad') is not None and
-                        (not _finite(row['travel_rad']) or row['travel_rad'] <= 0))):
+            if (
+                type(row.get('follow')) is not bool
+                or any(not _finite(row.get(k)) or row[k] < 0 for k in ('kp', 'kd'))
+                or not _finite(row.get('speed'))
+                or not 0 < row['speed'] <= base['max_velocity']
+                or (row.get('travel_rad') is not None and (not _finite(row['travel_rad']) or row['travel_rad'] <= 0))
+            ):
                 raise ValueError('Invalid manual joint settings')
             extent = row['travel_rad']
             if self._trial_origin is not None and self.target is not None and row['follow'] and extent is not None:
                 if abs(self.target[i] - self._trial_origin[i]) > extent + 1e-12:
-                    raise ValueError(f"{joint['name']}: return inside the new travel window before applying it")
+                    raise ValueError(f'{joint["name"]}: return inside the new travel window before applying it')
             if self.target is not None and not row['follow']:
                 held[i] = self.target[i]
             joint['hold_kp'], joint['hold_kd'] = row['kp'], row['kd']
@@ -181,9 +247,12 @@ class TeleopLifecycle:
 
     def _read(self, rows, now, *, feedback):
         label = 'feedback' if feedback else 'mapped source'
-        if (not isinstance(rows, (list, tuple)) or len(rows) != len(self.names)
-                or any(not isinstance(row, dict) for row in rows)
-                or tuple(row.get('name') for row in rows) != self.names):
+        if (
+            not isinstance(rows, (list, tuple))
+            or len(rows) != len(self.names)
+            or any(not isinstance(row, dict) for row in rows)
+            or tuple(row.get('name') for row in rows) != self.names
+        ):
             raise ValueError(f'Complete ordered {label} required')
         max_age = self.feedback_max_age_s if feedback else self.target_max_age_s
         previous = self._feedback if feedback else self._source
@@ -191,18 +260,29 @@ class TeleopLifecycle:
             if feedback and row.get('aside') is True:
                 # A gripper the receiver set aside: it stopped answering, and the arm is taken back after the
                 # fault and lowered without it (its last reading is kept, not checked). Never an arm joint.
-                if not limit.get('gripper') or self.state not in ('FAULT', 'SHUTDOWN') or not _finite(row.get('position')):
+                if (
+                    not limit.get('gripper')
+                    or self.state not in ('FAULT', 'SHUTDOWN')
+                    or not _finite(row.get('position'))
+                ):
                     raise ValueError(f'Only a gripper is set aside, while the arm is lowered: {limit["name"]}')
                 continue
-            if (not _finite(row.get('position')) or not limit['lower'] <= row['position'] <= limit['upper']
-                    or not _finite(row.get('sampled_at')) or not 0 <= now-row['sampled_at'] < max_age
-                    or type(row.get('sequence')) is not int or not 0 < row['sequence'] < (1 << 32)
-                    or row.get('fault') or row.get('valid', True) is not True
-                    or feedback and not _finite(row.get('velocity'))):
+            if (
+                not _finite(row.get('position'))
+                or not limit['lower'] <= row['position'] <= limit['upper']
+                or not _finite(row.get('sampled_at'))
+                or not 0 <= now - row['sampled_at'] < max_age
+                or type(row.get('sequence')) is not int
+                or not 0 < row['sequence'] < (1 << 32)
+                or row.get('fault')
+                or row.get('valid', True) is not True
+                or feedback
+                and not _finite(row.get('velocity'))
+            ):
                 raise ValueError(f'Invalid, out-of-range, faulted or stale {label}: {limit["name"]}')
             if previous is not None:
                 before = previous[index]
-                delta = (row['sequence']-before['sequence']) & 0xffffffff
+                delta = (row['sequence'] - before['sequence']) & 0xFFFFFFFF
                 # A source's own stamp orders its samples. `sampled_at` maps it onto this clock through each
                 # cycle's request, which shifts with that request's timing (live-20261015T223714Z).
                 stamp = 'source_ms' if _source_stamp(row) and _source_stamp(before) else 'sampled_at'
@@ -213,7 +293,7 @@ class TeleopLifecycle:
                 elif delta >= 0x80000000 or row[stamp] < before[stamp]:
                     raise ValueError(f'{label} sequence or timestamp moved backwards')
         stamps = [row['sampled_at'] for row in rows if not (feedback and row.get('aside') is True)]
-        if max(stamps)-min(stamps) > self.max_skew_s:
+        if max(stamps) - min(stamps) > self.max_skew_s:
             raise ValueError(f'{label} exceeds the whole-robot skew bound')
         result = plain_copy(list(rows))
         if feedback:
@@ -244,28 +324,53 @@ class TeleopLifecycle:
             self._limits = {}
         self._velocities = None
         fed = self._fed_velocities(positions if velocities is not None else None, original)
-        velocities = velocities or (0.,) * len(self._joints)
+        velocities = velocities or (0.0,) * len(self._joints)
         if original:
             self._proposed = (tuple(positions), tuple(velocities)) if operation == 'move' and positions else None
-        commands = None if positions is None else [
-            dict(position=q, velocity=0. if joint.get('position_only') else f if joint.get('velocity_feedforward') else v,
-                 effort=0. if zero_gains else self._effort(joint, v, positions),
-                 kp=0. if zero_gains else joint['hold_kp'], kd=0. if zero_gains else joint['hold_kd'])
-            for q, v, f, joint in zip(positions, velocities, fed, self._joints)]
+        commands = (
+            None
+            if positions is None
+            else [
+                dict(
+                    position=q,
+                    velocity=0.0 if joint.get('position_only') else f if joint.get('velocity_feedforward') else v,
+                    effort=0.0 if zero_gains else self._effort(joint, v, positions),
+                    kp=0.0 if zero_gains else joint['hold_kp'],
+                    kd=0.0 if zero_gains else joint['hold_kd'],
+                )
+                for q, v, f, joint in zip(positions, velocities, fed, self._joints)
+            ]
+        )
         # The effort that accelerates each joint to its command's velocity from the last move's, which the
         # receiver adds only while it ramps to the command (a stop never holds it).
-        previous = self._sent_velocities or (0.,) * len(self._joints)
+        previous = self._sent_velocities or (0.0,) * len(self._joints)
         ramps = None
         if commands is not None and operation == 'move' and not zero_gains:
-            ramps = [0. if joint.get('position_only') or joint.get('velocity_feedforward') else
-                     ramp_effort(joint.get('inertia'), command['velocity'], before, joint.get('interpolation_s'),
-                                 command['effort'], joint.get('max_effort', math.inf))
-                     for command, before, joint in zip(commands, previous, self._joints)]
+            ramps = [
+                0.0
+                if joint.get('position_only') or joint.get('velocity_feedforward')
+                else ramp_effort(
+                    joint.get('inertia'),
+                    command['velocity'],
+                    before,
+                    joint.get('interpolation_s'),
+                    command['effort'],
+                    joint.get('max_effort', math.inf),
+                )
+                for command, before, joint in zip(commands, previous, self._joints)
+            ]
         self._sent_velocities = tuple(velocities) if operation == 'move' and not zero_gains else None
-        return dict(state=self.state, operation=operation, joint_names=list(self.names),
-                    positions=positions, joints=commands, reason=self.reason, ramp_efforts=ramps,
-                    reference_velocities=list(velocities),
-                    limits=plain_copy(self._limits))
+        return dict(
+            state=self.state,
+            operation=operation,
+            joint_names=list(self.names),
+            positions=positions,
+            joints=commands,
+            reason=self.reason,
+            ramp_efforts=ramps,
+            reference_velocities=list(velocities),
+            limits=plain_copy(self._limits),
+        )
 
     def _fed_velocities(self, positions, original):
         """Each joint's velocity feed-forward (FEED_SAMPLES): the slope of the last slewed commands over their
@@ -277,7 +382,7 @@ class TeleopLifecycle:
             self._feed.pop()  # reduce() re-proposes this cycle's command.
         if positions is None or self._last_time is None:
             self._feed.clear()
-            return (0.,) * len(self._joints)
+            return (0.0,) * len(self._joints)
         self._feed.append((self._last_time, tuple(positions)))
         while len(self._feed) > FEED_SAMPLES:
             self._feed.popleft()
@@ -285,7 +390,7 @@ class TeleopLifecycle:
         mean = sum(times) / len(times)
         spread = sum((t - mean) ** 2 for t in times)
         if spread <= 0:
-            return (0.,) * len(self._joints)
+            return (0.0,) * len(self._joints)
         result = []
         for i, base in enumerate(self._manual_base):
             values = [q[i] for _, q in self._feed]
@@ -293,7 +398,7 @@ class TeleopLifecycle:
             slope = sum((t - mean) * (q - centre) for t, q in zip(times, values)) / spread
             toward_lower, toward_upper = self._near_end[i] if i < len(self._near_end) else (False, False)
             if (slope > 0 and toward_upper) or (slope < 0 and toward_lower):
-                slope = 0.
+                slope = 0.0
             result.append(max(-base['max_velocity'], min(base['max_velocity'], slope)))
         return tuple(result)
 
@@ -301,11 +406,14 @@ class TeleopLifecycle:
         """Feed-forward: friction in the direction of motion and the arm's gravity at the commanded pose,
         within 90% of the joint's effort limit. Direct laws feed no friction forward: its sign flips with each
         reversal and quantised step, which pulsed the drives (2026-10-10)."""
-        effort = (0. if joint.get('position_only') or joint.get('velocity_feedforward')
-                  else friction_feedforward(joint.get('friction_nm', 0.), velocity))
+        effort = (
+            0.0
+            if joint.get('position_only') or joint.get('velocity_feedforward')
+            else friction_feedforward(joint.get('friction_nm', 0.0), velocity)
+        )
         if joint.get('gravity'):
             effort += gravity_effort(joint['gravity'], dict(zip(self.names, positions)))
-        limit = .9 * joint.get('max_effort', math.inf)
+        limit = 0.9 * joint.get('max_effort', math.inf)
         return max(-limit, min(limit, effort))
 
     def fault(self, reason):
@@ -337,8 +445,12 @@ class TeleopLifecycle:
         """The adapter could not certify this cycle's move (its collision box was not clear): propose it at
         `fraction` of its step and its speed instead, from the target last sent (0: hold that target). The next
         cycle steps on from what was sent. A hold, alignment or shutdown carries on."""
-        if (self.state not in ('HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN') or self._proposed is None
-                or self._before is None or self._before[0] is None):
+        if (
+            self.state not in ('HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN')
+            or self._proposed is None
+            or self._before is None
+            or self._before[0] is None
+        ):
             raise ValueError(f'No move to reduce from {self.state}')
         if not _finite(fraction) or not 0 <= fraction < 1:
             raise ValueError('A move is reduced to a fraction in [0, 1)')
@@ -357,7 +469,8 @@ class TeleopLifecycle:
         """
         allowed = {
             'idle': {'DISABLED', 'IDLE', 'HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'},
-            'enable': {'IDLE'}, 'engage': {'IDLE', 'HOLD'},
+            'enable': {'IDLE'},
+            'engage': {'IDLE', 'HOLD'},
             'disengage': {'HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN'},
             'shutdown': {'IDLE', 'HOLD', 'ENGAGING', 'TELEOP'},
             'disable': {'DISABLED', 'IDLE', 'HOLD', 'ENGAGING', 'TELEOP', 'SHUTDOWN', 'FAULT'},
@@ -391,15 +504,22 @@ class TeleopLifecycle:
                 else:
                     # A Hold/Engage cycle must not walk the experimental window.
                     self.target = tuple(self._trial_goal(self.target))
-                    if any(abs(q-row['position']) > joint['max_lead']
-                           for q, row, joint in zip(self.target, measured, self._joints)):
+                    if any(
+                        abs(q - row['position']) > joint['max_lead']
+                        for q, row, joint in zip(self.target, measured, self._joints)
+                    ):
                         raise ValueError('Measured pose exceeds the fixed trial holding bound')
             self._last_measured = tuple(row['position'] for row in measured)
             self._history = deque([(now, self._last_measured)])
             self._last_time, self._settled_since, self.reason = now, None, None
             self._misses = 0
-            self.state = {'idle': 'IDLE', 'enable': 'HOLD', 'engage': 'ENGAGING',
-                          'disengage': 'HOLD', 'shutdown': 'SHUTDOWN'}[action]
+            self.state = {
+                'idle': 'IDLE',
+                'enable': 'HOLD',
+                'engage': 'ENGAGING',
+                'disengage': 'HOLD',
+                'shutdown': 'SHUTDOWN',
+            }[action]
             if action != 'engage':
                 self._source = None
             operation = 'idle' if action == 'idle' else 'enable' if old_state == 'IDLE' else 'move'
@@ -411,7 +531,9 @@ class TeleopLifecycle:
     @staticmethod
     def _squeeze_lead(joint):
         """How far a gripper's command may lead it while Shutdown returns it: RETURN_SQUEEZE_NM at its stiffness."""
-        return min(joint['max_lead'], RETURN_SQUEEZE_NM / joint['hold_kp']) if joint['hold_kp'] > 0 else joint['max_lead']
+        return (
+            min(joint['max_lead'], RETURN_SQUEEZE_NM / joint['hold_kp']) if joint['hold_kp'] > 0 else joint['max_lead']
+        )
 
     def _settled(self, measured, goal, now, dt):
         # Speed from measured positions at least SETTLE_WINDOW_S apart, not the drives'
@@ -426,17 +548,23 @@ class TeleopLifecycle:
         then = next(((t, positions) for t, positions in reversed(self._history) if now - t >= SETTLE_WINDOW_S), None)
         arrived = then is not None and all(
             row.get('aside') is True
-            or (abs((command if joint.get('gripper') else row['position'])-q) <= joint['tolerance']
-                or (joint.get('gripper') and self.state == 'SHUTDOWN'
-                    and abs(command-row['position']) >= .99 * self._squeeze_lead(joint)))
-            and abs(row['position']-p)/(now - then[0]) <= joint['settled_velocity']
-            for row, q, p, joint, command in zip(measured, goal, then[1], self._joints, self.target))
+            or (
+                abs((command if joint.get('gripper') else row['position']) - q) <= joint['tolerance']
+                or (
+                    joint.get('gripper')
+                    and self.state == 'SHUTDOWN'
+                    and abs(command - row['position']) >= 0.99 * self._squeeze_lead(joint)
+                )
+            )
+            and abs(row['position'] - p) / (now - then[0]) <= joint['settled_velocity']
+            for row, q, p, joint, command in zip(measured, goal, then[1], self._joints, self.target)
+        )
         if not arrived:
             self._settled_since = None
             return False
         if self._settled_since is None:
             self._settled_since = now
-        return now-self._settled_since >= self.settle_time_s
+        return now - self._settled_since >= self.settle_time_s
 
     @staticmethod
     def _lead_origin(row, joint, last, dt, now):
@@ -444,9 +572,9 @@ class TeleopLifecycle:
         carried on, in the direction it moves, at its speed between the last two cycles over the sample's age and
         the interpolation period (lowest, highest). Taken from the measured position alone, the ramp and the
         sample's age (about 80 ms) held right J1 to 0.57 rad/s at a 0.048 rad lead. A still joint gets no credit."""
-        period = joint.get('interpolation_s') or 0.
-        ahead = (row['position'] - last) / dt * (max(0., now - row['sampled_at']) + period) if dt > 0 else 0.
-        return row['position'] + min(0., ahead), row['position'] + max(0., ahead)
+        period = joint.get('interpolation_s') or 0.0
+        ahead = (row['position'] - last) / dt * (max(0.0, now - row['sampled_at']) + period) if dt > 0 else 0.0
+        return row['position'] + min(0.0, ahead), row['position'] + max(0.0, ahead)
 
     def _holds_within_lead(self, measured, dt, now):
         """The held command is still one following could have sent: within each joint's lead of where it will be
@@ -455,7 +583,9 @@ class TeleopLifecycle:
         rather than following keep the raw check, as _approach applies it to them."""
         before = self._last_measured or tuple(row['position'] for row in measured)
         for index, (q, row, joint, last) in enumerate(zip(self.target, measured, self._joints, before)):
-            inactive = (self.trial and joint['name'] != self.trial['motor']) or (self._manual and not self._manual[index]['follow'])
+            inactive = (self.trial and joint['name'] != self.trial['motor']) or (
+                self._manual and not self._manual[index]['follow']
+            )
             low, high = (row['position'],) * 2 if inactive else self._lead_origin(row, joint, last, dt, now)
             if not low - joint['max_lead'] <= q <= high + joint['max_lead']:
                 return False
@@ -465,32 +595,39 @@ class TeleopLifecycle:
         proposed, velocities = [], []
         near_end = [(False, False)] * len(self._joints)
         before = self._last_measured or tuple(row['position'] for row in measured)
-        sent = self._sent_velocities or (0.,) * len(self._joints)
-        for index, (previous, row, target, joint, last, was) in enumerate(zip(self.target, measured, goal, self._joints, before, sent)):
+        sent = self._sent_velocities or (0.0,) * len(self._joints)
+        for index, (previous, row, target, joint, last, was) in enumerate(
+            zip(self.target, measured, goal, self._joints, before, sent)
+        ):
             if row.get('aside') is True:  # Set aside (_read): it keeps its last command.
                 proposed.append(previous)
-                velocities.append(0.)
+                velocities.append(0.0)
                 self._limits[joint['name']] = []
                 continue
-            inactive = (self.trial and joint['name'] != self.trial['motor']) or (self._manual and not self._manual[index]['follow'])
+            inactive = (self.trial and joint['name'] != self.trial['motor']) or (
+                self._manual and not self._manual[index]['follow']
+            )
             if inactive and self.state in ('ENGAGING', 'TELEOP'):
-                if abs(target-row['position']) > joint['max_lead']:
+                if abs(target - row['position']) > joint['max_lead']:
                     raise ValueError('Measured pose exceeds the fixed trial holding bound')
                 proposed.append(target)
-                velocities.append(0.)
+                velocities.append(0.0)
                 self._limits[joint['name']] = ['trial_hold']
                 continue
             desired, reasons = target, []
-            velocity_cap = (self._manual_base[index]['max_velocity']
-                            if self._manual and self.state == 'SHUTDOWN' else joint['max_velocity'])
+            velocity_cap = (
+                self._manual_base[index]['max_velocity']
+                if self._manual and self.state == 'SHUTDOWN'
+                else joint['max_velocity']
+            )
             up = down = joint[speed]
             lead_up = lead_down = joint['max_lead']
             # The receiver ramps each command from the last one over its interpolation period: a cycle
             # moves at most that period's worth, so a late cycle never asks for more than the speed.
-            period = joint.get('interpolation_s') or 0.
+            period = joint.get('interpolation_s') or 0.0
             # Direct targets apply immediately; velocity/acceleration bounds still
             # use the actual producer period, independently of receiver interpolation.
-            velocity_period = period or (dt if joint.get('direct_velocity') else 0.)
+            velocity_period = period or (dt if joint.get('direct_velocity') else 0.0)
             step = min(dt, period) if period > 0 else dt
             curve = joint.get('approach')
             if curve:  # Toward an end, within the receiver's braking curve (with headroom) all along the step.
@@ -506,15 +643,16 @@ class TeleopLifecycle:
                     # lead_toward bounds the speed a lead can pull by Kd's drag; velocity fed forward removes
                     # that drag, so toward an end, where the curve allows less than the cap, none is fed.
                     # The joint's speed: the drive's, or between the last two cycles' positions (as _lead_origin).
-                    moving = max(abs(row['velocity']), abs(row['position'] - last) / dt if dt > 0 else 0.)
+                    moving = max(abs(row['velocity']), abs(row['position'] - last) / dt if dt > 0 else 0.0)
                     ahead = FEED_END_LOOKAHEAD_S * moving
-                    near_end[index] = tuple(command_speed(curve, reaction, row['position'] + d * ahead, d, cap) < cap
-                                            for d in (-1, 1))
+                    near_end[index] = tuple(
+                        command_speed(curve, reaction, row['position'] + d * ahead, d, cap) < cap for d in (-1, 1)
+                    )
             if joint.get('gripper') and self.state == 'SHUTDOWN':
                 lead_up = lead_down = self._squeeze_lead(joint)  # Returning, it squeezes no harder than this.
             # The lead is taken from where the joint will be once the receiver has ramped to this command.
             down_from, up_from = self._lead_origin(row, joint, last, dt, now)
-            lead_lower, lead_upper = down_from-lead_down, up_from+lead_up
+            lead_lower, lead_upper = down_from - lead_down, up_from + lead_up
             if self.allow_repeated_source:
                 # Construct endpoints inside the exact bound. Otherwise subtracting
                 # a rounded endpoint from feedback can exceed max_lead by one ULP
@@ -522,15 +660,15 @@ class TeleopLifecycle:
                 lead_lower = math.nextafter(lead_lower, down_from)
                 lead_upper = math.nextafter(lead_upper, up_from)
             # A target beyond a shrunken lead may come back toward the joint at once: that only eases the pull.
-            low = max(joint['lower'], lead_lower, min(previous-down*step, lead_upper))
-            high = min(joint['upper'], lead_upper, max(previous+up*step, lead_lower))
+            low = max(joint['lower'], lead_lower, min(previous - down * step, lead_upper))
+            high = min(joint['upper'], lead_upper, max(previous + up * step, lead_lower))
             if low > high:
                 raise ValueError(f'Measured pose exceeds command lead/slew bounds: {joint["name"]}')
             if not joint['lower'] <= desired <= joint['upper']:
                 reasons.append('joint_limit')
-            if not down_from-lead_down <= desired <= up_from+lead_up:
+            if not down_from - lead_down <= desired <= up_from + lead_up:
                 reasons.append('tracking_lead')
-            if not previous-down*step <= desired <= previous+up*step:
+            if not previous - down * step <= desired <= previous + up * step:
                 reasons.append('speed_or_limit_approach')
             if curve and velocity_period > 0 and dt > 0:
                 # Speeding up no faster than the joint's qualified braking, in either direction; slowing toward
@@ -538,29 +676,32 @@ class TeleopLifecycle:
                 # rest to 1.5 rad/s asked right J2 for 41 Nm in 10 ms, and gravity carried it to 1.98 rad/s,
                 # over the receiver's 1.875 cap (rehearsal, 2026-10-04).
                 rate = curve['stop_acceleration'] * dt
-                target = max(previous + (min(was, 0.) - rate) * velocity_period,
-                             min(previous + (max(was, 0.) + rate) * velocity_period, target))
+                target = max(
+                    previous + (min(was, 0.0) - rate) * velocity_period,
+                    min(previous + (max(was, 0.0) + rate) * velocity_period, target),
+                )
                 if target != desired:
                     reasons.append('acceleration')
             q = max(low, min(high, target))
             if self.trial and self.state in ('ENGAGING', 'TELEOP'):
                 origin = self._trial_origin[self.names.index(joint['name'])]
-                if abs(q-origin) > self.trial['max_excursion_rad'] + 1e-12:
+                if abs(q - origin) > self.trial['max_excursion_rad'] + 1e-12:
                     raise ValueError('Measured pose exceeds the trial excursion bound')
-                if abs(q-previous) > self.trial['max_velocity'] * step + 1e-12:
+                if abs(q - previous) > self.trial['max_velocity'] * step + 1e-12:
                     raise ValueError('Measured pose exceeds the trial slew bound')
             if self._manual and self.state in ('ENGAGING', 'TELEOP'):
                 settings = self._manual[index]
                 extent = settings['travel_rad']
-                if extent is not None and abs(q-self._trial_origin[index]) > extent + 1e-12:
+                if extent is not None and abs(q - self._trial_origin[index]) > extent + 1e-12:
                     raise ValueError('Measured pose exceeds the manual travel window')
-                if abs(q-previous) > joint['max_velocity'] * step + 1e-12:
+                if abs(q - previous) > joint['max_velocity'] * step + 1e-12:
                     raise ValueError('Measured pose exceeds the manual following speed bound')
             proposed.append(q)
-            self._limits[joint['name']] = reasons if abs(q-desired) > 1e-12 else []
+            self._limits[joint['name']] = reasons if abs(q - desired) > 1e-12 else []
             # The velocity it is ramped at, fed forward (a snap back toward the joint no faster than the cap).
-            velocities.append(0. if velocity_period <= 0 else
-                              max(-velocity_cap, min(velocity_cap, (q-previous)/velocity_period)))
+            velocities.append(
+                0.0 if velocity_period <= 0 else max(-velocity_cap, min(velocity_cap, (q - previous) / velocity_period))
+            )
         self._velocities = tuple(velocities)
         self._near_end = tuple(near_end)
         return tuple(proposed)
@@ -569,21 +710,29 @@ class TeleopLifecycle:
         if self._manual:
             if self._trial_origin is None or self._manual_hold is None:
                 raise ValueError('Manual travel origin has not been latched by Enable')
-            return [held if not row['follow'] else q if row['travel_rad'] is None else
-                    max(origin-row['travel_rad'], min(origin+row['travel_rad'], q))
-                    for q, origin, held, row in zip(goal, self._trial_origin, self._manual_hold, self._manual)]
+            return [
+                held
+                if not row['follow']
+                else q
+                if row['travel_rad'] is None
+                else max(origin - row['travel_rad'], min(origin + row['travel_rad'], q))
+                for q, origin, held, row in zip(goal, self._trial_origin, self._manual_hold, self._manual)
+            ]
         if self.trial is None:
             return list(goal)
         if self._trial_origin is None:
             raise ValueError('Trial origin has not been latched by Enable')
         extent = self.trial['max_excursion_rad']
-        return [max(origin-extent, min(origin+extent, q)) if joint['name'] == self.trial['motor'] else origin
-                for q, origin, joint in zip(goal, self._trial_origin, self._joints)]
+        return [
+            max(origin - extent, min(origin + extent, q)) if joint['name'] == self.trial['motor'] else origin
+            for q, origin, joint in zip(goal, self._trial_origin, self._joints)
+        ]
 
     def _lost_source_hold(self, measured):
         goal = self._trial_goal(self._hold_measured(measured))
-        if (self.trial or self._manual) and any(abs(q-row['position']) > joint['max_lead']
-                              for q, row, joint in zip(goal, measured, self._joints)):
+        if (self.trial or self._manual) and any(
+            abs(q - row['position']) > joint['max_lead'] for q, row, joint in zip(goal, measured, self._joints)
+        ):
             raise ValueError('Measured pose exceeds the fixed trial holding bound')
         return tuple(goal)
 
@@ -595,7 +744,7 @@ class TeleopLifecycle:
             return self._proposal('none')
         try:
             now = self._now(now)
-            dt = now-self._last_time
+            dt = now - self._last_time
             if not 0 <= dt <= self.max_step_s:
                 raise ValueError('Lifecycle scheduler stalled or clock moved backwards')
             measured = self._read(feedback, now, feedback=True)
@@ -605,8 +754,10 @@ class TeleopLifecycle:
                 self.target = tuple(row['position'] for row in measured)
                 operation = 'idle'
             elif self.state == 'HOLD':
-                if any(abs(q-row['position']) > joint['max_lead']
-                       for q, row, joint in zip(self.target, measured, self._joints)):
+                if any(
+                    abs(q - row['position']) > joint['max_lead']
+                    for q, row, joint in zip(self.target, measured, self._joints)
+                ):
                     raise ValueError('Measured pose exceeds the holding lead bound')
             elif self.state in {'ENGAGING', 'TELEOP'} and target is None:
                 # Missing source: hold the last bounded target, never extrapolate.
@@ -624,7 +775,8 @@ class TeleopLifecycle:
                 previous_source = self._source
                 source = self._read(target, now, feedback=False)
                 repeated = previous_source is not None and any(
-                    row['sequence'] == previous['sequence'] for row, previous in zip(source, previous_source))
+                    row['sequence'] == previous['sequence'] for row, previous in zip(source, previous_source)
+                )
                 if dt > 0 and repeated and not self.allow_repeated_source:
                     raise ValueError('Mapped source did not advance')
                 self._misses = self._misses + 1 if repeated else 0

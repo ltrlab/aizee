@@ -1,4 +1,5 @@
 """Shared live-camera relay, independent of settings/motion and browser speed."""
+
 from collections import deque
 import json
 import math
@@ -10,7 +11,7 @@ import time
 
 from .camera_video_worker import DEPTH_ENCODING, MAX_DEPTH_SIDE, MAX_HEADER, MAX_JPEG, ROLES
 
-STALE_AFTER = 1.
+STALE_AFTER = 1.0
 # The head camera's frame with its depth (camera_video_worker.head_depth), for a headset's 3D picture: a viewer
 # asks for it as a role of its own.
 DEPTH_ROLE = 'head_depth'
@@ -30,8 +31,8 @@ class PacketDecoder:
             size = 8 + header_size + jpeg_size
             if len(self.buffer) < size:
                 break
-            header = json.loads(self.buffer[8:8+header_size])
-            jpeg = bytes(self.buffer[8+header_size:size])
+            header = json.loads(self.buffer[8 : 8 + header_size])
+            jpeg = bytes(self.buffer[8 + header_size : size])
             del self.buffer[:size]
             packets.append((header, jpeg))
         return packets
@@ -44,12 +45,13 @@ def browser_packet(header, jpeg):
 
 class CameraVideo:
     """One worker per Helm process, latest-only JPEG references, no image decode."""
+
     def __init__(self, profile, *, address, open_ssh=None, clock=time.monotonic):
         self.profile, self.address, self.open_ssh, self.clock = Path(profile), address, open_ssh, clock
         self._lock = threading.Lock()
         self._viewers, self._frames, self._errors = set(), {}, {}
         self._depth_viewers = set()  # Viewers of DEPTH_ROLE: the relay compresses depth only while there are any.
-        self._sequences = {role:0 for role in ROLES}
+        self._sequences = {role: 0 for role in ROLES}
         self._heartbeats = deque(maxlen=32)
         self._heartbeat_sequence = 0
         self._thread = self._client = self._channel = None
@@ -93,7 +95,7 @@ class CameraVideo:
             except Exception:  # noqa: BLE001 - the relay's transport already gone (paramiko raises EOFError)
                 pass
         if thread is not None:
-            thread.join(5.)
+            thread.join(5.0)
 
     def close(self):
         with self._lock:
@@ -108,19 +110,31 @@ class CameraVideo:
             cameras, frames = {}, {}
             for role in ROLES:
                 frame = self._frames.get(role)
-                age = frame['age_at_receive'] + now-frame['received_at'] if frame else None
+                age = frame['age_at_receive'] + now - frame['received_at'] if frame else None
                 fresh = frame is not None and age < STALE_AFTER and self._error is None and not self._errors.get(role)
-                cameras[role] = {'fresh':fresh, 'age_s':age, 'sequence':self._sequences[role],
-                    'error':self._error or self._errors.get(role) or (None if fresh else 'Waiting for a fresh camera frame')}
+                cameras[role] = {
+                    'fresh': fresh,
+                    'age_s': age,
+                    'sequence': self._sequences[role],
+                    'error': self._error
+                    or self._errors.get(role)
+                    or (None if fresh else 'Waiting for a fresh camera frame'),
+                }
                 if fresh:
-                    header = {'role':role, 'sequence':frame['sequence'], 'age_s':age,
-                              'source_timestamp':frame['source_timestamp']}
+                    header = {
+                        'role': role,
+                        'sequence': frame['sequence'],
+                        'age_s': age,
+                        'source_timestamp': frame['source_timestamp'],
+                    }
                     frames[role] = (header, frame['jpeg'])
                     if frame.get('depth') is not None:  # The same frame with its depth, after its JPEG.
                         meta, packed = frame['depth']
-                        frames[DEPTH_ROLE] = (dict(header, role=DEPTH_ROLE, jpeg_bytes=len(frame['jpeg']), depth=meta),
-                                              frame['jpeg'] + packed)
-            return {'type':'status', 'cameras':cameras, 'target_fps':10, 'stale_after_s':STALE_AFTER}, frames
+                        frames[DEPTH_ROLE] = (
+                            dict(header, role=DEPTH_ROLE, jpeg_bytes=len(frame['jpeg']), depth=meta),
+                            frame['jpeg'] + packed,
+                        )
+            return {'type': 'status', 'cameras': cameras, 'target_fps': 10, 'stale_after_s': STALE_AFTER}, frames
 
     @staticmethod
     def _depth(header, payload):
@@ -131,18 +145,29 @@ class CameraVideo:
             raise ValueError('Malformed relay depth')
         finite = lambda value: type(value) in (int, float) and math.isfinite(value)  # noqa: E731
         k = meta.get('intrinsics')
-        if (meta.get('encoding') != DEPTH_ENCODING or meta.get('bytes') != len(payload) - size
-                or any(type(meta.get(side)) is not int or not 1 <= meta[side] <= MAX_DEPTH_SIDE // 2
-                       for side in ('width', 'height'))
-                or not finite(meta.get('scale')) or not isinstance(k, dict)
-                or not all(finite(k.get(key)) for key in ('fx', 'fy', 'cx', 'cy'))):
+        if (
+            meta.get('encoding') != DEPTH_ENCODING
+            or meta.get('bytes') != len(payload) - size
+            or any(
+                type(meta.get(side)) is not int or not 1 <= meta[side] <= MAX_DEPTH_SIDE // 2
+                for side in ('width', 'height')
+            )
+            or not finite(meta.get('scale'))
+            or not isinstance(k, dict)
+            or not all(finite(k.get(key)) for key in ('fx', 'fy', 'cx', 'cy'))
+        ):
             raise ValueError('Malformed relay depth metadata')
         head = meta.get('head')  # The head's measured pose at the frame's capture, while a session runs.
         if head is not None and (
-                not isinstance(head, dict) or not isinstance(head.get('joints'), dict)
-                or not all(map(finite, head['joints'].values())) or not finite(head.get('skew_ms'))
-                or any(not isinstance(head.get(key), list) or len(head[key]) != 7 or not all(map(finite, head[key]))
-                       for key in ('pose', 'zero'))):
+            not isinstance(head, dict)
+            or not isinstance(head.get('joints'), dict)
+            or not all(map(finite, head['joints'].values()))
+            or not finite(head.get('skew_ms'))
+            or any(
+                not isinstance(head.get(key), list) or len(head[key]) != 7 or not all(map(finite, head[key]))
+                for key in ('pose', 'zero')
+            )
+        ):
             raise ValueError('Malformed relay head pose')
         return payload[:size], (meta, payload[size:])
 
@@ -155,7 +180,7 @@ class CameraVideo:
             sent = dict(self._heartbeats).get(token) if type(token) is int else None
             if sent is None:
                 raise ValueError('Relay heartbeat is unknown or too old')
-            transit_bound = now-sent
+            transit_bound = now - sent
             if transit_bound < 0 or transit_bound >= STALE_AFTER:
                 self._frames.clear()
                 self._error = 'Camera transport is stale'
@@ -163,7 +188,7 @@ class CameraVideo:
             kind = header.get('kind')
             if kind == 'status' and not jpeg:
                 errors = header.get('errors')
-                if not isinstance(errors, dict) or set(errors)-set(ROLES):
+                if not isinstance(errors, dict) or set(errors) - set(ROLES):
                     raise ValueError('Malformed camera status')
                 self._errors = {role: str(value)[:200] for role, value in errors.items() if value}
                 self._error = None
@@ -172,7 +197,7 @@ class CameraVideo:
                 raise ValueError('Unexpected relay frame role')
             role = header['role']
             age, stamp = header.get('source_age_s'), header.get('source_timestamp')
-            if any(type(value) not in (int,float) or not math.isfinite(value) for value in (age, stamp)) or age < 0:
+            if any(type(value) not in (int, float) or not math.isfinite(value) for value in (age, stamp)) or age < 0:
                 raise ValueError('Invalid camera freshness metadata')
             depth = None
             if 'depth' in header:
@@ -187,8 +212,14 @@ class CameraVideo:
                 self._errors[role] = 'Camera frame is stale'
                 return
             self._sequences[role] += 1
-            self._frames[role] = {'jpeg':jpeg, 'source_timestamp':stamp, 'age_at_receive':bound,
-                                 'received_at':now, 'sequence':self._sequences[role], 'depth':depth}
+            self._frames[role] = {
+                'jpeg': jpeg,
+                'source_timestamp': stamp,
+                'age_at_receive': bound,
+                'received_at': now,
+                'sequence': self._sequences[role],
+                'depth': depth,
+            }
             self._errors.pop(role, None)
             self._error = None
 
@@ -200,9 +231,9 @@ class CameraVideo:
                     token = self._heartbeat_sequence
                     self._heartbeats.append((token, self.clock()))
                     depth = bool(self._depth_viewers)  # The relay compresses the head's depth only while asked.
-                stdin.write(json.dumps({'heartbeat':token, 'depth':depth}) + '\n')
+                stdin.write(json.dumps({'heartbeat': token, 'depth': depth}) + '\n')
                 stdin.flush()
-                stop.wait(.2)
+                stop.wait(0.2)
         except Exception:
             channel.close()
 
@@ -211,7 +242,7 @@ class CameraVideo:
         while not stop.is_set():
             if channel.recv_stderr_ready():
                 chunk = channel.recv_stderr(4096)
-                stderr.extend(chunk[:max(0,4096-len(stderr))])
+                stderr.extend(chunk[: max(0, 4096 - len(stderr))])
             if channel.recv_ready():
                 chunk = channel.recv(65536)
                 if not chunk:
@@ -221,36 +252,39 @@ class CameraVideo:
                     progress = self.clock()
             elif channel.exit_status_ready():
                 raise EOFError('Camera relay exited: ' + stderr.decode(errors='replace'))
-            elif self.clock()-progress > 2.:
+            elif self.clock() - progress > 2.0:
                 raise TimeoutError('Camera relay stopped responding')
             else:
-                stop.wait(.01)
+                stop.wait(0.01)
 
     def _run(self, stop):
         from robot_platform.ops.ssh import connect, open_command
-        delay = .5
+
+        delay = 0.5
         try:
             while not stop.is_set():
                 client = channel = sender = None
                 connection_stop = threading.Event()
                 try:
-                    client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.)
+                    client = (self.open_ssh or connect)(self.profile, address=self.address(), timeout=3.0)
                     with self._lock:
                         self._client = client
                     if stop.is_set():
                         break
                     source = (Path(__file__).with_name('camera_video_worker.py')).read_text(encoding='utf-8')
-                    stdin, out, _err = open_command(client, 'python3 -u -c ' + shlex.quote(source), timeout=2.)
+                    stdin, out, _err = open_command(client, 'python3 -u -c ' + shlex.quote(source), timeout=2.0)
                     channel = out.channel
-                    channel.settimeout(2.)
+                    channel.settimeout(2.0)
                     with self._lock:
                         self._channel = channel
                         self._frames.clear()
                         self._heartbeats.clear()
-                    sender = threading.Thread(target=self._heartbeat, args=(stdin, channel, connection_stop), daemon=True)
+                    sender = threading.Thread(
+                        target=self._heartbeat, args=(stdin, channel, connection_stop), daemon=True
+                    )
                     sender.start()
                     self._pump(channel, stop)
-                    delay = .5
+                    delay = 0.5
                 except Exception as exc:
                     with self._lock:
                         self._frames.clear()
@@ -267,7 +301,7 @@ class CameraVideo:
                         self._client = self._channel = None
                 if not stop.is_set():
                     stop.wait(delay)
-                    delay = min(4., delay*2)
+                    delay = min(4.0, delay * 2)
         finally:
             with self._lock:
                 self._frames.clear()

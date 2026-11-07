@@ -39,7 +39,7 @@ struct MotorConfigYaml {
     id: String,
     can_id: u8,
     #[serde(default = "default_can_bus")]
-    can_bus: String,  // Optional, defaults to "can1" for backward compatibility
+    can_bus: String, // Optional, defaults to "can1" for backward compatibility
     #[serde(rename = "type")]
     motor_type: String,
     #[serde(default)]
@@ -65,14 +65,14 @@ struct ControlConfig {
 #[derive(Debug, Clone, serde::Deserialize)]
 struct CanConfig {
     #[serde(default)]
-    interface: String,  // Legacy single interface (deprecated)
+    interface: String, // Legacy single interface (deprecated)
     #[serde(default)]
-    interfaces: HashMap<String, String>,  // New: map of bus name -> interface name
+    interfaces: HashMap<String, String>, // New: map of bus name -> interface name
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct NetworkConfig {
-    #[serde(alias = "jetson")]  // Backward compatibility
+    #[serde(alias = "jetson")] // Backward compatibility
     device: DeviceConfig,
 }
 
@@ -130,13 +130,13 @@ fn yaml_to_motor_config(yaml: &MotorConfigYaml) -> MotorConfig {
 struct ControlSystem {
     trace: trace::TraceRecorder,
     producer_id: String,
-    can_sockets: HashMap<String, CanSocket>,  // bus_name -> socket
-    can_interfaces: HashMap<String, String>,  // bus_name -> interface_name (for socket recovery)
+    can_sockets: HashMap<String, CanSocket>, // bus_name -> socket
+    can_interfaces: HashMap<String, String>, // bus_name -> interface_name (for socket recovery)
     base_group: MotorGroup,
     arm_group: MotorGroup,
     command_sub: CommandSubscriber,
     telemetry_pub: TelemetryPublisher,
-    motor_id_map: HashMap<String, u8>, // motor_id -> can_id
+    motor_id_map: HashMap<String, u8>,      // motor_id -> can_id
     motor_bus_map: HashMap<String, String>, // motor_id -> can_bus
     emergency_stop: bool,
     last_base_control: Instant,
@@ -150,12 +150,12 @@ struct ControlSystem {
     // battery_voltage.  Used to be single-source from base_group.first(),
     // which broke when the wheels were retired (2026-05-30).
     motor_vbus: HashMap<u8, (f32, Instant)>,
-    vbus_query_idx: usize,        // Round-robin cursor over all motors
+    vbus_query_idx: usize, // Round-robin cursor over all motors
     dropped_frames: RefCell<HashMap<String, u64>>, // Track dropped frames per CAN bus
     last_buffer_warning: RefCell<HashMap<String, Instant>>, // Rate-limit buffer warnings
     consecutive_tx_errors: RefCell<HashMap<String, u32>>, // Track consecutive errors for recovery
     last_error_log: Instant, // Rate-limit "group has errors" log flood
-    last_hold_log: Instant,  // Rate-limit "command timeout hold" log
+    last_hold_log: Instant, // Rate-limit "command timeout hold" log
     last_socket_recovery: Instant, // Rate-limit socket recovery to prevent storm
     can_recovery_level: HashMap<String, u32>, // Current recovery escalation level per bus (0=socket, 1=link, 2=exit)
     can_recovery_attempts: HashMap<String, u32>, // Attempts at current level per bus
@@ -178,20 +178,31 @@ impl ControlSystem {
 
         // Open all CAN interfaces
         for (bus_name, interface_name) in &interfaces {
-            let socket = CanSocket::open(interface_name)
-                .with_context(|| format!("Failed to open CAN interface {} for bus {}", interface_name, bus_name))?;
+            let socket = CanSocket::open(interface_name).with_context(|| {
+                format!(
+                    "Failed to open CAN interface {} for bus {}",
+                    interface_name, bus_name
+                )
+            })?;
 
-            socket.set_nonblocking(true)
-                .with_context(|| format!("Failed to set CAN socket {} to non-blocking mode", bus_name))?;
+            socket.set_nonblocking(true).with_context(|| {
+                format!("Failed to set CAN socket {} to non-blocking mode", bus_name)
+            })?;
 
             // Disable loopback: by default Linux CAN copies every TX frame back to the
             // RX queue for other applications. We're the only app on this bus — disabling
             // loopback eliminates kernel-side frame copying overhead.
             if let Err(e) = socket.set_loopback(false) {
-                warn!("Failed to disable CAN loopback on {}: {} (continuing)", bus_name, e);
+                warn!(
+                    "Failed to disable CAN loopback on {}: {} (continuing)",
+                    bus_name, e
+                );
             }
 
-            info!("CAN interface {} opened for bus {} (non-blocking, loopback off)", interface_name, bus_name);
+            info!(
+                "CAN interface {} opened for bus {} (non-blocking, loopback off)",
+                interface_name, bus_name
+            );
             can_sockets.insert(bus_name.clone(), socket);
         }
 
@@ -224,11 +235,8 @@ impl ControlSystem {
             arm_motors.push(Motor::new(yaml_to_motor_config(m), watchdog_timeout));
         }
 
-        let arm_group = MotorGroup::new(
-            "arm".to_string(),
-            arm_motors,
-            config.control.arm_frequency,
-        );
+        let arm_group =
+            MotorGroup::new("arm".to_string(), arm_motors, config.control.arm_frequency);
 
         // Build motor ID and bus maps
         let mut motor_id_map = HashMap::new();
@@ -238,7 +246,10 @@ impl ControlSystem {
             motor_bus_map.insert(wheel.id.clone(), wheel.can_bus.clone());
         }
         motor_id_map.insert(config.motors.swivel.id.clone(), config.motors.swivel.can_id);
-        motor_bus_map.insert(config.motors.swivel.id.clone(), config.motors.swivel.can_bus.clone());
+        motor_bus_map.insert(
+            config.motors.swivel.id.clone(),
+            config.motors.swivel.can_bus.clone(),
+        );
         for arm_motor in &config.motors.arm {
             motor_id_map.insert(arm_motor.id.clone(), arm_motor.can_id);
             motor_bus_map.insert(arm_motor.id.clone(), arm_motor.can_bus.clone());
@@ -251,8 +262,13 @@ impl ControlSystem {
         info!("Control system initialized");
         Ok(Self {
             trace,
-            producer_id: format!("{}-{}", std::process::id(),
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()),
+            producer_id: format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos()
+            ),
             can_sockets,
             can_interfaces,
             base_group,
@@ -320,7 +336,12 @@ impl ControlSystem {
     ///
     /// Only truly unrecoverable errors (persistent after all retries) increment the
     /// consecutive error counter for escalating recovery.
-    fn safe_write_frame(&self, socket: &CanSocket, frame: &socketcan::CanFrame, bus_name: &str) -> Result<()> {
+    fn safe_write_frame(
+        &self,
+        socket: &CanSocket,
+        frame: &socketcan::CanFrame,
+        bus_name: &str,
+    ) -> Result<()> {
         self.trace.can("can_tx_submit", frame, bus_name);
         const MAX_RETRIES: u32 = 10;
         const RETRY_BACKOFF_US: u64 = 150; // ~1 CAN frame time at 1Mbps
@@ -330,7 +351,9 @@ impl ControlSystem {
                 Ok(_) => {
                     self.trace.can("can_tx_accepted", frame, bus_name);
                     // Success — reset consecutive error counter
-                    self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                    self.consecutive_tx_errors
+                        .borrow_mut()
+                        .insert(bus_name.to_string(), 0);
                     return Ok(());
                 }
                 Err(e) => {
@@ -359,7 +382,8 @@ impl ControlSystem {
                     let now = Instant::now();
                     let should_warn = {
                         let warnings = self.last_buffer_warning.borrow();
-                        warnings.get(bus_name)
+                        warnings
+                            .get(bus_name)
                             .map(|last| now.duration_since(*last) >= Duration::from_secs(1))
                             .unwrap_or(true)
                     };
@@ -368,7 +392,9 @@ impl ControlSystem {
                         let dropped_count = *dropped.get(bus_name).unwrap_or(&0);
                         warn!("CAN {} TX failed after {} retries (errno {}, consecutive: {}, total dropped: {})",
                               bus_name, attempt, errno, consecutive, dropped_count);
-                        self.last_buffer_warning.borrow_mut().insert(bus_name.to_string(), now);
+                        self.last_buffer_warning
+                            .borrow_mut()
+                            .insert(bus_name.to_string(), now);
                     }
 
                     return Ok(());
@@ -393,10 +419,16 @@ impl ControlSystem {
             None => return false,
         };
 
-        let error_count = self.consecutive_tx_errors.borrow()
-            .get(bus_name).copied().unwrap_or(0);
-        warn!("CAN {} Level 0 recovery: socket reopen ({} consecutive TX errors)",
-              bus_name, error_count);
+        let error_count = self
+            .consecutive_tx_errors
+            .borrow()
+            .get(bus_name)
+            .copied()
+            .unwrap_or(0);
+        warn!(
+            "CAN {} Level 0 recovery: socket reopen ({} consecutive TX errors)",
+            bus_name, error_count
+        );
 
         // Drop old socket (closes fd, frees kernel socket buffers)
         self.can_sockets.remove(bus_name);
@@ -405,12 +437,17 @@ impl ControlSystem {
         match CanSocket::open(&interface_name) {
             Ok(socket) => {
                 if let Err(e) = socket.set_nonblocking(true) {
-                    error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
+                    error!(
+                        "Failed to set recovered socket {} to non-blocking: {}",
+                        bus_name, e
+                    );
                     return false;
                 }
                 let _ = socket.set_loopback(false);
                 self.can_sockets.insert(bus_name.to_string(), socket);
-                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                self.consecutive_tx_errors
+                    .borrow_mut()
+                    .insert(bus_name.to_string(), 0);
                 info!("CAN {} Level 0 recovery complete", bus_name);
                 true
             }
@@ -430,7 +467,10 @@ impl ControlSystem {
             None => return false,
         };
 
-        warn!("CAN {} Level 1 recovery: ip link down/up (resetting USB-CAN echo IDs)", bus_name);
+        warn!(
+            "CAN {} Level 1 recovery: ip link down/up (resetting USB-CAN echo IDs)",
+            bus_name
+        );
 
         // Close socket first
         self.can_sockets.remove(bus_name);
@@ -445,8 +485,11 @@ impl ControlSystem {
                 info!("CAN {} interface {} brought down", bus_name, interface_name);
             }
             Ok(output) => {
-                error!("Failed to bring down {}: {}", interface_name,
-                       String::from_utf8_lossy(&output.stderr));
+                error!(
+                    "Failed to bring down {}: {}",
+                    interface_name,
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 return false;
             }
             Err(e) => {
@@ -459,13 +502,26 @@ impl ControlSystem {
 
         // Reconfigure bitrate
         let config_type = Command::new("sudo")
-            .args(["ip", "link", "set", &interface_name, "type", "can",
-                   "bitrate", "1000000", "restart-ms", "100"])
+            .args([
+                "ip",
+                "link",
+                "set",
+                &interface_name,
+                "type",
+                "can",
+                "bitrate",
+                "1000000",
+                "restart-ms",
+                "100",
+            ])
             .output();
         if let Ok(output) = config_type {
             if !output.status.success() {
-                warn!("CAN {} bitrate config warning: {}", bus_name,
-                      String::from_utf8_lossy(&output.stderr));
+                warn!(
+                    "CAN {} bitrate config warning: {}",
+                    bus_name,
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
 
@@ -475,8 +531,11 @@ impl ControlSystem {
             .output();
         if let Ok(output) = txq {
             if !output.status.success() {
-                warn!("CAN {} txqueuelen config warning: {}", bus_name,
-                      String::from_utf8_lossy(&output.stderr));
+                warn!(
+                    "CAN {} txqueuelen config warning: {}",
+                    bus_name,
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
 
@@ -489,8 +548,11 @@ impl ControlSystem {
                 info!("CAN {} interface {} brought up", bus_name, interface_name);
             }
             Ok(output) => {
-                error!("Failed to bring up {}: {}", interface_name,
-                       String::from_utf8_lossy(&output.stderr));
+                error!(
+                    "Failed to bring up {}: {}",
+                    interface_name,
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 return false;
             }
             Err(e) => {
@@ -505,15 +567,23 @@ impl ControlSystem {
         match CanSocket::open(&interface_name) {
             Ok(socket) => {
                 if let Err(e) = socket.set_nonblocking(true) {
-                    error!("Failed to set recovered socket {} to non-blocking: {}", bus_name, e);
+                    error!(
+                        "Failed to set recovered socket {} to non-blocking: {}",
+                        bus_name, e
+                    );
                     return false;
                 }
                 let _ = socket.set_loopback(false);
                 self.can_sockets.insert(bus_name.to_string(), socket);
-                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
+                self.consecutive_tx_errors
+                    .borrow_mut()
+                    .insert(bus_name.to_string(), 0);
 
                 // Set all motors on this bus to Disabled — user must re-enable
-                for motor in self.base_group.motors.iter_mut()
+                for motor in self
+                    .base_group
+                    .motors
+                    .iter_mut()
                     .chain(self.arm_group.motors.iter_mut())
                 {
                     if motor.config.can_bus == bus_name {
@@ -522,11 +592,17 @@ impl ControlSystem {
                     }
                 }
 
-                info!("CAN {} Level 1 recovery complete — all motors on bus set to Disabled", bus_name);
+                info!(
+                    "CAN {} Level 1 recovery complete — all motors on bus set to Disabled",
+                    bus_name
+                );
                 true
             }
             Err(e) => {
-                error!("Failed to reopen CAN socket {} after link recovery: {}", bus_name, e);
+                error!(
+                    "Failed to reopen CAN socket {} after link recovery: {}",
+                    bus_name, e
+                );
                 false
             }
         }
@@ -546,20 +622,32 @@ impl ControlSystem {
             Some(name) => name.clone(),
             None => return false,
         };
-        warn!("CAN {} Level 2 recovery: USB port reset (aizee-can-reset {})", bus_name, interface_name);
+        warn!(
+            "CAN {} Level 2 recovery: USB port reset (aizee-can-reset {})",
+            bus_name, interface_name
+        );
 
         // Close the socket so the interface can re-enumerate cleanly.
         self.can_sockets.remove(bus_name);
         std::thread::sleep(Duration::from_millis(50));
 
-        match Command::new("sudo").args(["aizee-can-reset", &interface_name]).output() {
+        match Command::new("sudo")
+            .args(["aizee-can-reset", &interface_name])
+            .output()
+        {
             Ok(output) if output.status.success() => {
-                info!("CAN {} aizee-can-reset ok: {}", bus_name,
-                      String::from_utf8_lossy(&output.stdout).trim());
+                info!(
+                    "CAN {} aizee-can-reset ok: {}",
+                    bus_name,
+                    String::from_utf8_lossy(&output.stdout).trim()
+                );
             }
             Ok(output) => {
-                warn!("CAN {} aizee-can-reset failed (adapter may need a physical re-plug): {}",
-                      bus_name, String::from_utf8_lossy(&output.stderr).trim());
+                warn!(
+                    "CAN {} aizee-can-reset failed (adapter may need a physical re-plug): {}",
+                    bus_name,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
                 return false;
             }
             Err(e) => {
@@ -573,13 +661,21 @@ impl ControlSystem {
         match CanSocket::open(&interface_name) {
             Ok(socket) => {
                 if let Err(e) = socket.set_nonblocking(true) {
-                    error!("Failed to set reset socket {} non-blocking: {}", bus_name, e);
+                    error!(
+                        "Failed to set reset socket {} non-blocking: {}",
+                        bus_name, e
+                    );
                     return false;
                 }
                 let _ = socket.set_loopback(false);
                 self.can_sockets.insert(bus_name.to_string(), socket);
-                self.consecutive_tx_errors.borrow_mut().insert(bus_name.to_string(), 0);
-                for motor in self.base_group.motors.iter_mut()
+                self.consecutive_tx_errors
+                    .borrow_mut()
+                    .insert(bus_name.to_string(), 0);
+                for motor in self
+                    .base_group
+                    .motors
+                    .iter_mut()
                     .chain(self.arm_group.motors.iter_mut())
                 {
                     if motor.config.can_bus == bus_name {
@@ -587,11 +683,17 @@ impl ControlSystem {
                         motor.feedback = None;
                     }
                 }
-                info!("CAN {} Level 2 (USB reset) recovery complete — motors set to Disabled", bus_name);
+                info!(
+                    "CAN {} Level 2 (USB reset) recovery complete — motors set to Disabled",
+                    bus_name
+                );
                 true
             }
             Err(e) => {
-                error!("Failed to reopen CAN socket {} after USB reset: {}", bus_name, e);
+                error!(
+                    "Failed to reopen CAN socket {} after USB reset: {}",
+                    bus_name, e
+                );
                 false
             }
         }
@@ -617,7 +719,8 @@ impl ControlSystem {
 
         let buses_to_recover: Vec<String> = {
             let errors = self.consecutive_tx_errors.borrow();
-            errors.iter()
+            errors
+                .iter()
                 .filter(|(_, &count)| count >= RECOVERY_THRESHOLD)
                 .map(|(bus, _)| bus.clone())
                 .collect()
@@ -625,7 +728,11 @@ impl ControlSystem {
 
         for bus_name in buses_to_recover {
             let level = self.can_recovery_level.get(&bus_name).copied().unwrap_or(0);
-            let attempts = self.can_recovery_attempts.get(&bus_name).copied().unwrap_or(0);
+            let attempts = self
+                .can_recovery_attempts
+                .get(&bus_name)
+                .copied()
+                .unwrap_or(0);
 
             // Level 2+ = DEGRADED (persistent failure: no motors on the bus, or the
             // USB-CAN adapter dropped off). Do NOT exit — exiting triggers a systemd
@@ -695,16 +802,24 @@ impl ControlSystem {
                     self.last_socket_recovery = Instant::now();
                     // Always increment — if we're back here, it didn't really work
                     let new_attempts = attempts + 1;
-                    self.can_recovery_attempts.insert(bus_name.clone(), new_attempts);
-                    warn!("CAN {} Level 0 attempt {}/{}", bus_name, new_attempts, MAX_SOCKET_ATTEMPTS);
+                    self.can_recovery_attempts
+                        .insert(bus_name.clone(), new_attempts);
+                    warn!(
+                        "CAN {} Level 0 attempt {}/{}",
+                        bus_name, new_attempts, MAX_SOCKET_ATTEMPTS
+                    );
                 }
                 1 => {
                     // Level 1: ip link down/up
                     self.recover_link(&bus_name);
                     self.last_link_recovery = Instant::now();
                     let new_attempts = attempts + 1;
-                    self.can_recovery_attempts.insert(bus_name.clone(), new_attempts);
-                    warn!("CAN {} Level 1 attempt {}/{}", bus_name, new_attempts, MAX_LINK_ATTEMPTS);
+                    self.can_recovery_attempts
+                        .insert(bus_name.clone(), new_attempts);
+                    warn!(
+                        "CAN {} Level 1 attempt {}/{}",
+                        bus_name, new_attempts, MAX_LINK_ATTEMPTS
+                    );
                 }
                 _ => {}
             }
@@ -744,7 +859,13 @@ impl ControlSystem {
                 if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
                     let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
                     let keepalive = robstride::build_control_frame(
-                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                        motor.config.can_id,
+                        motor.config.model,
+                        pos,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                     );
                     self.tracked_write_frame(socket, &keepalive, &motor.config.can_bus);
                 }
@@ -759,7 +880,13 @@ impl ControlSystem {
                 if let Some(socket) = self.get_can_socket_by_bus(&motor.config.can_bus) {
                     let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(0.0);
                     let keepalive = robstride::build_control_frame(
-                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                        motor.config.can_id,
+                        motor.config.model,
+                        pos,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                     );
                     self.tracked_write_frame(socket, &keepalive, &motor.config.can_bus);
                 }
@@ -780,9 +907,12 @@ impl ControlSystem {
     fn enable_motor(&mut self, motor_id: &str) -> Result<()> {
         if let Some((can_id, model)) = self.can_id_and_model(motor_id) {
             // Get CAN socket and bus name for this motor
-            let socket = self.get_can_socket(motor_id)
+            let socket = self
+                .get_can_socket(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
-            let bus_name = self.motor_bus_map.get(motor_id)
+            let bus_name = self
+                .motor_bus_map
+                .get(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("Bus name not found for motor {}", motor_id))?
                 .clone(); // Clone to avoid borrow conflict
 
@@ -847,12 +977,18 @@ impl ControlSystem {
 
                             // Log all feedback frames during enable poll for debugging
                             if msg_type == 2 {
-                                info!("  enable poll: motor=0x{:02X} mode={} (want 0x{:02X})",
-                                      resp_motor_id, mode_bits, can_id);
+                                info!(
+                                    "  enable poll: motor=0x{:02X} mode={} (want 0x{:02X})",
+                                    resp_motor_id, mode_bits, can_id
+                                );
                             }
 
-                            if msg_type != 2 { continue; }
-                            if resp_motor_id != can_id { continue; }
+                            if msg_type != 2 {
+                                continue;
+                            }
+                            if resp_motor_id != can_id {
+                                continue;
+                            }
 
                             let error_bits = ((arb_id_raw >> 16) & 0x1F) as u8;
 
@@ -860,7 +996,9 @@ impl ControlSystem {
                             let data = frame.data();
                             if data.len() >= 2 {
                                 let angle_raw = u16::from_be_bytes([data[0], data[1]]);
-                                confirmed_position = (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
+                                confirmed_position = (angle_raw as f32 / 65535.0)
+                                    * (8.0 * std::f32::consts::PI)
+                                    - (4.0 * std::f32::consts::PI);
                             }
 
                             info!("  Enable response: motor=0x{:02X}, mode={}, errors=0x{:02X}, pos={:.3}",
@@ -878,7 +1016,10 @@ impl ControlSystem {
                 }
 
                 if got_run_mode {
-                    info!("Motor {} entered Run mode at pos={:.3}", motor_id, confirmed_position);
+                    info!(
+                        "Motor {} entered Run mode at pos={:.3}",
+                        motor_id, confirmed_position
+                    );
 
                     // Send zero-force keepalives to stabilize the motor.
                     // IMPORTANT: Do NOT apply Kd during enable keepalives — it causes
@@ -891,7 +1032,15 @@ impl ControlSystem {
                     // if we see a frame indicating the motor left Run mode.
                     let mut still_running = true;
                     for _ in 0..50 {
-                        let keepalive = robstride::build_control_frame(can_id, model, confirmed_position, 0.0, 0.0, 0.0, 0.0);
+                        let keepalive = robstride::build_control_frame(
+                            can_id,
+                            model,
+                            confirmed_position,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                        );
                         self.tracked_write_frame(socket, &keepalive, &bus_name);
                         self.send_keepalives(); // keep other motors alive too
                         std::thread::sleep(std::time::Duration::from_millis(2));
@@ -906,14 +1055,20 @@ impl ControlSystem {
                                         socketcan::Id::Extended(id) => id.as_raw(),
                                         _ => continue,
                                     };
-                                    if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 { continue; }
+                                    if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 {
+                                        continue;
+                                    }
                                     let resp_motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
-                                    if resp_motor_id != can_id { continue; }
+                                    if resp_motor_id != can_id {
+                                        continue;
+                                    }
                                     let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
                                     let data = frame.data();
                                     if data.len() >= 2 {
                                         let angle_raw = u16::from_be_bytes([data[0], data[1]]);
-                                        confirmed_position = (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
+                                        confirmed_position = (angle_raw as f32 / 65535.0)
+                                            * (8.0 * std::f32::consts::PI)
+                                            - (4.0 * std::f32::consts::PI);
                                     }
                                     still_running = mode_bits == 2;
                                 }
@@ -932,14 +1087,20 @@ impl ControlSystem {
                                     socketcan::Id::Extended(id) => id.as_raw(),
                                     _ => continue,
                                 };
-                                if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 { continue; }
+                                if ((arb_id_raw >> 24) & 0x1F) as u8 != 2 {
+                                    continue;
+                                }
                                 let resp_motor_id = ((arb_id_raw >> 8) & 0xFF) as u8;
-                                if resp_motor_id != can_id { continue; }
+                                if resp_motor_id != can_id {
+                                    continue;
+                                }
                                 let mode_bits = ((arb_id_raw >> 22) & 0x03) as u8;
                                 let data = frame.data();
                                 if data.len() >= 2 {
                                     let angle_raw = u16::from_be_bytes([data[0], data[1]]);
-                                    confirmed_position = (angle_raw as f32 / 65535.0) * (8.0 * std::f32::consts::PI) - (4.0 * std::f32::consts::PI);
+                                    confirmed_position = (angle_raw as f32 / 65535.0)
+                                        * (8.0 * std::f32::consts::PI)
+                                        - (4.0 * std::f32::consts::PI);
                                 }
                                 still_running = mode_bits == 2;
                             }
@@ -949,27 +1110,43 @@ impl ControlSystem {
                     }
 
                     if still_running {
-                        info!("Motor {} confirmed stable in Run mode at pos={:.3}", motor_id, confirmed_position);
+                        info!(
+                            "Motor {} confirmed stable in Run mode at pos={:.3}",
+                            motor_id, confirmed_position
+                        );
                         enabled = true;
                         break;
                     } else {
-                        warn!("Motor {} faulted after enable (attempt {}), retrying...", motor_id, attempt);
+                        warn!(
+                            "Motor {} faulted after enable (attempt {}), retrying...",
+                            motor_id, attempt
+                        );
                         self.tracked_write_frame(socket, &clear_frame, &bus_name);
                         self.sleep_with_keepalives(100);
                     }
                 } else {
-                    warn!("Motor {} did NOT enter Run mode on attempt {}", motor_id, attempt);
+                    warn!(
+                        "Motor {} did NOT enter Run mode on attempt {}",
+                        motor_id, attempt
+                    );
                     self.tracked_write_frame(socket, &clear_frame, &bus_name);
                     self.sleep_with_keepalives(50);
                 }
             }
 
             if !enabled {
-                warn!("Motor {} failed to stay in Run mode after 3 attempts — may need power cycle", motor_id);
+                warn!(
+                    "Motor {} failed to stay in Run mode after 3 attempts — may need power cycle",
+                    motor_id
+                );
             }
 
             if let Some(motor) = self.find_motor_mut(motor_id) {
-                motor.state = if enabled { MotorState::Enabled } else { MotorState::Error };
+                motor.state = if enabled {
+                    MotorState::Enabled
+                } else {
+                    MotorState::Error
+                };
                 if enabled {
                     // Clear any stale latched fault now that the motor is cleanly in Run.
                     // Otherwise fault_info persists in-process and telemetry keeps
@@ -989,12 +1166,12 @@ impl ControlSystem {
                 motor.target_position = confirmed_position;
                 motor.target_velocity = 0.0;
                 motor.position_initialized = true; // Prevent re-init from stale feedback
-                // Populate synthetic feedback so this motor appears in telemetry immediately.
-                // enable_motor() reads CAN frames directly without calling update_feedback(),
-                // leaving motor.feedback = None. publish_telemetry() skips motors with no
-                // feedback, so the motor is invisible to teleop. For the swivel this creates
-                // a circular dependency: teleop only sends Swivel commands after seeing the
-                // motor as "enabled" in telemetry, but it never appears without feedback.
+                                                   // Populate synthetic feedback so this motor appears in telemetry immediately.
+                                                   // enable_motor() reads CAN frames directly without calling update_feedback(),
+                                                   // leaving motor.feedback = None. publish_telemetry() skips motors with no
+                                                   // feedback, so the motor is invisible to teleop. For the swivel this creates
+                                                   // a circular dependency: teleop only sends Swivel commands after seeing the
+                                                   // motor as "enabled" in telemetry, but it never appears without feedback.
                 if enabled {
                     motor.feedback_is_measured = false;
                     motor.feedback = Some(robstride::MotorFeedback {
@@ -1008,7 +1185,10 @@ impl ControlSystem {
                         timestamp: std::time::Instant::now(),
                     });
                 }
-                info!("Motor {} state set to {:?}, target_pos={:.3}", motor_id, motor.state, confirmed_position);
+                info!(
+                    "Motor {} state set to {:?}, target_pos={:.3}",
+                    motor_id, motor.state, confirmed_position
+                );
             }
             Ok(())
         } else {
@@ -1018,9 +1198,12 @@ impl ControlSystem {
 
     fn disable_motor(&mut self, motor_id: &str) -> Result<()> {
         if let Some(can_id) = self.motor_id_map.get(motor_id) {
-            let socket = self.get_can_socket(motor_id)
+            let socket = self
+                .get_can_socket(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("CAN bus not found for motor {}", motor_id))?;
-            let bus_name = self.motor_bus_map.get(motor_id)
+            let bus_name = self
+                .motor_bus_map
+                .get(motor_id)
                 .ok_or_else(|| anyhow::anyhow!("Bus name not found for motor {}", motor_id))?
                 .clone(); // Clone to avoid borrow conflict
             let frame = robstride::build_disable_frame(*can_id);
@@ -1038,7 +1221,8 @@ impl ControlSystem {
 
     fn handle_command(&mut self, cmd: CommandMessage) -> Result<()> {
         if self.trace.enabled() {
-            self.trace.record("command_handle", serde_json::to_value(&cmd)?);
+            self.trace
+                .record("command_handle", serde_json::to_value(&cmd)?);
         }
         debug!("Handling command: {:?}", cmd);
 
@@ -1056,7 +1240,12 @@ impl ControlSystem {
         }
 
         match cmd {
-            CommandMessage::Drive { linear, angular, kp, kd } => {
+            CommandMessage::Drive {
+                linear,
+                angular,
+                kp,
+                kd,
+            } => {
                 // Differential drive for two wheels only (swivel handled separately)
                 // Negate both to match controller direction
                 let linear = -linear;
@@ -1069,15 +1258,19 @@ impl ControlSystem {
                 let drive_kd = if kp == 0.0 && kd == 0.0 { 3.0 } else { kd };
 
                 if let Some(left_motor) = self.base_group.motors.first_mut() {
-                    info!("Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
-                          left_motor.config.id, left_vel, drive_kp, drive_kd);
+                    info!(
+                        "Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
+                        left_motor.config.id, left_vel, drive_kp, drive_kd
+                    );
                     left_motor.set_velocity_target(left_vel)?;
                     left_motor.kp = drive_kp;
                     left_motor.kd = drive_kd;
                 }
                 if let Some(right_motor) = self.base_group.motors.get_mut(1) {
-                    info!("Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
-                          right_motor.config.id, right_vel, drive_kp, drive_kd);
+                    info!(
+                        "Setting {} velocity to {:.3} rad/s (Kp={:.1}, Kd={:.1})",
+                        right_motor.config.id, right_vel, drive_kp, drive_kd
+                    );
                     right_motor.set_velocity_target(right_vel)?;
                     right_motor.kp = drive_kp;
                     right_motor.kd = drive_kd;
@@ -1104,12 +1297,16 @@ impl ControlSystem {
                     let kp_val = kp.get(i).copied().unwrap_or(30.0);
                     let kd_val = kd.get(i).copied().unwrap_or(1.0);
                     let torque_ff = torques.get(i).copied().unwrap_or(0.0);
-                    if let Err(e) = motor.set_position_target(positions[i], vel, kp_val, kd_val, torque_ff) {
+                    if let Err(e) =
+                        motor.set_position_target(positions[i], vel, kp_val, kd_val, torque_ff)
+                    {
                         // Soft-limit violation: hold the last valid target but refresh
                         // last_command_time so the watchdog doesn't fire for the whole
                         // arm group just because one joint hit its limit.
-                        warn!("Motor {} rejected pos {:.3}: {} — holding last target",
-                              motor.config.id, positions[i], e);
+                        warn!(
+                            "Motor {} rejected pos {:.3}: {} — holding last target",
+                            motor.config.id, positions[i], e
+                        );
                         motor.last_command_time = std::time::Instant::now();
                     }
                 }
@@ -1118,14 +1315,34 @@ impl ControlSystem {
                 // Drive first (lowest stakes), then arm.  Each sub-payload
                 // re-uses the existing variant handlers so any future change
                 // to Drive/ArmJoints semantics carries through automatically.
-                if let Some(DrivePayload { linear, angular, kp, kd }) = drive {
-                    self.handle_command(CommandMessage::Drive { linear, angular, kp, kd })?;
+                if let Some(DrivePayload {
+                    linear,
+                    angular,
+                    kp,
+                    kd,
+                }) = drive
+                {
+                    self.handle_command(CommandMessage::Drive {
+                        linear,
+                        angular,
+                        kp,
+                        kd,
+                    })?;
                 }
                 if let Some(ArmJointsPayload {
-                    positions, velocities, kp, kd, torques,
-                }) = arm_joints {
+                    positions,
+                    velocities,
+                    kp,
+                    kd,
+                    torques,
+                }) = arm_joints
+                {
                     self.handle_command(CommandMessage::ArmJoints {
-                        positions, velocities, kp, kd, torques,
+                        positions,
+                        velocities,
+                        kp,
+                        kd,
+                        torques,
                     })?;
                 }
             }
@@ -1135,7 +1352,8 @@ impl ControlSystem {
                     // Skip motors that are already enabled or running — re-enabling a
                     // running motor blocks the main loop for ~170ms per motor, starving
                     // the command timeout watchdog and triggering emergency_stop_all().
-                    let already_active = self.find_motor_mut(motor_id)
+                    let already_active = self
+                        .find_motor_mut(motor_id)
                         .map(|m| matches!(m.state, MotorState::Enabled | MotorState::Running))
                         .unwrap_or(false);
                     if already_active {
@@ -1150,7 +1368,9 @@ impl ControlSystem {
                     for (mid, cid, cmodel) in &enabled_motors {
                         let mid_bus = self.motor_bus_map.get(mid).cloned().unwrap_or_default();
                         if let Some(socket) = self.get_can_socket(mid) {
-                            let keepalive = robstride::build_control_frame(*cid, *cmodel, 0.0, 0.0, 0.0, 0.0, 0.0);
+                            let keepalive = robstride::build_control_frame(
+                                *cid, *cmodel, 0.0, 0.0, 0.0, 0.0, 0.0,
+                            );
                             self.tracked_write_frame(socket, &keepalive, &mid_bus);
                         }
                     }
@@ -1161,17 +1381,24 @@ impl ControlSystem {
                     // feedback timestamp refresh (which would cause a timeout death spiral).
                     for outer_attempt in 1..=3 {
                         if let Err(e) = self.enable_motor(motor_id) {
-                            warn!("Motor {} enable error (attempt {}): {} — continuing", motor_id, outer_attempt, e);
+                            warn!(
+                                "Motor {} enable error (attempt {}): {} — continuing",
+                                motor_id, outer_attempt, e
+                            );
                             break; // Skip further retries for this motor, try next one
                         }
-                        let is_enabled = self.find_motor_mut(motor_id)
+                        let is_enabled = self
+                            .find_motor_mut(motor_id)
                             .map(|m| m.state == MotorState::Enabled)
                             .unwrap_or(false);
                         if is_enabled {
                             break;
                         }
                         if outer_attempt < 3 {
-                            warn!("Motor {} outer enable attempt {} failed, retrying...", motor_id, outer_attempt);
+                            warn!(
+                                "Motor {} outer enable attempt {} failed, retrying...",
+                                motor_id, outer_attempt
+                            );
                         }
                     }
                     if let Some((cid, cmodel)) = self.can_id_and_model(motor_id) {
@@ -1193,7 +1420,10 @@ impl ControlSystem {
                 // individually; it just extends the grace period to cover the
                 // full batch enable duration rather than a single motor's.
                 let now = Instant::now();
-                for motor in self.base_group.motors.iter_mut()
+                for motor in self
+                    .base_group
+                    .motors
+                    .iter_mut()
                     .chain(self.arm_group.motors.iter_mut())
                 {
                     if matches!(motor.state, MotorState::Enabled | MotorState::Running) {
@@ -1209,11 +1439,17 @@ impl ControlSystem {
                 // get disabled.
                 for motor_id in motor_ids {
                     if !self.motor_id_map.contains_key(&motor_id) {
-                        debug!("Disable: skipping unknown motor '{}' (not in config)", motor_id);
+                        debug!(
+                            "Disable: skipping unknown motor '{}' (not in config)",
+                            motor_id
+                        );
                         continue;
                     }
                     if let Err(e) = self.disable_motor(&motor_id) {
-                        warn!("Disable {} failed: {} (continuing with remaining motors)", motor_id, e);
+                        warn!(
+                            "Disable {} failed: {} (continuing with remaining motors)",
+                            motor_id, e
+                        );
                     }
                 }
             }
@@ -1229,11 +1465,17 @@ impl ControlSystem {
                 // (47-85 Nm on RS04) that can re-accelerate or fault the motor.
                 for motor_id in &motor_ids {
                     if let Some(motor) = self.find_motor_mut(motor_id) {
-                        let current_pos = motor.feedback.as_ref()
-                            .map(|f| f.position).unwrap_or(motor.target_position);
+                        let current_pos = motor
+                            .feedback
+                            .as_ref()
+                            .map(|f| f.position)
+                            .unwrap_or(motor.target_position);
                         motor.target_position = current_pos;
                         motor.target_velocity = 0.0;
-                        info!("Software zero for {}: target_pos set to fb_pos={:.3}", motor_id, current_pos);
+                        info!(
+                            "Software zero for {}: target_pos set to fb_pos={:.3}",
+                            motor_id, current_pos
+                        );
                     }
                 }
             }
@@ -1246,8 +1488,10 @@ impl ControlSystem {
                 let mut blocked: Vec<String> = Vec::new();
                 for motor_id in &motor_ids {
                     match self.find_motor_mut(motor_id) {
-                        Some(motor) if motor.state != MotorState::Idle
-                            && motor.state != MotorState::Disabled => {
+                        Some(motor)
+                            if motor.state != MotorState::Idle
+                                && motor.state != MotorState::Disabled =>
+                        {
                             blocked.push(format!("{}={}", motor_id, motor.state.as_str()));
                         }
                         None => blocked.push(format!("{}=unknown", motor_id)),
@@ -1255,11 +1499,16 @@ impl ControlSystem {
                     }
                 }
                 if !blocked.is_empty() {
-                    warn!("MechZero refused — disable motors first. Active: {}", blocked.join(", "));
+                    warn!(
+                        "MechZero refused — disable motors first. Active: {}",
+                        blocked.join(", ")
+                    );
                 } else {
-                    info!("MechZero: writing hardware zero to {} motor(s){}",
-                          motor_ids.len(),
-                          if save { " (will SaveConfig)" } else { "" });
+                    info!(
+                        "MechZero: writing hardware zero to {} motor(s){}",
+                        motor_ids.len(),
+                        if save { " (will SaveConfig)" } else { "" }
+                    );
                     for motor_id in &motor_ids {
                         let can_id = match self.find_motor_mut(motor_id).map(|m| m.config.can_id) {
                             Some(id) => id,
@@ -1296,9 +1545,12 @@ impl ControlSystem {
                             }
                             std::thread::sleep(Duration::from_millis(10));
                         }
-                        info!("MechZero {}: ok (pos_before={:?}){}",
-                              motor_id, pos_before,
-                              if save { " saved" } else { "" });
+                        info!(
+                            "MechZero {}: ok (pos_before={:?}){}",
+                            motor_id,
+                            pos_before,
+                            if save { " saved" } else { "" }
+                        );
                     }
                 }
             }
@@ -1306,7 +1558,10 @@ impl ControlSystem {
                 for motor_id in &motor_ids {
                     if let Some(motor) = self.find_motor_mut(motor_id) {
                         if motor.state != MotorState::Error {
-                            info!("Motor {} not in Error state, skipping clear_fault", motor_id);
+                            info!(
+                                "Motor {} not in Error state, skipping clear_fault",
+                                motor_id
+                            );
                             continue;
                         }
                     }
@@ -1324,8 +1579,10 @@ impl ControlSystem {
                                     // enable_motor already set state to Error
                                     if let Some(ref mut fi) = motor.fault_info {
                                         fi.recovery_attempts += 1;
-                                        warn!("Motor {} fault recovery failed (attempt {})",
-                                              motor_id, fi.recovery_attempts);
+                                        warn!(
+                                            "Motor {} fault recovery failed (attempt {})",
+                                            motor_id, fi.recovery_attempts
+                                        );
                                     }
                                 }
                             }
@@ -1390,9 +1647,19 @@ impl ControlSystem {
                 // while waiting for the first ArmJoints command after enable.
                 let bus_name = motor.config.can_bus.clone();
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
-                    let pos = motor.feedback.as_ref().map(|f| f.position).unwrap_or(motor.target_position);
+                    let pos = motor
+                        .feedback
+                        .as_ref()
+                        .map(|f| f.position)
+                        .unwrap_or(motor.target_position);
                     let frame = robstride::build_control_frame(
-                        motor.config.can_id, motor.config.model, pos, 0.0, 0.0, 0.0, 0.0,
+                        motor.config.can_id,
+                        motor.config.model,
+                        pos,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                     );
                     self.tracked_write_frame(socket, &frame, &bus_name);
                 }
@@ -1418,11 +1685,11 @@ impl ControlSystem {
                     let frame = robstride::build_control_frame(
                         motor.config.can_id,
                         motor.config.model,
-                        fb_pos,                  // Echo feedback position (ignored with Kp=0)
-                        motor.target_velocity,   // Velocity target
-                        motor.kp,                // Tunable position gain (default 0.0)
-                        motor.kd,                // Tunable velocity tracking gain (default 3.0)
-                        0.0,                     // No feedforward torque
+                        fb_pos,                // Echo feedback position (ignored with Kp=0)
+                        motor.target_velocity, // Velocity target
+                        motor.kp,              // Tunable position gain (default 0.0)
+                        motor.kd,              // Tunable velocity tracking gain (default 3.0)
+                        0.0,                   // No feedforward torque
                     );
 
                     self.safe_write_frame(socket, &frame, &bus_name)?;
@@ -1430,9 +1697,16 @@ impl ControlSystem {
                     if self.control_tick % 50 == 0 && motor.state == MotorState::Running {
                         info!(
                             "  RUN {}: tgt_vel={:.3} fb_vel={:.3} fb_pos={:.3} Kp={:.1} Kd={:.1}",
-                            motor.config.id, motor.target_velocity,
-                            motor.feedback.as_ref().map(|f| f.velocity).unwrap_or(-999.0),
-                            fb_pos, motor.kp, motor.kd,
+                            motor.config.id,
+                            motor.target_velocity,
+                            motor
+                                .feedback
+                                .as_ref()
+                                .map(|f| f.velocity)
+                                .unwrap_or(-999.0),
+                            fb_pos,
+                            motor.kp,
+                            motor.kd,
                         );
                     }
                 }
@@ -1457,18 +1731,28 @@ impl ControlSystem {
                 let idx = self.vbus_query_idx % total;
                 let (bus_name, can_id, motor_id) = if idx < self.base_group.motors.len() {
                     let m = &self.base_group.motors[idx];
-                    (m.config.can_bus.clone(), m.config.can_id, m.config.id.clone())
+                    (
+                        m.config.can_bus.clone(),
+                        m.config.can_id,
+                        m.config.id.clone(),
+                    )
                 } else {
                     let m = &self.arm_group.motors[idx - self.base_group.motors.len()];
-                    (m.config.can_bus.clone(), m.config.can_id, m.config.id.clone())
+                    (
+                        m.config.can_bus.clone(),
+                        m.config.can_id,
+                        m.config.id.clone(),
+                    )
                 };
                 if let Some(socket) = self.get_can_socket_by_bus(&bus_name) {
                     let frame = robstride::build_read_param_frame(can_id, robstride::params::VBUS);
                     self.safe_write_frame(socket, &frame, &bus_name)?;
                     self.last_vbus_request = Instant::now();
                     self.vbus_query_idx = self.vbus_query_idx.wrapping_add(1);
-                    debug!("Requested VBUS from motor {} (CAN ID 0x{:02X}) [round-robin {}/{}]",
-                           motor_id, can_id, idx, total);
+                    debug!(
+                        "Requested VBUS from motor {} (CAN ID 0x{:02X}) [round-robin {}/{}]",
+                        motor_id, can_id, idx, total
+                    );
                 }
             }
         }
@@ -1483,99 +1767,120 @@ impl ControlSystem {
         for (bus_name, socket) in &self.can_sockets {
             loop {
                 match socket.read_frame() {
-                Ok(frame) => {
-                    self.trace.can("can_rx", &frame, &bus_name);
-                    frame_count += 1;
+                    Ok(frame) => {
+                        self.trace.can("can_rx", &frame, &bus_name);
+                        frame_count += 1;
 
-                    // Extract motor ID from arbitration ID
-                    // Response format: host_id (bits 0-7) | motor_id (bits 8-15) | msg_type (bits 24-31)
-                    let arb_id_raw = match frame.id() {
-                        socketcan::Id::Extended(id) => id.as_raw(),
-                        _ => {
-                            debug!("Skipping standard frame");
+                        // Extract motor ID from arbitration ID
+                        // Response format: host_id (bits 0-7) | motor_id (bits 8-15) | msg_type (bits 24-31)
+                        let arb_id_raw = match frame.id() {
+                            socketcan::Id::Extended(id) => id.as_raw(),
+                            _ => {
+                                debug!("Skipping standard frame");
+                                continue;
+                            }
+                        };
+                        // Process Feedback frames (msg_type == 2) and ReadParam responses (msg_type == 17)
+                        let msg_type = ((arb_id_raw >> 24) & 0x1F) as u8;
+                        let motor_can_id = ((arb_id_raw >> 8) & 0xFF) as u8;
+
+                        // Handle ReadParam responses (battery voltage)
+                        if msg_type == 17 {
+                            match robstride::parse_read_param_response(&frame) {
+                                Ok((param_id, value)) => {
+                                    if param_id == robstride::params::VBUS {
+                                        let now = Instant::now();
+                                        self.motor_vbus.insert(motor_can_id, (value, now));
+                                        // Average across motors with a reading in the
+                                        // last 2 s (round-robin polls every ~100ms; 2 s
+                                        // gives every motor multiple chances to be heard
+                                        // before falling out of the average).
+                                        let cutoff = Duration::from_secs(2);
+                                        let fresh: Vec<f32> = self
+                                            .motor_vbus
+                                            .values()
+                                            .filter(|(_, t)| now.duration_since(*t) < cutoff)
+                                            .map(|(v, _)| *v)
+                                            .collect();
+                                        if !fresh.is_empty() {
+                                            let avg =
+                                                fresh.iter().sum::<f32>() / fresh.len() as f32;
+                                            self.battery_voltage = Some(avg);
+                                            self.last_battery_voltage_update = Some(now);
+                                            debug!("Battery voltage avg: {:.2}V (motor 0x{:02X}={:.2}V, n={})",
+                                               avg, motor_can_id, value, fresh.len());
+                                        }
+                                    } else {
+                                        debug!(
+                                            "Read param response: 0x{:04X} = {:.3}",
+                                            param_id, value
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse read param response: {}", e);
+                                }
+                            }
                             continue;
                         }
-                    };
-                    // Process Feedback frames (msg_type == 2) and ReadParam responses (msg_type == 17)
-                    let msg_type = ((arb_id_raw >> 24) & 0x1F) as u8;
-                    let motor_can_id = ((arb_id_raw >> 8) & 0xFF) as u8;
 
-                    // Handle ReadParam responses (battery voltage)
-                    if msg_type == 17 {
-                        match robstride::parse_read_param_response(&frame) {
-                            Ok((param_id, value)) => {
-                                if param_id == robstride::params::VBUS {
-                                    let now = Instant::now();
-                                    self.motor_vbus.insert(motor_can_id, (value, now));
-                                    // Average across motors with a reading in the
-                                    // last 2 s (round-robin polls every ~100ms; 2 s
-                                    // gives every motor multiple chances to be heard
-                                    // before falling out of the average).
-                                    let cutoff = Duration::from_secs(2);
-                                    let fresh: Vec<f32> = self.motor_vbus.values()
-                                        .filter(|(_, t)| now.duration_since(*t) < cutoff)
-                                        .map(|(v, _)| *v)
-                                        .collect();
-                                    if !fresh.is_empty() {
-                                        let avg = fresh.iter().sum::<f32>() / fresh.len() as f32;
-                                        self.battery_voltage = Some(avg);
-                                        self.last_battery_voltage_update = Some(now);
-                                        debug!("Battery voltage avg: {:.2}V (motor 0x{:02X}={:.2}V, n={})",
-                                               avg, motor_can_id, value, fresh.len());
-                                    }
-                                } else {
-                                    debug!("Read param response: 0x{:04X} = {:.3}", param_id, value);
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Failed to parse read param response: {}", e);
-                            }
+                        // Only process Feedback frames (msg_type == 2)
+                        if msg_type != 2 {
+                            debug!(
+                                "Skipping non-feedback frame: arb_id=0x{:08X}, msg_type={}",
+                                arb_id_raw, msg_type
+                            );
+                            continue;
                         }
-                        continue;
-                    }
+                        debug!(
+                            "Received feedback frame: arb_id=0x{:08X}, motor_id=0x{:02X}",
+                            arb_id_raw, motor_can_id
+                        );
 
-                    // Only process Feedback frames (msg_type == 2)
-                    if msg_type != 2 {
-                        debug!("Skipping non-feedback frame: arb_id=0x{:08X}, msg_type={}", arb_id_raw, msg_type);
-                        continue;
-                    }
-                    debug!("Received feedback frame: arb_id=0x{:08X}, motor_id=0x{:02X}", arb_id_raw, motor_can_id);
-
-                    // Try to find motor in base group
-                    if let Some(motor) = self.base_group.find_motor_mut(motor_can_id) {
-                        match robstride::parse_feedback(&frame, motor.config.model) {
-                            Ok(feedback) => {
-                                if feedback.error.has_error() {
-                                    warn!("⚠ MOTOR ERROR {} [0x{:02X}]: mode={:?}, pos={:.3}, vel={:.3}, err={:?}",
+                        // Try to find motor in base group
+                        if let Some(motor) = self.base_group.find_motor_mut(motor_can_id) {
+                            match robstride::parse_feedback(&frame, motor.config.model) {
+                                Ok(feedback) => {
+                                    if feedback.error.has_error() {
+                                        warn!("⚠ MOTOR ERROR {} [0x{:02X}]: mode={:?}, pos={:.3}, vel={:.3}, err={:?}",
                                           motor.config.id, motor_can_id, feedback.mode, feedback.position, feedback.velocity, feedback.error);
-                                } else {
-                                    info!("← {} [0x{:02X}]: mode={:?}, pos={:.3}, vel={:.3}, torque={:.3}",
+                                    } else {
+                                        info!("← {} [0x{:02X}]: mode={:?}, pos={:.3}, vel={:.3}, torque={:.3}",
                                           motor.config.id, motor_can_id, feedback.mode, feedback.position, feedback.velocity, feedback.torque);
+                                    }
+                                    motor.update_feedback(feedback);
                                 }
-                                motor.update_feedback(feedback);
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to parse feedback for motor {}: {}",
+                                        motor.config.id, e
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                warn!("Failed to parse feedback for motor {}: {}", motor.config.id, e);
-                            }
+                            continue;
                         }
-                        continue;
-                    }
 
-                    // Try to find motor in arm group
-                    if let Some(motor) = self.arm_group.find_motor_mut(motor_can_id) {
-                        match robstride::parse_feedback(&frame, motor.config.model) {
-                            Ok(feedback) => {
-                                debug!("Parsed feedback for arm motor {}: pos={:.3}, vel={:.3}", motor.config.id, feedback.position, feedback.velocity);
-                                motor.update_feedback(feedback);
+                        // Try to find motor in arm group
+                        if let Some(motor) = self.arm_group.find_motor_mut(motor_can_id) {
+                            match robstride::parse_feedback(&frame, motor.config.model) {
+                                Ok(feedback) => {
+                                    debug!(
+                                        "Parsed feedback for arm motor {}: pos={:.3}, vel={:.3}",
+                                        motor.config.id, feedback.position, feedback.velocity
+                                    );
+                                    motor.update_feedback(feedback);
+                                }
+                                Err(e) => {
+                                    debug!(
+                                        "Failed to parse feedback for arm motor {}: {}",
+                                        motor.config.id, e
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                debug!("Failed to parse feedback for arm motor {}: {}", motor.config.id, e);
-                            }
+                        } else {
+                            debug!("No motor found for CAN ID 0x{:02X}", motor_can_id);
                         }
-                    } else {
-                        debug!("No motor found for CAN ID 0x{:02X}", motor_can_id);
                     }
-                }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         break; // Move to next CAN bus
                     }
@@ -1595,14 +1900,21 @@ impl ControlSystem {
         msg.telemetry_schema_version = Some(2);
         msg.producer_id = Some(self.producer_id.clone());
 
-        let all_motors = self.base_group.motors.iter().chain(self.arm_group.motors.iter());
+        let all_motors = self
+            .base_group
+            .motors
+            .iter()
+            .chain(self.arm_group.motors.iter());
         for motor in all_motors {
             if let Some(feedback) = &motor.feedback {
                 let error_str = if feedback.error.has_error() {
                     Some(format!("{:?}", feedback.error))
                 } else if let Some(ref fi) = motor.fault_info {
                     // Report fault info even if current feedback has no error flags
-                    Some(format!("fault: {:?} (recovery_attempts: {})", fi.error, fi.recovery_attempts))
+                    Some(format!(
+                        "fault: {:?} (recovery_attempts: {})",
+                        fi.error, fi.recovery_attempts
+                    ))
                 } else {
                     None
                 };
@@ -1613,8 +1925,15 @@ impl ControlSystem {
                         feedback: Some(comms::FeedbackMetadata {
                             sequence: motor.feedback_sequence,
                             age_s: feedback.timestamp.elapsed().as_secs_f64(),
-                            valid: motor.feedback_is_measured && !feedback.error.has_error() && motor.state != MotorState::Error,
-                            provenance: if motor.feedback_is_measured { "can" } else { "synthetic" }.to_string(),
+                            valid: motor.feedback_is_measured
+                                && !feedback.error.has_error()
+                                && motor.state != MotorState::Error,
+                            provenance: if motor.feedback_is_measured {
+                                "can"
+                            } else {
+                                "synthetic"
+                            }
+                            .to_string(),
                         }),
                         position: feedback.position,
                         velocity: feedback.velocity,
@@ -1629,15 +1948,21 @@ impl ControlSystem {
         }
 
         // Include battery voltage only if fresh (within 5 s of last VBUS response)
-        let batt_fresh = self.last_battery_voltage_update
+        let batt_fresh = self
+            .last_battery_voltage_update
             .map(|t| t.elapsed() < Duration::from_secs(5))
             .unwrap_or(false);
-        msg.battery_voltage = if batt_fresh { self.battery_voltage } else { None };
+        msg.battery_voltage = if batt_fresh {
+            self.battery_voltage
+        } else {
+            None
+        };
         msg.emergency_stop = self.emergency_stop;
 
         self.telemetry_pub.publish(&msg)?;
         if self.trace.enabled() {
-            self.trace.record("telemetry_publish", serde_json::to_value(&msg)?);
+            self.trace
+                .record("telemetry_publish", serde_json::to_value(&msg)?);
         }
         Ok(())
     }
@@ -1660,33 +1985,46 @@ impl ControlSystem {
             self.arm_group.hold_timed_out();
         }
         if (base_timeout || arm_timeout) && self.last_hold_log.elapsed() >= Duration::from_secs(5) {
-            warn!("Command timeout — holding position (base={}, arm={})", base_timeout, arm_timeout);
+            warn!(
+                "Command timeout — holding position (base={}, arm={})",
+                base_timeout, arm_timeout
+            );
             self.last_hold_log = Instant::now();
         }
 
         // Check for feedback heartbeat timeouts (motor stopped responding on CAN)
         for motor in &mut self.base_group.motors {
             if motor.is_feedback_timeout(feedback_timeout) && motor.state != MotorState::Error {
-                warn!("Motor {} feedback timeout (no CAN response for {:?})",
-                      motor.config.id, feedback_timeout);
+                warn!(
+                    "Motor {} feedback timeout (no CAN response for {:?})",
+                    motor.config.id, feedback_timeout
+                );
                 motor.state = MotorState::Error;
                 motor.fault_info = Some(motor::FaultInfo {
                     error: robstride::MotorError::from_bits(0),
-                    mode_at_fault: motor.feedback.as_ref()
-                        .map(|f| f.mode).unwrap_or(robstride::MotorMode::Unknown),
+                    mode_at_fault: motor
+                        .feedback
+                        .as_ref()
+                        .map(|f| f.mode)
+                        .unwrap_or(robstride::MotorMode::Unknown),
                     recovery_attempts: 0,
                 });
             }
         }
         for motor in &mut self.arm_group.motors {
             if motor.is_feedback_timeout(feedback_timeout) && motor.state != MotorState::Error {
-                warn!("Motor {} feedback timeout (no CAN response for {:?})",
-                      motor.config.id, feedback_timeout);
+                warn!(
+                    "Motor {} feedback timeout (no CAN response for {:?})",
+                    motor.config.id, feedback_timeout
+                );
                 motor.state = MotorState::Error;
                 motor.fault_info = Some(motor::FaultInfo {
                     error: robstride::MotorError::from_bits(0),
-                    mode_at_fault: motor.feedback.as_ref()
-                        .map(|f| f.mode).unwrap_or(robstride::MotorMode::Unknown),
+                    mode_at_fault: motor
+                        .feedback
+                        .as_ref()
+                        .map(|f| f.mode)
+                        .unwrap_or(robstride::MotorMode::Unknown),
                     recovery_attempts: 0,
                 });
             }
@@ -1696,12 +2034,20 @@ impl ControlSystem {
         if (self.base_group.has_errors() || self.arm_group.has_errors())
             && self.last_error_log.elapsed() >= Duration::from_secs(1)
         {
-            let base_err: Vec<_> = self.base_group.motors.iter()
+            let base_err: Vec<_> = self
+                .base_group
+                .motors
+                .iter()
                 .filter(|m| m.state == MotorState::Error)
-                .map(|m| m.config.id.as_str()).collect();
-            let arm_err: Vec<_> = self.arm_group.motors.iter()
+                .map(|m| m.config.id.as_str())
+                .collect();
+            let arm_err: Vec<_> = self
+                .arm_group
+                .motors
+                .iter()
                 .filter(|m| m.state == MotorState::Error)
-                .map(|m| m.config.id.as_str()).collect();
+                .map(|m| m.config.id.as_str())
+                .collect();
             if !base_err.is_empty() {
                 error!("Base group errors: {:?}", base_err);
             }

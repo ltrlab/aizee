@@ -4,6 +4,7 @@ Only the joints on the path are read, and positions are taken as given: a calibr
 actually reached, so nothing here clamps or rejects positions against URDF limits. Joint `offsets` (radians or metres,
 by name) are added to the positions; a calibration can fit them.
 """
+
 import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -34,9 +35,10 @@ class Chain:
                 raise ValueError(f'Unsupported joint type {kind!r}: {element.get("name")}')
             o = origin(element)
             axis_element = element.find('axis')
-            axis = np.array([float(v) for v in (axis_element.get('xyz') if axis_element is not None else '1 0 0')
-                             .split()])
-            if kind != 'fixed' and not math.isclose(float(np.linalg.norm(axis)), 1., abs_tol=1e-6):
+            axis = np.array(
+                [float(v) for v in (axis_element.get('xyz') if axis_element is not None else '1 0 0').split()]
+            )
+            if kind != 'fixed' and not math.isclose(float(np.linalg.norm(axis)), 1.0, abs_tol=1e-6):
                 raise ValueError(f'Joint {element.get("name")} axis must be a unit vector')
             path.append((element.get('name'), kind, transform(rpy_matrix(*o['rpy']), o['xyz']), axis))
             link = element.find('parent').get('link')
@@ -64,20 +66,21 @@ class Chain:
                 continue
             if name not in positions:
                 raise ValueError(f'No position for joint {name}')
-            value = float(positions[name]) + float(offsets.get(name, 0.))
+            value = float(positions[name]) + float(offsets.get(name, 0.0))
             if not math.isfinite(value):
                 raise ValueError(f'Joint {name} position must be finite')
             if kind == 'prismatic':
                 result = result @ transform(np.eye(3), axis * value)
             else:
-                result = result @ transform(rotation(axis * value), (0., 0., 0.))
+                result = result @ transform(rotation(axis * value), (0.0, 0.0, 0.0))
         return result
 
     def positions(self, states):
         """(N, J) positions of {joint: position} states, in self.joints order."""
         try:
             return np.array([[float(state[name]) for name in self.joints] for state in states], float).reshape(
-                -1, len(self.joints))
+                -1, len(self.joints)
+            )
         except KeyError as exc:
             raise ValueError(f'No position for joint {exc.args[0]}') from exc
 
@@ -94,9 +97,9 @@ class Chain:
                 continue
             motion = np.broadcast_to(np.eye(4), (len(positions), 4, 4)).copy()
             if kind == 'prismatic':
-                motion[:, :3, 3] = positions[:, j:j + 1] * axis
+                motion[:, :3, 3] = positions[:, j : j + 1] * axis
             else:
-                motion[:, :3, :3] = rotations(positions[:, j:j + 1] * axis)
+                motion[:, :3, :3] = rotations(positions[:, j : j + 1] * axis)
             result = result @ motion
             j += 1
         return result

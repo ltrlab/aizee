@@ -28,6 +28,7 @@ import numpy as np
 
 try:
     import cv2  # type: ignore
+
     _CV2_AVAILABLE = True
 except ImportError:
     _CV2_AVAILABLE = False
@@ -35,18 +36,20 @@ except ImportError:
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
     from av import VideoFrame
+
     _AIORTC_AVAILABLE = True
 except ImportError:
     _AIORTC_AVAILABLE = False
 
 
-_log = logging.getLogger("aizee.webrtc")
+_log = logging.getLogger('aizee.webrtc')
 _log.setLevel(logging.INFO)
 
 
 # -----------------------------------------------------------------------------
 # Source track
 # -----------------------------------------------------------------------------
+
 
 class JpegCameraTrack(VideoStreamTrack):
     """A VideoStreamTrack that re-encodes the SharedState's JPEG stream.
@@ -59,7 +62,7 @@ class JpegCameraTrack(VideoStreamTrack):
     pts=0 after a fall-behind rebase and stalled the browser decoder.
     """
 
-    kind = "video"
+    kind = 'video'
 
     def __init__(self, shared_state) -> None:
         super().__init__()
@@ -67,7 +70,7 @@ class JpegCameraTrack(VideoStreamTrack):
         self._last_seq = -1
         self._last_arr: Optional[np.ndarray] = None
 
-    async def recv(self) -> "VideoFrame":
+    async def recv(self) -> 'VideoFrame':
         # Sleeps to the next frame deadline AND advances pts monotonically.
         pts, time_base = await self.next_timestamp()
 
@@ -88,7 +91,7 @@ class JpegCameraTrack(VideoStreamTrack):
             # produces a steady stream and the browser shows *something*.
             self._last_arr = np.zeros((768, 1024, 3), dtype=np.uint8)
 
-        frame = VideoFrame.from_ndarray(self._last_arr, format="rgb24")
+        frame = VideoFrame.from_ndarray(self._last_arr, format='rgb24')
         frame.pts = pts
         frame.time_base = time_base
         return frame
@@ -97,6 +100,7 @@ class JpegCameraTrack(VideoStreamTrack):
 # -----------------------------------------------------------------------------
 # Signaling endpoint
 # -----------------------------------------------------------------------------
+
 
 class WebRTCBridge:
     """Owns the active RTCPeerConnections and the SDP offer handler.
@@ -107,33 +111,28 @@ class WebRTCBridge:
 
     def __init__(self, shared_state) -> None:
         if not _AIORTC_AVAILABLE:
-            raise RuntimeError(
-                "aiortc is required for the WebRTC camera path — "
-                "install via: pip install aiortc av"
-            )
+            raise RuntimeError('aiortc is required for the WebRTC camera path — install via: pip install aiortc av')
         if not _CV2_AVAILABLE:
-            raise RuntimeError(
-                "opencv-python is required for JPEG decode in the WebRTC track"
-            )
+            raise RuntimeError('opencv-python is required for JPEG decode in the WebRTC track')
         self._state = shared_state
         self._pcs: set[RTCPeerConnection] = set()
 
     async def handle_offer(self, payload: dict) -> dict:
         """Process a browser's SDP offer and return the answer SDP."""
-        offer = RTCSessionDescription(sdp=payload["sdp"], type=payload["type"])
+        offer = RTCSessionDescription(sdp=payload['sdp'], type=payload['type'])
         pc = RTCPeerConnection()
         self._pcs.add(pc)
 
-        @pc.on("connectionstatechange")
+        @pc.on('connectionstatechange')
         async def _on_state_change() -> None:
-            _log.info("[webrtc] connection state: %s", pc.connectionState)
-            if pc.connectionState in ("failed", "closed", "disconnected"):
+            _log.info('[webrtc] connection state: %s', pc.connectionState)
+            if pc.connectionState in ('failed', 'closed', 'disconnected'):
                 await pc.close()
                 self._pcs.discard(pc)
 
-        @pc.on("iceconnectionstatechange")
+        @pc.on('iceconnectionstatechange')
         async def _on_ice_state() -> None:
-            _log.info("[webrtc] ICE state: %s", pc.iceConnectionState)
+            _log.info('[webrtc] ICE state: %s', pc.iceConnectionState)
 
         # Outbound video track — re-encode from the SharedState JPEG source.
         track = JpegCameraTrack(self._state)
@@ -146,8 +145,8 @@ class WebRTCBridge:
         # aiortc's setLocalDescription blocks until ICE gathering completes
         # (non-trickle), so localDescription.sdp already has candidates.
         return {
-            "sdp":  pc.localDescription.sdp,
-            "type": pc.localDescription.type,
+            'sdp': pc.localDescription.sdp,
+            'type': pc.localDescription.type,
         }
 
     async def close_all(self) -> None:

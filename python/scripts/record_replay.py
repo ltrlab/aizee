@@ -32,13 +32,33 @@ from common.wire import pack_msg, unpack_msg
 # from this CLI script; re-exported here to keep the old import surface).
 # ---------------------------------------------------------------------------
 from common.arm_constants import (  # noqa: F401  (re-exported)
-    ARM_JOINTS, NUM_ARM_JOINTS, POLICY_JOINTS, NUM_POLICY_JOINTS,
-    GANTRY_JOINTS, NUM_GANTRY_JOINTS,
-    L0, L1, L2, L3, L5, ARM_MOUNT_Z,
-    KP, KD, SWIVEL_KP, SWIVEL_KD, RECORD_HZ, ROBSTRIDE_CALIB_PATH,
-    load_arm_limits, clamp_arm_positions,
-    drain_sub, _extract_field, extract_qpos, extract_velocities,
-    extract_policy_qpos, extract_policy_torques, apply_safety_limits,
+    ARM_JOINTS,
+    NUM_ARM_JOINTS,
+    POLICY_JOINTS,
+    NUM_POLICY_JOINTS,
+    GANTRY_JOINTS,
+    NUM_GANTRY_JOINTS,
+    L0,
+    L1,
+    L2,
+    L3,
+    L5,
+    ARM_MOUNT_Z,
+    KP,
+    KD,
+    SWIVEL_KP,
+    SWIVEL_KD,
+    RECORD_HZ,
+    ROBSTRIDE_CALIB_PATH,
+    load_arm_limits,
+    clamp_arm_positions,
+    drain_sub,
+    _extract_field,
+    extract_qpos,
+    extract_velocities,
+    extract_policy_qpos,
+    extract_policy_torques,
+    apply_safety_limits,
     setup_keyboard,
 )
 
@@ -47,14 +67,14 @@ from common.arm_constants import (  # noqa: F401  (re-exported)
 # Rerun helpers — extracted from rerun_bridge.py
 # ---------------------------------------------------------------------------
 
-_DEFAULT_ARM_ROOT = "world/rover/arm"
+_DEFAULT_ARM_ROOT = 'world/rover/arm'
 
 _DEFAULT_LINK_COLORS = (
-    (255, 180, 0),   # link_0
-    (255, 140, 0),   # link_1
-    (255, 100, 0),   # link_2
-    (255,  60, 0),   # link_3
-    (255,   0, 50),  # link_5
+    (255, 180, 0),  # link_0
+    (255, 140, 0),  # link_1
+    (255, 100, 0),  # link_2
+    (255, 60, 0),  # link_3
+    (255, 0, 50),  # link_5
 )
 
 
@@ -78,14 +98,14 @@ def _log_static_arm(
     """
     import rerun as rr
 
-    _jb  = f"{root}/joint_base"
-    _jm  = f"{_jb}/joint_mid"
-    _je  = f"{_jm}/joint_end"
-    _jwp = f"{_je}/joint_wrist_pitch"
-    _jwr = f"{_jwp}/joint_wrist_roll"
+    _jb = f'{root}/joint_base'
+    _jm = f'{_jb}/joint_mid'
+    _je = f'{_jm}/joint_end'
+    _jwp = f'{_je}/joint_wrist_pitch'
+    _jwr = f'{_jwp}/joint_wrist_roll'
 
     if include_rover_body:
-        rover_path = root.rsplit("/", 1)[0] if "/" in root else "world/rover"
+        rover_path = root.rsplit('/', 1)[0] if '/' in root else 'world/rover'
         rr.log(
             rover_path,
             rr.Boxes3D(half_sizes=[[0.3, 0.2, 0.1]], colors=[[80, 80, 80]]),
@@ -99,11 +119,11 @@ def _log_static_arm(
     )
 
     link_paths = [
-        (f"{_jb}/link_0",  L0),
-        (f"{_jm}/link_1",  L1),
-        (f"{_je}/link_2",  L2),
-        (f"{_jwp}/link_3", L3),
-        (f"{_jwr}/link_5", L5),
+        (f'{_jb}/link_0', L0),
+        (f'{_jm}/link_1', L1),
+        (f'{_je}/link_2', L2),
+        (f'{_jwp}/link_3', L3),
+        (f'{_jwr}/link_5', L5),
     ]
     for (path, length), default_color in zip(link_paths, _DEFAULT_LINK_COLORS):
         color = color_override if color_override is not None else default_color
@@ -126,15 +146,15 @@ def _log_arm_fk(qpos: np.ndarray, root: str = _DEFAULT_ARM_ROOT) -> None:
     """
     import rerun as rr
 
-    swivel_pos      = float(qpos[0])
-    base_pos        = float(qpos[1])
-    mid_pos         = float(qpos[2])
-    end_pos         = float(qpos[3])
+    swivel_pos = float(qpos[0])
+    base_pos = float(qpos[1])
+    mid_pos = float(qpos[2])
+    end_pos = float(qpos[3])
     wrist_pitch_pos = float(qpos[4])
-    wrist_roll_pos  = float(qpos[5])
-    gripper_pos     = float(qpos[6])
+    wrist_roll_pos = float(qpos[5])
+    gripper_pos = float(qpos[6])
 
-    _je = f"{root}/joint_base/joint_mid/joint_end"
+    _je = f'{root}/joint_base/joint_mid/joint_end'
 
     rr.log(
         root,
@@ -144,39 +164,39 @@ def _log_arm_fk(qpos: np.ndarray, root: str = _DEFAULT_ARM_ROOT) -> None:
         ),
     )
     rr.log(
-        f"{root}/joint_base",
+        f'{root}/joint_base',
         rr.Transform3D(rotation=rr.RotationAxisAngle([0, 0, 1], angle=base_pos)),
     )
     rr.log(
-        f"{root}/joint_base/joint_mid",
+        f'{root}/joint_base/joint_mid',
         rr.Transform3D(
             translation=[L0, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 1, 0], angle=mid_pos),
         ),
     )
     rr.log(
-        f"{root}/joint_base/joint_mid/joint_end",
+        f'{root}/joint_base/joint_mid/joint_end',
         rr.Transform3D(
             translation=[L1, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 1, 0], angle=end_pos),
         ),
     )
     rr.log(
-        f"{_je}/joint_wrist_pitch",
+        f'{_je}/joint_wrist_pitch',
         rr.Transform3D(
             translation=[L2, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 1, 0], angle=wrist_pitch_pos),
         ),
     )
     rr.log(
-        f"{_je}/joint_wrist_pitch/joint_wrist_roll",
+        f'{_je}/joint_wrist_pitch/joint_wrist_roll',
         rr.Transform3D(
             translation=[L3, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([1, 0, 0], angle=wrist_roll_pos),
         ),
     )
     rr.log(
-        f"{_je}/joint_wrist_pitch/joint_wrist_roll/joint_gripper",
+        f'{_je}/joint_wrist_pitch/joint_wrist_roll/joint_gripper',
         rr.Transform3D(
             translation=[L5, 0.0, 0.0],
             rotation=rr.RotationAxisAngle([0, 0, 1], angle=gripper_pos),
@@ -188,31 +208,33 @@ def _log_arm_fk(qpos: np.ndarray, root: str = _DEFAULT_ARM_ROOT) -> None:
 # HDF5 I/O helpers
 # ---------------------------------------------------------------------------
 
+
 def _next_recording_path(recordings_dir: Path) -> Path:
     """Find the next available recordings/recording_XXXX.hdf5 path."""
     recordings_dir.mkdir(parents=True, exist_ok=True)
-    existing = sorted(recordings_dir.glob("recording_*.hdf5"))
+    existing = sorted(recordings_dir.glob('recording_*.hdf5'))
     if existing:
-        last_num = int(existing[-1].stem.split("_")[1])
+        last_num = int(existing[-1].stem.split('_')[1])
         num = last_num + 1
     else:
         num = 0
-    return recordings_dir / f"recording_{num:04d}.hdf5"
+    return recordings_dir / f'recording_{num:04d}.hdf5'
 
 
 def save_recording(path: Path, qpos: np.ndarray, velocities: np.ndarray, timestamps: np.ndarray) -> None:
     """Save a recording to HDF5."""
-    with h5py.File(path, "w") as f:
-        f.create_dataset("qpos",       data=qpos.astype(np.float32),       compression="gzip")
-        f.create_dataset("velocities", data=velocities.astype(np.float32), compression="gzip")
-        f.create_dataset("timestamps", data=timestamps.astype(np.float64), compression="gzip")
-        f.attrs["hz"]          = RECORD_HZ
-        f.attrs["arm_joints"]  = json.dumps(ARM_JOINTS)
-        f.attrs["recorded_at"] = datetime.now(timezone.utc).isoformat()
+    with h5py.File(path, 'w') as f:
+        f.create_dataset('qpos', data=qpos.astype(np.float32), compression='gzip')
+        f.create_dataset('velocities', data=velocities.astype(np.float32), compression='gzip')
+        f.create_dataset('timestamps', data=timestamps.astype(np.float64), compression='gzip')
+        f.attrs['hz'] = RECORD_HZ
+        f.attrs['arm_joints'] = json.dumps(ARM_JOINTS)
+        f.attrs['recorded_at'] = datetime.now(timezone.utc).isoformat()
 
 
 def _maybe_prepend_swivel(
-    qpos: np.ndarray, swivel: Optional[np.ndarray],
+    qpos: np.ndarray,
+    swivel: Optional[np.ndarray],
 ) -> np.ndarray:
     """Back-compat shim: pre-7-DOF recordings stored qpos as 6-element gantry
     rows with swivel as a sibling dataset.  Re-stitch to a 7-DOF array so
@@ -231,7 +253,7 @@ def _maybe_prepend_swivel(
         if sw.shape[0] != qpos.shape[0]:
             # Truncate/pad rather than crash; old episodes occasionally
             # have a trailing extra swivel sample.
-            n  = min(sw.shape[0], qpos.shape[0])
+            n = min(sw.shape[0], qpos.shape[0])
             sw = sw[:n]
             qpos = qpos[:n]
         sw_col = sw.reshape(-1, 1)
@@ -252,27 +274,25 @@ def load_recording(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         velocities: [T, 7] float32
         timestamps: [T]    float64
     """
-    with h5py.File(path, "r") as f:
-        sw_top = f["swivel"][:] if "swivel" in f else None
-        sw_obs = (f["observations/swivel"][:]
-                  if "observations" in f and "swivel" in f["observations"]
-                  else None)
-        if "qpos" in f:
-            qpos       = f["qpos"][:]
-            velocities = f["velocities"][:]
-            timestamps = f["timestamps"][:]
-            qpos       = _maybe_prepend_swivel(qpos, sw_top)
+    with h5py.File(path, 'r') as f:
+        sw_top = f['swivel'][:] if 'swivel' in f else None
+        sw_obs = f['observations/swivel'][:] if 'observations' in f and 'swivel' in f['observations'] else None
+        if 'qpos' in f:
+            qpos = f['qpos'][:]
+            velocities = f['velocities'][:]
+            timestamps = f['timestamps'][:]
+            qpos = _maybe_prepend_swivel(qpos, sw_top)
             if velocities.ndim == 2 and velocities.shape[1] == NUM_GANTRY_JOINTS:
                 velocities = _maybe_prepend_swivel(velocities, None)
-        elif "observations" in f and "qpos" in f["observations"]:
+        elif 'observations' in f and 'qpos' in f['observations']:
             # episode_XXXX.hdf5 from collect_demo.py
-            qpos = f["observations/qpos"][:]
+            qpos = f['observations/qpos'][:]
             qpos = _maybe_prepend_swivel(qpos, sw_obs)
-            T    = len(qpos)
+            T = len(qpos)
             velocities = np.zeros_like(qpos)
             timestamps = np.arange(T, dtype=np.float64) / RECORD_HZ
         else:
-            raise ValueError(f"Unrecognised HDF5 format: {path}")
+            raise ValueError(f'Unrecognised HDF5 format: {path}')
     return (
         qpos.astype(np.float32),
         velocities.astype(np.float32),
@@ -283,6 +303,7 @@ def load_recording(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
+
 
 def check_recording_continuity(qpos: np.ndarray, max_delta: float) -> list[tuple[int, int, float]]:
     """Scan for large inter-frame deltas (discontinuities).
@@ -299,7 +320,9 @@ def check_recording_continuity(qpos: np.ndarray, max_delta: float) -> list[tuple
     return warnings
 
 
-def check_start_position(recording_start: np.ndarray, current_qpos: np.ndarray, tol: float = 0.1) -> list[tuple[int, float]]:
+def check_start_position(
+    recording_start: np.ndarray, current_qpos: np.ndarray, tol: float = 0.1
+) -> list[tuple[int, float]]:
     """Compare recording first frame to current arm position.
 
     Returns list of (joint_idx, mismatch_rad) for mismatches > tol.
@@ -316,27 +339,28 @@ def check_start_position(recording_start: np.ndarray, current_qpos: np.ndarray, 
 # subcommand: record
 # ---------------------------------------------------------------------------
 
+
 def cmd_record(args: argparse.Namespace) -> None:
     import zmq
 
-    ctx  = zmq.Context()
-    sub  = ctx.socket(zmq.SUB)
+    ctx = zmq.Context()
+    sub = ctx.socket(zmq.SUB)
     sub.connect(args.telem)
-    sub.setsockopt_string(zmq.SUBSCRIBE, "")
+    sub.setsockopt_string(zmq.SUBSCRIBE, '')
     sub.setsockopt(zmq.RCVTIMEO, 100)
 
     recordings_dir = Path(args.output_dir)
     get_key = setup_keyboard()
 
-    recording   = False
-    qpos_buf:       list[np.ndarray] = []
-    vel_buf:        list[np.ndarray] = []
-    ts_buf:         list[float]      = []
-    record_start_t: float            = 0.0
+    recording = False
+    qpos_buf: list[np.ndarray] = []
+    vel_buf: list[np.ndarray] = []
+    ts_buf: list[float] = []
+    record_start_t: float = 0.0
 
-    print("record_replay  [record mode]")
-    print("  R = start/stop recording   Q = quit")
-    print(f"  Subscribing to {args.telem} at {RECORD_HZ} Hz\n")
+    print('record_replay  [record mode]')
+    print('  R = start/stop recording   Q = quit')
+    print(f'  Subscribing to {args.telem} at {RECORD_HZ} Hz\n')
 
     period = 1.0 / RECORD_HZ
     try:
@@ -344,20 +368,20 @@ def cmd_record(args: argparse.Namespace) -> None:
             t0 = time.time()
 
             key = get_key()
-            if key == "Q":
-                print("Quit.")
+            if key == 'Q':
+                print('Quit.')
                 break
-            if key == "R":
+            if key == 'R':
                 if not recording:
-                    recording      = True
+                    recording = True
                     record_start_t = time.time()
                     qpos_buf.clear()
                     vel_buf.clear()
                     ts_buf.clear()
-                    print("*** Recording started ***")
+                    print('*** Recording started ***')
                 else:
                     recording = False
-                    print(f"\n*** Recording stopped — {len(qpos_buf)} frames ***")
+                    print(f'\n*** Recording stopped — {len(qpos_buf)} frames ***')
                     if qpos_buf:
                         out_path = _next_recording_path(recordings_dir)
                         save_recording(
@@ -366,7 +390,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                             np.stack(vel_buf),
                             np.array(ts_buf),
                         )
-                        print(f"Saved → {out_path}")
+                        print(f'Saved → {out_path}')
 
             telem = drain_sub(sub)
             if telem is not None:
@@ -379,15 +403,15 @@ def cmd_record(args: argparse.Namespace) -> None:
                         ts_buf.append(time.time())
                         elapsed = time.time() - record_start_t
                         print(
-                            f"\r  steps={len(qpos_buf):5d}  t={elapsed:6.1f}s  "
-                            f"qpos=[{', '.join(f'{v:.3f}' for v in qpos)}]",
-                            end="",
+                            f'\r  steps={len(qpos_buf):5d}  t={elapsed:6.1f}s  '
+                            f'qpos=[{", ".join(f"{v:.3f}" for v in qpos)}]',
+                            end='',
                             flush=True,
                         )
                     else:
                         print(
-                            f"\r  qpos=[{', '.join(f'{v:.3f}' for v in qpos)}]",
-                            end="",
+                            f'\r  qpos=[{", ".join(f"{v:.3f}" for v in qpos)}]',
+                            end='',
                             flush=True,
                         )
 
@@ -397,7 +421,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                 time.sleep(sleep_t)
 
     except KeyboardInterrupt:
-        print("\nInterrupted.")
+        print('\nInterrupted.')
     finally:
         sub.close()
         ctx.term()
@@ -407,28 +431,29 @@ def cmd_record(args: argparse.Namespace) -> None:
 # subcommand: visualize
 # ---------------------------------------------------------------------------
 
+
 def cmd_visualize(args: argparse.Namespace) -> None:
     import rerun as rr
 
     path = Path(args.file)
     qpos, velocities, timestamps = load_recording(path)
 
-    rr.init("arm_replay", spawn=True)
+    rr.init('arm_replay', spawn=True)
     if args.save:
         rr.save(args.save)
 
     _log_static_arm()
 
-    print(f"Visualizing {path.name}: {len(qpos)} frames")
+    print(f'Visualizing {path.name}: {len(qpos)} frames')
 
     for i in range(len(qpos)):
-        rr.set_time("time", timestamp=timestamps[i])
+        rr.set_time('time', timestamp=timestamps[i])
 
         _log_arm_fk(qpos[i])
 
         for j, joint in enumerate(ARM_JOINTS):
-            rr.log(f"joints/position/{joint}", rr.Scalars(float(qpos[i, j])))
-            rr.log(f"joints/velocity/{joint}", rr.Scalars(float(velocities[i, j])))
+            rr.log(f'joints/position/{joint}', rr.Scalars(float(qpos[i, j])))
+            rr.log(f'joints/velocity/{joint}', rr.Scalars(float(velocities[i, j])))
 
         if i < len(qpos) - 1:
             dt = float(timestamps[i + 1] - timestamps[i])
@@ -436,12 +461,13 @@ def cmd_visualize(args: argparse.Namespace) -> None:
             if sleep_t > 0:
                 time.sleep(sleep_t)
 
-    print("Done.")
+    print('Done.')
 
 
 # ---------------------------------------------------------------------------
 # subcommand: replay
 # ---------------------------------------------------------------------------
+
 
 def cmd_replay(args: argparse.Namespace) -> None:
     path = Path(args.file)
@@ -450,11 +476,11 @@ def cmd_replay(args: argparse.Namespace) -> None:
     # --- Pre-flight: continuity check ---
     continuity_warnings = check_recording_continuity(qpos, args.max_delta)
     if continuity_warnings:
-        print(f"WARNING: {len(continuity_warnings)} discontinuity/ies detected in recording:")
+        print(f'WARNING: {len(continuity_warnings)} discontinuity/ies detected in recording:')
         for frame_i, joint_i, delta in continuity_warnings[:10]:
-            print(f"  frame={frame_i}, joint={ARM_JOINTS[joint_i]}, delta={delta:.4f} rad")
+            print(f'  frame={frame_i}, joint={ARM_JOINTS[joint_i]}, delta={delta:.4f} rad')
         if len(continuity_warnings) > 10:
-            print(f"  ... and {len(continuity_warnings) - 10} more")
+            print(f'  ... and {len(continuity_warnings) - 10} more')
 
     if args.dry_run:
         _replay_dry_run(args, qpos, velocities, timestamps)
@@ -470,25 +496,24 @@ def _replay_dry_run(
 ) -> None:
     import rerun as rr
 
-    rr.init("arm_replay", spawn=True)
+    rr.init('arm_replay', spawn=True)
     if args.save:
         rr.save(args.save)
 
     _log_static_arm()
 
-    print(f"[DRY-RUN] Replaying {len(qpos)} frames (no hardware connection)")
+    print(f'[DRY-RUN] Replaying {len(qpos)} frames (no hardware connection)')
 
     for i in range(len(qpos)):
-        rr.set_time("time", timestamp=timestamps[i])
+        rr.set_time('time', timestamp=timestamps[i])
         _log_arm_fk(qpos[i])
 
         for j, joint in enumerate(ARM_JOINTS):
-            rr.log(f"arm/commanded/{joint}", rr.Scalars(float(qpos[i, j])))
+            rr.log(f'arm/commanded/{joint}', rr.Scalars(float(qpos[i, j])))
 
         print(
-            f"\r  frame={i+1:5d}/{len(qpos)}  "
-            f"cmd=[{', '.join(f'{v:.3f}' for v in qpos[i])}]",
-            end="",
+            f'\r  frame={i + 1:5d}/{len(qpos)}  cmd=[{", ".join(f"{v:.3f}" for v in qpos[i])}]',
+            end='',
             flush=True,
         )
 
@@ -498,7 +523,7 @@ def _replay_dry_run(
             if sleep_t > 0:
                 time.sleep(sleep_t)
 
-    print("\nDone.")
+    print('\nDone.')
 
 
 def _replay_live(
@@ -511,22 +536,22 @@ def _replay_live(
     import rerun as rr
 
     # Safety confirmation with countdown
-    print("=" * 60)
-    print("MOTORS WILL MOVE — press Enter to confirm or Ctrl+C to abort")
-    print("=" * 60)
+    print('=' * 60)
+    print('MOTORS WILL MOVE — press Enter to confirm or Ctrl+C to abort')
+    print('=' * 60)
     for remaining in range(5, 0, -1):
-        print(f"  Starting in {remaining}s ...", end="\r", flush=True)
+        print(f'  Starting in {remaining}s ...', end='\r', flush=True)
         time.sleep(1.0)
     print()
     try:
-        input("Press Enter to confirm, or Ctrl+C to abort: ")
+        input('Press Enter to confirm, or Ctrl+C to abort: ')
     except KeyboardInterrupt:
-        print("\nAborted.")
+        print('\nAborted.')
         return
 
     arm_limits = load_arm_limits()
     if arm_limits:
-        print(f"Arm limits loaded ({len(arm_limits)} joints)")
+        print(f'Arm limits loaded ({len(arm_limits)} joints)')
 
     ctx = zmq.Context()
 
@@ -537,17 +562,17 @@ def _replay_live(
     # Telemetry socket
     telem_sock = ctx.socket(zmq.SUB)
     telem_sock.connect(args.telem)
-    telem_sock.setsockopt_string(zmq.SUBSCRIBE, "")
+    telem_sock.setsockopt_string(zmq.SUBSCRIBE, '')
     telem_sock.setsockopt(zmq.RCVTIMEO, 50)
 
-    rr.init("arm_replay", spawn=True)
+    rr.init('arm_replay', spawn=True)
     if args.save:
         rr.save(args.save)
 
     _log_static_arm()
 
     # --- Pre-flight: start position check ---
-    print("Checking start position...")
+    print('Checking start position...')
     telem = None
     for _ in range(20):
         telem = drain_sub(telem_sock)
@@ -559,21 +584,27 @@ def _replay_live(
     if current_qpos is not None:
         mismatches = check_start_position(qpos[0], current_qpos)
         if mismatches:
-            print("WARNING: Start position mismatch:")
+            print('WARNING: Start position mismatch:')
             for joint_i, diff in mismatches:
-                print(f"  {ARM_JOINTS[joint_i]}: recording={qpos[0, joint_i]:.3f}  current={current_qpos[joint_i]:.3f}  diff={diff:.3f} rad")
+                print(
+                    f'  {ARM_JOINTS[joint_i]}: recording={qpos[0, joint_i]:.3f}  current={current_qpos[joint_i]:.3f}  diff={diff:.3f} rad'
+                )
     else:
-        print("WARNING: Could not read current arm position for start-position check.")
+        print('WARNING: Could not read current arm position for start-position check.')
         current_qpos = qpos[0].copy()
 
     # --- goto-start ---
     if args.goto_start:
-        print("Moving to start position...")
+        print('Moving to start position...')
         _goto_start(cmd_sock, telem_sock, qpos[0], args.max_delta, arm_limits)
 
     # --- Replay loop ---
-    print(f"\n[LIVE] Replaying {len(qpos)} frames")
-    period = (timestamps[-1] - timestamps[0]) / max(len(timestamps) - 1, 1) / args.speed if len(timestamps) > 1 else 0.05 / args.speed
+    print(f'\n[LIVE] Replaying {len(qpos)} frames')
+    period = (
+        (timestamps[-1] - timestamps[0]) / max(len(timestamps) - 1, 1) / args.speed
+        if len(timestamps) > 1
+        else 0.05 / args.speed
+    )
 
     try:
         for i in range(len(qpos)):
@@ -588,12 +619,12 @@ def _replay_live(
 
             # Send command (7-DOF: swivel + gantry + gripper)
             cmd = {
-                "type": "arm_joints",
-                "positions": safe_target.tolist(),
-                "velocities": [0.0] * NUM_ARM_JOINTS,
-                "kp": KP,
-                "kd": KD,
-                "torques": [0.0] * NUM_ARM_JOINTS,
+                'type': 'arm_joints',
+                'positions': safe_target.tolist(),
+                'velocities': [0.0] * NUM_ARM_JOINTS,
+                'kp': KP,
+                'kd': KD,
+                'torques': [0.0] * NUM_ARM_JOINTS,
             }
             cmd_sock.send(pack_msg(cmd))
 
@@ -604,17 +635,17 @@ def _replay_live(
                 current_qpos = actual_qpos
 
             # Log to Rerun
-            rr.set_time("time", timestamp=timestamps[i])
+            rr.set_time('time', timestamp=timestamps[i])
             _log_arm_fk(current_qpos)
             for j, joint in enumerate(ARM_JOINTS):
-                rr.log(f"arm/commanded/{joint}", rr.Scalars(float(safe_target[j])))
-                rr.log(f"arm/actual/{joint}",    rr.Scalars(float(current_qpos[j])))
+                rr.log(f'arm/commanded/{joint}', rr.Scalars(float(safe_target[j])))
+                rr.log(f'arm/actual/{joint}', rr.Scalars(float(current_qpos[j])))
 
             print(
-                f"\r  frame={i+1:5d}/{len(qpos)}  "
-                f"cmd=[{', '.join(f'{v:.3f}' for v in safe_target)}]  "
-                f"actual=[{', '.join(f'{v:.3f}' for v in current_qpos)}]",
-                end="",
+                f'\r  frame={i + 1:5d}/{len(qpos)}  '
+                f'cmd=[{", ".join(f"{v:.3f}" for v in safe_target)}]  '
+                f'actual=[{", ".join(f"{v:.3f}" for v in current_qpos)}]',
+                end='',
                 flush=True,
             )
 
@@ -624,9 +655,9 @@ def _replay_live(
                 time.sleep(sleep_t)
 
     except KeyboardInterrupt:
-        print("\n\nInterrupted — watchdog will hold last position.")
+        print('\n\nInterrupted — watchdog will hold last position.')
     finally:
-        print("\nDone.")
+        print('\nDone.')
         cmd_sock.close()
         telem_sock.close()
         ctx.term()
@@ -655,19 +686,19 @@ def _goto_start(
                 break
         time.sleep(0.05)
 
-    print(f"  Moving to start: target=[{', '.join(f'{v:.3f}' for v in target)}]")
+    print(f'  Moving to start: target=[{", ".join(f"{v:.3f}" for v in target)}]')
 
     while time.time() - t_start < timeout:
         safe, _ = apply_safety_limits(target, current, max_delta)
         if arm_limits:
             safe = np.array(clamp_arm_positions(safe.tolist(), arm_limits), dtype=np.float32)
         cmd = {
-            "type": "arm_joints",
-            "positions": safe.tolist(),
-            "velocities": [0.0] * NUM_ARM_JOINTS,
-            "kp": KP,
-            "kd": KD,
-            "torques": [0.0] * NUM_ARM_JOINTS,
+            'type': 'arm_joints',
+            'positions': safe.tolist(),
+            'velocities': [0.0] * NUM_ARM_JOINTS,
+            'kp': KP,
+            'kd': KD,
+            'torques': [0.0] * NUM_ARM_JOINTS,
         }
         cmd_sock.send(pack_msg(cmd))
         time.sleep(1.0 / RECORD_HZ)
@@ -679,64 +710,76 @@ def _goto_start(
                 current = q
 
         if np.all(np.abs(current - target) < tol):
-            print("  Reached start position.")
+            print('  Reached start position.')
             return
 
-    print("  WARNING: timeout reaching start position — proceeding anyway.")
+    print('  WARNING: timeout reaching start position — proceeding anyway.')
 
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Arm trajectory record, visualize, and replay.",
+        description='Arm trajectory record, visualize, and replay.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="subcommand", required=True)
+    sub = p.add_subparsers(dest='subcommand', required=True)
 
     # -- record --
-    rec = sub.add_parser("record", help="Record arm trajectory from telemetry")
-    rec.add_argument("--telem",      default="tcp://localhost:5556", help="ZMQ telemetry address")
-    rec.add_argument("--output-dir", default="recordings",           help="Directory for output HDF5 files")
+    rec = sub.add_parser('record', help='Record arm trajectory from telemetry')
+    rec.add_argument('--telem', default='tcp://localhost:5556', help='ZMQ telemetry address')
+    rec.add_argument('--output-dir', default='recordings', help='Directory for output HDF5 files')
 
     # -- visualize --
-    viz = sub.add_parser("visualize", help="Visualize a recording or episode in Rerun")
-    viz.add_argument("file",           help="HDF5 file to visualize")
-    viz.add_argument("--speed", type=float, default=1.0, help="Playback speed multiplier")
-    viz.add_argument("--save",  default=None,            help="Also save to MCAP file")
+    viz = sub.add_parser('visualize', help='Visualize a recording or episode in Rerun')
+    viz.add_argument('file', help='HDF5 file to visualize')
+    viz.add_argument('--speed', type=float, default=1.0, help='Playback speed multiplier')
+    viz.add_argument('--save', default=None, help='Also save to MCAP file')
 
     # -- replay --
-    rep = sub.add_parser("replay", help="Replay a recording on the arm")
-    rep.add_argument("file",                                                  help="HDF5 file to replay")
-    rep.add_argument("--cmd",       default="tcp://localhost:5555",           help="ZMQ command address")
-    rep.add_argument("--telem",     default="tcp://localhost:5556",           help="ZMQ telemetry address")
-    rep.add_argument("--speed",     type=float, default=1.0,                  help="Playback speed multiplier")
-    rep.add_argument("--max-delta", type=float, default=0.05, dest="max_delta", help="Max joint delta per step (rad)")
-    rep.add_argument("--save",      default=None,                             help="Also save Rerun data to MCAP file")
-    rep.add_argument("--goto-start", action="store_true", dest="goto_start",  help="Move arm to recording start before replay (live only)")
+    rep = sub.add_parser('replay', help='Replay a recording on the arm')
+    rep.add_argument('file', help='HDF5 file to replay')
+    rep.add_argument('--cmd', default='tcp://localhost:5555', help='ZMQ command address')
+    rep.add_argument('--telem', default='tcp://localhost:5556', help='ZMQ telemetry address')
+    rep.add_argument('--speed', type=float, default=1.0, help='Playback speed multiplier')
+    rep.add_argument('--max-delta', type=float, default=0.05, dest='max_delta', help='Max joint delta per step (rad)')
+    rep.add_argument('--save', default=None, help='Also save Rerun data to MCAP file')
+    rep.add_argument(
+        '--goto-start',
+        action='store_true',
+        dest='goto_start',
+        help='Move arm to recording start before replay (live only)',
+    )
 
     mode = rep.add_mutually_exclusive_group()
-    mode.add_argument("--dry-run", action="store_true",  dest="dry_run", default=True,  help="Simulate replay without hardware (default)")
-    mode.add_argument("--live",    action="store_false", dest="dry_run",                help="Send commands to real arm")
+    mode.add_argument(
+        '--dry-run',
+        action='store_true',
+        dest='dry_run',
+        default=True,
+        help='Simulate replay without hardware (default)',
+    )
+    mode.add_argument('--live', action='store_false', dest='dry_run', help='Send commands to real arm')
 
     return p
 
 
 def main() -> None:
     parser = build_parser()
-    args   = parser.parse_args()
+    args = parser.parse_args()
 
-    if args.subcommand == "record":
+    if args.subcommand == 'record':
         cmd_record(args)
-    elif args.subcommand == "visualize":
+    elif args.subcommand == 'visualize':
         cmd_visualize(args)
-    elif args.subcommand == "replay":
+    elif args.subcommand == 'replay':
         cmd_replay(args)
     else:
         parser.print_help()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

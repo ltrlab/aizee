@@ -1,5 +1,6 @@
 """Policy mode through Helm: the session carries the policy (and, to the robot, the capture profile's cameras instead
 of a capture process), the robot side takes the source as Helm sent it, and the route starts it."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -19,12 +20,19 @@ CAPTURE = ROOT / 'config/devices/minerva-task-capture.json'
 
 
 class Core:
-    period_s = .01
+    period_s = 0.01
     clock = staticmethod(time.perf_counter)
     made = []
 
     def __init__(self, bundle, **options):
-        self.bundle, self.options, self.phase, self.fault, self.scheduling, self.closed = bundle, options, 'starting', None, {}, False
+        self.bundle, self.options, self.phase, self.fault, self.scheduling, self.closed = (
+            bundle,
+            options,
+            'starting',
+            None,
+            {},
+            False,
+        )
         Core.made.append(self)
 
     def build(self):
@@ -52,16 +60,21 @@ class Core:
         self.closed = True
 
 
-def wait_until(predicate, timeout=5.):
+def wait_until(predicate, timeout=5.0):
     deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, 'timed out'
-        time.sleep(.01)
+        time.sleep(0.01)
 
 
 def helm_stub():
-    return SimpleNamespace(profile_path=ROOT / 'config/devices/minerva-joint-calibration.json', bindings={},
-                           mapping={}, saved_limits={'joints': {}}, asset_id='minerva-production-01')
+    return SimpleNamespace(
+        profile_path=ROOT / 'config/devices/minerva-joint-calibration.json',
+        bindings={},
+        mapping={},
+        saved_limits={'joints': {}},
+        asset_id='minerva-production-01',
+    )
 
 
 def test_the_robot_side_takes_a_policy_source_as_helm_sent_it(tmp_path, monkeypatch):
@@ -70,14 +83,26 @@ def test_the_robot_side_takes_a_policy_source_as_helm_sent_it(tmp_path, monkeypa
     def prepare(start, root, *, leaders=True):
         asked.append(leaders)
         return dict(start['bundle']), None
+
     monkeypatch.setattr(edge, 'prepare', prepare)
     sent, commands = [], Inbox()
     commands.end('Helm closed the channel')
     cameras = json.loads(CAPTURE.read_text(encoding='utf-8'))
-    start = {'bundle': {'source': {'kind': 'policy', 'policy': 'hold_still'}, 'policy_cameras': cameras},
-             'key': '00' * 32, 'bind': '127.0.0.1'}
-    assert serve(start, commands, SimpleNamespace(send=sent.append, close=lambda: None), core_factory=Core,
-                 ups_state=tmp_path / 'no-ups.json') == 0
+    start = {
+        'bundle': {'source': {'kind': 'policy', 'policy': 'hold_still'}, 'policy_cameras': cameras},
+        'key': '00' * 32,
+        'bind': '127.0.0.1',
+    }
+    assert (
+        serve(
+            start,
+            commands,
+            SimpleNamespace(send=sent.append, close=lambda: None),
+            core_factory=Core,
+            ups_state=tmp_path / 'no-ups.json',
+        )
+        == 0
+    )
     core = Core.made[-1]
     assert asked == [False] and sent[0] == ['link', 0]  # No leaders, as for a replay or a sweep.
     assert core.bundle['source'] == {'kind': 'policy', 'policy': 'hold_still'}  # No episode root added.
@@ -91,21 +116,31 @@ def test_the_robot_side_links_the_leaders_for_a_policy_session_with_takeover(tmp
     def prepare(start, root, *, leaders=True):
         asked.append(leaders)
         return dict(start['bundle']), link
+
     monkeypatch.setattr(edge, 'prepare', prepare)
     sent, commands = [], Inbox()
     commands.end('Helm closed the channel')
     source = {'kind': 'policy', 'policy': 'hold_still', 'takeover': True}
     start = {'bundle': {'source': source}, 'key': '00' * 32, 'bind': '127.0.0.1'}
-    assert serve(start, commands, SimpleNamespace(send=sent.append, close=lambda: None), core_factory=Core,
-                 ups_state=tmp_path / 'no-ups.json') == 0
+    assert (
+        serve(
+            start,
+            commands,
+            SimpleNamespace(send=sent.append, close=lambda: None),
+            core_factory=Core,
+            ups_state=tmp_path / 'no-ups.json',
+        )
+        == 0
+    )
     core = Core.made[-1]
     assert asked == [True] and sent[0] == ['link', 4242]  # The leaders, to take over from the policy.
     assert core.bundle['source'] == source and core.options['open_leaders'](None) is link
 
 
 def test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_capture(tmp_path):
-    session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: Core(bundle),
-                            capture_profile=CAPTURE)
+    session = TeleopSession(
+        helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: Core(bundle), capture_profile=CAPTURE
+    )
     session.task_capture_config = {'hz': 15}  # Task set up for recording: a policy session still records nothing.
     with pytest.raises(ValueError, match='replays an episode, runs a policy or follows the headset: one of them'):
         session.start(replay={'episode': 's/e'}, policy={'policy': 'hold_still'})
@@ -113,7 +148,10 @@ def test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_
     try:
         starting = session.snapshot()
         # The stand-in loop's first view has no policy entry and may already have replaced the starting one.
-        assert starting.get('policy') in ({'spec': 'hold_still', 'policy': None, 'loading': True}, None) or starting['phase'] == 'running'
+        assert (
+            starting.get('policy') in ({'spec': 'hold_still', 'policy': None, 'loading': True}, None)
+            or starting['phase'] == 'running'
+        )
         wait_until(lambda: session.snapshot()['phase'] == 'running')
         bundle = Core.made[-1].bundle
         assert bundle['source'] == {'kind': 'policy', 'policy': 'hold_still'}
@@ -136,19 +174,31 @@ def test_a_policy_session_carries_the_policy_and_on_the_robot_the_cameras_not_a_
 
         def join(self, timeout=None):
             pass
-    robot = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, capture_profile=CAPTURE)
+
+    robot = TeleopSession(
+        helm_stub(), TELEOP, runs=tmp_path, target='jetson', edge_factory=Robot, capture_profile=CAPTURE
+    )
     robot.task_capture_config = {'hz': 15}
     robot.start(policy={'policy': 'lerobot:/home/ltr/minerva/policies/act-001'})
     bundle, options = sent[-1]
     assert bundle['source'] == {'kind': 'policy', 'policy': 'lerobot:/home/ltr/minerva/policies/act-001'}
-    assert 'task_capture' not in bundle and bundle['policy_cameras']['camera_roles'] == ['left_wrist', 'right_wrist', 'head']
+    assert 'task_capture' not in bundle and bundle['policy_cameras']['camera_roles'] == [
+        'left_wrist',
+        'right_wrist',
+        'head',
+    ]
     assert options['name'] == 'The policy'
     robot.stop()
 
 
 def test_a_policy_session_with_takeover_needs_the_leaders_and_records_on_both_live_arms(tmp_path):
-    session = TeleopSession(helm_stub(), TELEOP, runs=tmp_path, core_factory=lambda bundle: Core(bundle),
-                            leaders=SimpleNamespace(saved=None, missing=lambda routes: ['J1']))
+    session = TeleopSession(
+        helm_stub(),
+        TELEOP,
+        runs=tmp_path,
+        core_factory=lambda bundle: Core(bundle),
+        leaders=SimpleNamespace(saved=None, missing=lambda routes: ['J1']),
+    )
     session.task_capture_config = {'hz': 15}
     session.receiver = {'mode': 'live', 'arm': 'both'}
     with pytest.raises(ValueError, match='missing: J1'):  # The leaders must be ready to take over.
@@ -201,21 +251,28 @@ class FakeTeleop:
 def test_the_route_starts_a_policy_session(tmp_path):
     from aiohttp.test_utils import TestClient, TestServer
     from robot_platform.helm.session import HelmSession
-    helm = HelmSession(ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs',
-                       limits=tmp_path / 'limits.json')
+
+    helm = HelmSession(
+        ROOT / 'config/devices/minerva-joint-calibration.json', runs=tmp_path / 'runs', limits=tmp_path / 'limits.json'
+    )
     teleop = FakeTeleop()
 
     async def run():
         app = create_app(helm, SimpleNamespace(running=False, disconnect=lambda: None), teleop=teleop, token='secret')
         async with TestClient(TestServer(app)) as client:
             headers = {'X-Helm-Token': 'secret'}
-            both = await client.post('/api/helm/teleop/start', headers=headers,
-                                     json={'replay': {'episode': 's/e'}, 'policy': {'policy': 'hold_still'}})
+            both = await client.post(
+                '/api/helm/teleop/start',
+                headers=headers,
+                json={'replay': {'episode': 's/e'}, 'policy': {'policy': 'hold_still'}},
+            )
             assert both.status != 200 and 'one of them' in (await both.json())['error']
-            started = await client.post('/api/helm/teleop/start', headers=headers,
-                                        json={'confirm': True, 'policy': {'policy': 'hold_still'}})
+            started = await client.post(
+                '/api/helm/teleop/start', headers=headers, json={'confirm': True, 'policy': {'policy': 'hold_still'}}
+            )
             assert started.status == 200
             assert teleop.starts == [{'confirm': True, 'policy': {'policy': 'hold_still'}}]
+
     try:
         asyncio.run(run())
     finally:

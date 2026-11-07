@@ -6,6 +6,7 @@ session. Saved ranges are what teleop scales onto the robot's joint ranges, from
 the leader zero (the pose that maps onto the robot's reference pose). The zero
 can be set here or from a running teleop session, at any time; it saves at once.
 """
+
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -14,22 +15,40 @@ import time
 import uuid
 
 from robot_platform.control.joint_calibration import save_json
-from robot_platform.teleop.leader_ranges import (LeaderRangeRecorder, channels, load_ranges, range_table,
-                                                 reference_table, with_reference, wrap)
+from robot_platform.teleop.leader_ranges import (
+    LeaderRangeRecorder,
+    channels,
+    load_ranges,
+    range_table,
+    reference_table,
+    with_reference,
+    wrap,
+)
 
 
 class LeaderWorkspace:
-    poll_s = .02
+    poll_s = 0.02
 
-    def __init__(self, teleop_profile, *, labels=None, evidence=None, open_leaders=None, clock=time.perf_counter,
-                 operator_files=None):
+    def __init__(
+        self,
+        teleop_profile,
+        *,
+        labels=None,
+        evidence=None,
+        open_leaders=None,
+        clock=time.perf_counter,
+        operator_files=None,
+    ):
         path = Path(teleop_profile).resolve()
         teleop = json.loads(path.read_text(encoding='utf-8'))
         self.profile_path = (path.parent / teleop['leader_profile']).resolve()
         self.profile = json.loads(self.profile_path.read_text(encoding='utf-8'))
         # Saved beside the teleop profile, or in Helm on Minerva's operator folder (helm.operator_files).
-        self.path = (Path(operator_files).resolve() / Path(teleop['leader_ranges']).name if operator_files else
-                     (path.parent / teleop['leader_ranges']).resolve())
+        self.path = (
+            Path(operator_files).resolve() / Path(teleop['leader_ranges']).name
+            if operator_files
+            else (path.parent / teleop['leader_ranges']).resolve()
+        )
         self.drives = {(route['leader'], route['channel']): motor for motor, route in teleop['routes'].items()}
         self.labels = dict(labels or {})
         self.evidence = Path(evidence) if evidence else None
@@ -46,13 +65,17 @@ class LeaderWorkspace:
 
     def _saved_spans(self):
         table = range_table(self.saved, self.profile)
-        return {key: table[leader][index] for key, leader, _name, index, _label in channels(self.profile)
-                if table[leader][index] is not None}
+        return {
+            key: table[leader][index]
+            for key, leader, _name, index, _label in channels(self.profile)
+            if table[leader][index] is not None
+        }
 
     def _open_leaders(self, profile):
         from robot_platform.teleop.leader_bridge import LatestLeaderInputs
         from robot_platform.teleop.openrb import OpenRBInputs
-        leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.)
+
+        leaders = LatestLeaderInputs(OpenRBInputs(profile), rate_hz=100.0)
         leaders.connect()
         return leaders
 
@@ -71,7 +94,7 @@ class LeaderWorkspace:
             self._thread = threading.Thread(target=self._run, args=(self._stop,), daemon=True, name='helm-leaders')
             self._thread.start()
 
-    def disconnect(self, timeout=5.):
+    def disconnect(self, timeout=5.0):
         with self.lock:
             thread, stop = self._thread, self._stop
         if thread is None:
@@ -81,13 +104,16 @@ class LeaderWorkspace:
 
     def _run(self, stop):
         from robot_platform.teleop.openrb import LeaderSampleSkipped
+
         try:
             leaders = self.open_leaders(self.profile)
         except Exception as exc:
             with self.lock:
                 self.state = 'fault'
-                self.message = (f'Could not open the leader arms ({exc}). Close the leader viewer or any other '
-                                'program using their USB ports, then connect again.')
+                self.message = (
+                    f'Could not open the leader arms ({exc}). Close the leader viewer or any other '
+                    'program using their USB ports, then connect again.'
+                )
             return
         with self.lock:
             self.recorder.restart()
@@ -113,7 +139,7 @@ class LeaderWorkspace:
                 if self.state != 'fault':
                     self.state, self.message = 'disconnected', 'Leaders disconnected.'
 
-    def fresh(self, limit=.5):
+    def fresh(self, limit=0.5):
         with self.lock:
             return self.state == 'reading' and self.received is not None and self.clock() - self.received <= limit
 
@@ -147,8 +173,9 @@ class LeaderWorkspace:
         """Save a leader zero {leader: {channel: reading_rad}} (from this tab or a teleop session)."""
         with self.lock:
             existing = self.saved if self.saved_error is None else None
-            document = with_reference(existing, self.profile, captured,
-                                      session=self.evidence.name if self.evidence else None)
+            document = with_reference(
+                existing, self.profile, captured, session=self.evidence.name if self.evidence else None
+            )
             self._write(document)
             return document['reference']
 
@@ -157,8 +184,9 @@ class LeaderWorkspace:
             self.evidence.mkdir(parents=True, exist_ok=True)
             if self.path.is_file() and self.saved is None:
                 # Keep a copy of anything replaced; the evidence folder is local.
-                save_json(self.evidence / ('replaced-' + self.path.name),
-                          json.loads(self.path.read_text(encoding='utf-8')))
+                save_json(
+                    self.evidence / ('replaced-' + self.path.name), json.loads(self.path.read_text(encoding='utf-8'))
+                )
         save_json(self.path, document)
         if self.evidence is not None:
             save_json(self.evidence / ('saved-' + uuid.uuid4().hex[:8] + '-' + self.path.name), document)
@@ -185,7 +213,7 @@ class LeaderWorkspace:
             if leader not in table or not 0 <= index < len(table[leader]) or table[leader][index] is None:
                 items = joints.get(leader, [])
                 label = items[index].get('label', '') if 0 <= index < len(items) else ''
-                result.append(f"{leader} {label.lower() or 'channel ' + str(route['channel'])}")
+                result.append(f'{leader} {label.lower() or "channel " + str(route["channel"])}')
         if routes and reference_table(self.saved, self.profile) is None:
             result.append('the leader zero')
         return result
@@ -202,15 +230,26 @@ class LeaderWorkspace:
                 marker = None  # The zero in the current reading's turn, for the bar.
                 if angle is not None and row['current'] is not None:
                     marker = row['current'] + wrap(angle - row['current'])
-                rows.append({**row, 'drives': motor, 'drives_label': self.labels.get(motor, motor),
-                             'reference': marker})
+                rows.append(
+                    {**row, 'drives': motor, 'drives_label': self.labels.get(motor, motor), 'reference': marker}
+                )
             saved_reference = (self.saved or {}).get('reference')
             saved = (self.saved or {}).get('leaders', {})
             age = None if self.received is None else self.clock() - self.received
-            return {'state': self.state, 'message': self.message, 'fresh': self.fresh(), 'age_seconds': age,
-                    'skipped': self.skipped, 'profile': self.profile['id'], 'path': str(self.path),
-                    'titles': {name: item.get('title', name) for name, item in self.profile['leaders'].items()},
-                    'saved_at': (self.saved or {}).get('updated_at'), 'saved_error': self.saved_error,
-                    'saved_channels': sum(len(entries) for entries in saved.values()),
-                    'total_channels': len(rows), 'rows': deepcopy(rows), 'pending': len(self.recorder.confirmed),
-                    'reference': {'captured_at': (saved_reference or {}).get('captured_at')}}
+            return {
+                'state': self.state,
+                'message': self.message,
+                'fresh': self.fresh(),
+                'age_seconds': age,
+                'skipped': self.skipped,
+                'profile': self.profile['id'],
+                'path': str(self.path),
+                'titles': {name: item.get('title', name) for name, item in self.profile['leaders'].items()},
+                'saved_at': (self.saved or {}).get('updated_at'),
+                'saved_error': self.saved_error,
+                'saved_channels': sum(len(entries) for entries in saved.values()),
+                'total_channels': len(rows),
+                'rows': deepcopy(rows),
+                'pending': len(self.recorder.confirmed),
+                'reference': {'captured_at': (saved_reference or {}).get('captured_at')},
+            }

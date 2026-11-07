@@ -10,6 +10,7 @@ limits (neck.head.files), where the next session's head reads it (display only: 
 camera relay's stamps); the file it replaces is kept in the run's folder. Nothing here moves a motor or changes a
 camera setting.
 """
+
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import base64
@@ -51,8 +52,7 @@ class HeadAlignment:
     """Call capture/solve/save from worker threads. `teleop()` is the teleop session's snapshot (helm.teleop);
     `files()` the head's files (neck.head.files); `wrists` the wrist calibration's runs, to compare the board."""
 
-    def __init__(self, *, teleop, root, files, wrists=None, rig=DEFAULT_RIG, remote=None, solver=None,
-                 clock=time.time):
+    def __init__(self, *, teleop, root, files, wrists=None, rig=DEFAULT_RIG, remote=None, solver=None, clock=time.time):
         self.config = load_rig(rig)
         self.board = load_board(self.config['board'])
         self.teleop, self.files = teleop, files
@@ -71,8 +71,11 @@ class HeadAlignment:
 
     def _load(self, folder):
         self.run = folder
-        self.stills = [json.loads(line) for line in (folder / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
-                       if line.strip()]
+        self.stills = [
+            json.loads(line)
+            for line in (folder / 'stills.jsonl').read_text(encoding='utf-8').splitlines()
+            if line.strip()
+        ]
         result = folder / 'result.json'
         self.result = summary(json.loads(result.read_text(encoding='utf-8'))) if result.is_file() else None
 
@@ -127,29 +130,50 @@ class HeadAlignment:
             self._new_run()
         still = self.config['still']
         name = f'{len(self.stills) + 1:03d}-{CAMERA}'
-        reply = self.remote({'operation': 'still', 'role': CAMERA, 'frames': still['frames'],
-                             'family': self.board.family, 'tags': sorted(self.board.tags),
-                             'path': str(self.run / 'images' / f'{name}.png'),
-                             'head_pose': {'margin_s': still['margin_s']}})
+        reply = self.remote(
+            {
+                'operation': 'still',
+                'role': CAMERA,
+                'frames': still['frames'],
+                'family': self.board.family,
+                'tags': sorted(self.board.tags),
+                'path': str(self.run / 'images' / f'{name}.png'),
+                'head_pose': {'margin_s': still['margin_s']},
+            }
+        )
         pose = reply.pop('head', None)
         if not pose:
             raise RuntimeError('The robot sent no head pose with the still; is its release current?')
         if pose['moved_rad'] > still['still_rad']:
-            raise ValueError(f"The head moved {pose['moved_rad'] * 1e3:.1f} mrad while the frames were taken; hold it "
-                             'still (T) and capture again')
+            raise ValueError(
+                f'The head moved {pose["moved_rad"] * 1e3:.1f} mrad while the frames were taken; hold it '
+                'still (T) and capture again'
+            )
         if not isinstance(reply.get('intrinsics'), dict):
-            raise ValueError('The head camera published no intrinsics with its frames; its colour registration update '
-                             'adds them')
+            raise ValueError(
+                'The head camera published no intrinsics with its frames; its colour registration update adds them'
+            )
         thumbnail = reply.pop('thumbnail', None)
-        record = dict(name=name, camera=CAMERA, captured_at=datetime.fromtimestamp(self.clock(), timezone.utc)
-                      .isoformat(), joints=pose['joints'], moved_rad=pose['moved_rad'], pose_samples=pose['samples'],
-                      link=self.config['link'], reference_sha256=digest, **reply)
+        record = dict(
+            name=name,
+            camera=CAMERA,
+            captured_at=datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(),
+            joints=pose['joints'],
+            moved_rad=pose['moved_rad'],
+            pose_samples=pose['samples'],
+            link=self.config['link'],
+            reference_sha256=digest,
+            **reply,
+        )
         with open(self.run / 'stills.jsonl', 'a', encoding='utf-8') as file:
             file.write(json.dumps(record) + '\n')
         self.stills.append(record)
         self._thumbnail = (name, base64.b64decode(thumbnail)) if thumbnail else None
-        self.last = dict(_still_summary(record), thumbnail=self._thumbnail is not None,
-                         joints_deg={k: round(math.degrees(v), 2) for k, v in pose['joints'].items()})
+        self.last = dict(
+            _still_summary(record),
+            thumbnail=self._thumbnail is not None,
+            joints_deg={k: round(math.degrees(v), 2) for k, v in pose['joints'].items()},
+        )
 
     def thumbnail(self):
         return self._thumbnail[1] if self._thumbnail else None
@@ -160,8 +184,7 @@ class HeadAlignment:
             if not self.stills:
                 raise ValueError('No head still to undo')
             removed = self.stills.pop()
-            (self.run / 'stills.jsonl').write_text(''.join(json.dumps(s) + '\n' for s in self.stills),
-                                                   encoding='utf-8')
+            (self.run / 'stills.jsonl').write_text(''.join(json.dumps(s) + '\n' for s in self.stills), encoding='utf-8')
             if self.last and self.last.get('name') == removed['name']:
                 self.last = self._thumbnail = None
             return self.snapshot()
@@ -207,7 +230,7 @@ class HeadAlignment:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             target = self.files()['camera']
             if target.is_file():
-                shutil.copy2(target, self.run / f"replaced-{now.strftime('%Y%m%dT%H%M%SZ')}-{target.name}")
+                shutil.copy2(target, self.run / f'replaced-{now.strftime("%Y%m%dT%H%M%SZ")}-{target.name}')
             target.parent.mkdir(parents=True, exist_ok=True)
             save_json(target, alignment_document(result, saved_at=now.isoformat()))
             return self.snapshot()
@@ -223,20 +246,45 @@ class HeadAlignment:
                 return None
             reference = head.load_document(self.files()['reference'])
             current = reference is not None and document.get('reference_sha256') == reference_digest(reference)
-            return dict(run=document.get('run'), saved_at=document.get('saved_at'), fit=document.get('fit'),
-                        mount_mm=[round(v * 1e3, 1) for v in document['mount']['xyz_m']], current=current)
+            return dict(
+                run=document.get('run'),
+                saved_at=document.get('saved_at'),
+                fit=document.get('fit'),
+                mount_mm=[round(v * 1e3, 1) for v in document['mount']['xyz_m']],
+                current=current,
+            )
         except (OSError, ValueError, KeyError, TypeError):
             return {'error': 'The head camera file is unreadable'}
 
     def snapshot(self):
         tagged = sum(1 for s in self.stills if s.get('tags'))
+
         # For the page's guide: each still taken (when, how many tags it saw, and how the head was turned and tilted;
         # None for a still without the angle, so one odd line cannot fail every state).
         def degrees(still, joint):
             value = (still.get('joints') or {}).get(joint)
             return round(math.degrees(value), 2) if isinstance(value, (int, float)) else None
-        taken = [dict(name=s['name'], tags=len(s.get('tags') or {}), at=s.get('captured_at'),
-                      pan_deg=degrees(s, 'neck_z'), tilt_deg=degrees(s, 'neck_y')) for s in self.stills]
-        return dict(run=self.run.name if self.run else None, stills=len(self.stills), tagged=tagged, busy=self.busy,
-                    solving=self.solving, error=self.error, last=self.last, result=self.result, saved=self._saved(),
-                    frames=self.config['still']['frames'], taken=taken)
+
+        taken = [
+            dict(
+                name=s['name'],
+                tags=len(s.get('tags') or {}),
+                at=s.get('captured_at'),
+                pan_deg=degrees(s, 'neck_z'),
+                tilt_deg=degrees(s, 'neck_y'),
+            )
+            for s in self.stills
+        ]
+        return dict(
+            run=self.run.name if self.run else None,
+            stills=len(self.stills),
+            tagged=tagged,
+            busy=self.busy,
+            solving=self.solving,
+            error=self.error,
+            last=self.last,
+            result=self.result,
+            saved=self._saved(),
+            frames=self.config['still']['frames'],
+            taken=taken,
+        )

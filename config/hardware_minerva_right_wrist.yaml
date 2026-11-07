@@ -6,25 +6,26 @@
 # and point `device` at the symlink.
 camera:
   id: right_wrist
-  device: /dev/video0            # HD USB Camera (32e4:9230) — the physical RIGHT wrist cam
-  usb_id: "32e4:9230"            # USB VID:PID — resolves the physical RIGHT-arm camera regardless
-                                 # of /dev/videoN (renumbers on replug). NOTE: 05a3/32e4 swapped
-                                 # from bring-up — 32e4 is the right arm, 05a3 the left.
+  device: /dev/video0 # HD USB Camera (32e4:9230) — the physical RIGHT wrist cam
+  usb_id:
+    '32e4:9230' # USB VID:PID — resolves the physical RIGHT-arm camera regardless
+    # of /dev/videoN (renumbers on replug). NOTE: 05a3/32e4 swapped
+    # from bring-up — 32e4 is the right arm, 05a3 the left.
   fourcc: MJPG
   streams:
     color:
       enabled: true
-      width: 640                 # matches minerva.yaml cameras.right_wrist
+      width: 640 # matches minerva.yaml cameras.right_wrist
       height: 480
       fps: 30
       compression: JPEG
       quality: 85
-      flip: "none"
+      flip: 'none'
   # Verified via camera control readback on 2026-10-16. Helm can adjust these
   # at runtime; this startup preset survives camera-service restarts.
   v4l2_controls:
     auto_exposure: 1
-    exposure_time_absolute: 150  # 15 ms; V4L2 units are 100 microseconds
+    exposure_time_absolute: 150 # 15 ms; V4L2 units are 100 microseconds
     gain: 30
 
 network:
@@ -32,8 +33,8 @@ network:
     ip: 10.42.0.1
     hostname: aizee-rover
     zmq:
-      camera_pub:  "tcp://*:5565"   # Minerva right_wrist stream
-      camera_ctrl: "tcp://*:5574"   # runtime V4L2 control REP (free port; 5573=left_wrist)
+      camera_pub: 'tcp://*:5565' # Minerva right_wrist stream
+      camera_ctrl: 'tcp://*:5574' # runtime V4L2 control REP (free port; 5573=left_wrist)
 
 logging:
   level: INFO

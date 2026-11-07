@@ -3,6 +3,7 @@
 Use --bootstrap once to install hash-locked build tools and the Rust target.
 No robot connection, service start, or activation occurs here.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,8 +41,14 @@ def build(*, bootstrap=False, offline=False, jobs=2):
         raise ValueError('--bootstrap downloads prerequisites; it cannot be combined with --offline')
     run_dir = ROOT / 'build/cross-build'
     run_dir.mkdir(parents=True, exist_ok=True)
-    report = {'schema_version': 1, 'passed': False, 'target': TARGET + '.2.35',
-              'started_at': datetime.now(timezone.utc).isoformat(), 'jobs': jobs, 'commands': []}
+    report = {
+        'schema_version': 1,
+        'passed': False,
+        'target': TARGET + '.2.35',
+        'started_at': datetime.now(timezone.utc).isoformat(),
+        'jobs': jobs,
+        'commands': [],
+    }
     log_path = run_dir / 'output.log'
     log_path.write_text('', encoding='utf-8')
 
@@ -72,15 +79,33 @@ def build(*, bootstrap=False, offline=False, jobs=2):
         if bootstrap:
             if not TOOL_PYTHON.is_file():
                 venv.EnvBuilder(with_pip=True).create(TOOLS)
-            run([TOOL_PYTHON, '-m', 'pip', 'install', '--require-hashes', '--only-binary=:all:',
-                 '-r', ROOT / 'requirements/cross-build.lock'], env)
+            run(
+                [
+                    TOOL_PYTHON,
+                    '-m',
+                    'pip',
+                    'install',
+                    '--require-hashes',
+                    '--only-binary=:all:',
+                    '-r',
+                    ROOT / 'requirements/cross-build.lock',
+                ],
+                env,
+            )
             run(['rustup', 'target', 'add', TARGET], env)
         if not TOOL_PYTHON.is_file():
             raise RuntimeError('Run python scripts/build_release.py --bootstrap first')
         zig = subprocess.check_output(
-            [str(TOOL_PYTHON), '-c', 'from pathlib import Path; import ziglang, os; '
-             'print(Path(ziglang.__file__).parent / ("zig.exe" if os.name == "nt" else "zig"))'],
-            cwd=ROOT, env=env, text=True).strip()
+            [
+                str(TOOL_PYTHON),
+                '-c',
+                'from pathlib import Path; import ziglang, os; '
+                'print(Path(ziglang.__file__).parent / ("zig.exe" if os.name == "nt" else "zig"))',
+            ],
+            cwd=ROOT,
+            env=env,
+            text=True,
+        ).strip()
         env['CARGO_ZIGBUILD_ZIG_PATH'] = zig
         report['zig'] = version([zig, 'version'], env, '0.14.1')
         zigbuild = shutil.which('cargo-zigbuild', path=env['PATH'])
@@ -88,9 +113,26 @@ def build(*, bootstrap=False, offline=False, jobs=2):
             raise RuntimeError('Missing cargo-zigbuild; rerun with --bootstrap')
         report['cargo_zigbuild'] = version([zigbuild, '--version'], env, 'cargo-zigbuild 0.23.3')
         flags = ['--offline'] if offline else []
-        run(['cargo', 'zigbuild', '--release', '--locked', '--jobs', str(jobs), '--target', TARGET + '.2.35',
-             '-p', 'robot_control', '-p', 'robot_collision', '--features',
-             'robot_control/linux-service', *flags], env)
+        run(
+            [
+                'cargo',
+                'zigbuild',
+                '--release',
+                '--locked',
+                '--jobs',
+                str(jobs),
+                '--target',
+                TARGET + '.2.35',
+                '-p',
+                'robot_control',
+                '-p',
+                'robot_collision',
+                '--features',
+                'robot_control/linux-service',
+                *flags,
+            ],
+            env,
+        )
         # Same mandatory release checks as the development gate; never execute ARM64 here.
         report['binaries'] = dev.release_artifacts(env)
         report['source_after'] = dev.source_identity()

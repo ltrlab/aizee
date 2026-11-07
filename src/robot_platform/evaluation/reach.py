@@ -6,6 +6,7 @@ face. Joints move only within the receiver's limits (motor coordinates). This is
 for a top grasp; contact, dynamics and approach paths are not checked here (the scene audits
 penetration of the posed robot separately).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,8 +34,13 @@ class GraspIK:
                     rotation = np.zeros(9)
                     mj.mju_quat2Mat(rotation, scene.model.geom_quat[geom])
                     # Each robot body keeps its FK frame as a mocap body, so the pad's local frame carries over.
-                    rows.append((mj.mj_name2id(scene.fk_model, mj.mjtObj.mjOBJ_BODY, body),
-                                 scene.model.geom_pos[geom].copy(), rotation.reshape(3, 3)))
+                    rows.append(
+                        (
+                            mj.mj_name2id(scene.fk_model, mj.mjtObj.mjOBJ_BODY, body),
+                            scene.model.geom_pos[geom].copy(),
+                            rotation.reshape(3, 3),
+                        )
+                    )
             if len(rows) != 2:
                 raise ValueError(f'{side} gripper needs two terminal pads, found {len(rows)}')
             self.pads[side] = rows
@@ -55,19 +61,19 @@ class GraspIK:
     def _residual(self, side, q, target, yaw):
         middle, rotation = self._frame(side, q)
         finger, closing = rotation[:, 2], rotation[:, 0]
-        faces = np.array([[np.cos(yaw), np.sin(yaw), 0.], [-np.sin(yaw), np.cos(yaw), 0.]])
+        faces = np.array([[np.cos(yaw), np.sin(yaw), 0.0], [-np.sin(yaw), np.cos(yaw), 0.0]])
         along = 0 if abs(closing @ faces[0]) >= abs(closing @ faces[1]) else 1
         # Closing along one face normal: no component along the other.
         return np.concatenate([middle - target, finger[:2], [closing @ faces[1 - along]]])
 
-    def solve(self, side, x, y, yaw=0., *, seed, iterations=150):
+    def solve(self, side, x, y, yaw=0.0, *, seed, iterations=150):
         """{'ok', 'q' (all joints, motor coordinates), 'position_error_m', 'axis_error'} for a top grasp of a cube
         resting at (x, y). `seed`: a full joint vector to start from (it also fixes the other joints)."""
         q = np.array(seed, dtype=float)
         joints = self.arm(side)
         workcell = self.scene.workcell
         target = np.array([x, y, workcell.table_top + workcell.cube_half])
-        weights = np.diag([1., 1., 1., .1, .1, .1])
+        weights = np.diag([1.0, 1.0, 1.0, 0.1, 0.1, 0.1])
         residual = self._residual(side, q, target, yaw)
         for _ in range(iterations):
             if np.linalg.norm(residual[:3]) < POSITION_TOLERANCE_M and np.abs(residual[3:]).max() < AXIS_TOLERANCE:
@@ -78,11 +84,15 @@ class GraspIK:
                 moved[joint] += 1e-5
                 jacobian[:, column] = (self._residual(side, moved, target, yaw) - residual) / 1e-5
             step = np.linalg.solve(jacobian.T @ weights @ jacobian + 1e-2 * np.eye(6), -jacobian.T @ weights @ residual)
-            q[joints] = np.clip(q[joints] + np.clip(step, -.2, .2), self.lower[joints], self.upper[joints])
+            q[joints] = np.clip(q[joints] + np.clip(step, -0.2, 0.2), self.lower[joints], self.upper[joints])
             residual = self._residual(side, q, target, yaw)
         position, axis = float(np.linalg.norm(residual[:3])), float(np.abs(residual[3:]).max())
-        return {'ok': position < POSITION_TOLERANCE_M and axis < AXIS_TOLERANCE, 'q': q,
-                'position_error_m': position, 'axis_error': axis}
+        return {
+            'ok': position < POSITION_TOLERANCE_M and axis < AXIS_TOLERANCE,
+            'q': q,
+            'position_error_m': position,
+            'axis_error': axis,
+        }
 
     def frame(self, side, q):
         """(pad midpoint, finger direction, closing axis) of a gripper at joint positions `q`: the fingers point from
@@ -113,7 +123,7 @@ class GraspIK:
         q = np.array(seed, dtype=float)
         joints = self.arm(side)
         residual = self._pose_residual(side, q, position, finger, closing, signed)
-        weights = np.diag([1., 1., 1.] + [.1] * (len(residual) - 3))
+        weights = np.diag([1.0, 1.0, 1.0] + [0.1] * (len(residual) - 3))
         for _ in range(iterations):
             if np.linalg.norm(residual[:3]) < POSITION_TOLERANCE_M and np.abs(residual[3:]).max() < AXIS_TOLERANCE:
                 break
@@ -121,11 +131,16 @@ class GraspIK:
             for column, joint in enumerate(joints):
                 moved = q.copy()
                 moved[joint] += 1e-5
-                jacobian[:, column] = (self._pose_residual(side, moved, position, finger, closing, signed)
-                                       - residual) / 1e-5
+                jacobian[:, column] = (
+                    self._pose_residual(side, moved, position, finger, closing, signed) - residual
+                ) / 1e-5
             step = np.linalg.solve(jacobian.T @ weights @ jacobian + 1e-2 * np.eye(6), -jacobian.T @ weights @ residual)
-            q[joints] = np.clip(q[joints] + np.clip(step, -.2, .2), self.lower[joints], self.upper[joints])
+            q[joints] = np.clip(q[joints] + np.clip(step, -0.2, 0.2), self.lower[joints], self.upper[joints])
             residual = self._pose_residual(side, q, position, finger, closing, signed)
         position_error, axis_error = float(np.linalg.norm(residual[:3])), float(np.abs(residual[3:]).max())
-        return {'ok': position_error < POSITION_TOLERANCE_M and axis_error < AXIS_TOLERANCE, 'q': q,
-                'position_error_m': position_error, 'axis_error': axis_error}
+        return {
+            'ok': position_error < POSITION_TOLERANCE_M and axis_error < AXIS_TOLERANCE,
+            'q': q,
+            'position_error_m': position_error,
+            'axis_error': axis_error,
+        }

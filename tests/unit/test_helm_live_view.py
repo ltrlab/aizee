@@ -1,4 +1,5 @@
 """Helm's live view: the stopped reader runs whenever Minerva is online and nothing else holds the motors."""
+
 from types import SimpleNamespace
 
 from robot_platform.helm.live_view import LiveView
@@ -17,7 +18,7 @@ class Link:
 
 class Clock:
     def __init__(self):
-        self.now = 0.
+        self.now = 0.0
 
     def __call__(self):
         return self.now
@@ -26,7 +27,7 @@ class Clock:
 def setup():
     session = SimpleNamespace(connection='tether', feed={'state': 'disconnected'})
     link, clock, holder = Link(), Clock(), [None]
-    view = LiveView(session, link, lambda: holder[0], clock=clock, retry_s=10., handoff_s=5.)
+    view = LiveView(session, link, lambda: holder[0], clock=clock, retry_s=10.0, handoff_s=5.0)
     return view, session, link, clock, holder
 
 
