@@ -1,30 +1,22 @@
-# Feature task: the neck's Feetech servo controller
-- **Base commit:** `e0165a0` (`claude/head-model`: the Head V1 export and the
-  [head and neck handoff](HEAD_NECK_MODEL.md)).
-- **Requests:**
-  - "start on the neck controller with the feetech servos". The neck has two Feetech STS3250s on a Waveshare bus
-    servo board, the SO-101 arm's adapter.
-  - The neck should "have the same limits, teleop and all pipeline that we use for the robstrides", with "tuning
-    parameters extracted too".
-  - "Make what you need to [get] functional tuning for these servos", under "as much shared architecture as the
-    robstrides as possible", and "in Helm, they should fall under the same tabs and menu".
-  - "The head gets its own receiver that should be synced with the dual arms and cameras."
-  - A Meta Quest Pro steers the head in teleop: "The headset should connect to a webxr service that interfaces with
-    Helm (or is a part of Helm, part of the teleop tab). If there is no headset connected, the head stays static at
-    the zero positions for now."
+# The neck
+
+Minerva's neck is two Feetech STS3250 servos on a Waveshare bus servo adapter. This page covers how they are driven
+(their own receiver, set up and tuned through the same flows as the arms), how the Meta Quest Pro steers them, and how
+to bring up a head. The CAD model is in [HEAD_NECK_MODEL.md](HEAD_NECK_MODEL.md); the camera on it in
+[HEAD_CAMERA_ORIENTATION.md](../../operator/HEAD_CAMERA_ORIENTATION.md).
+
+The neck gets the arms' limits, teleop and tuning pipeline, shares as much of their architecture as it can, and
+appears in Helm under the same tabs. The Quest steers it in teleop; with no headset connected the head holds at its
+zero.
 
 ## Decisions
-
-The user chose a separate head receiver. The defaults below were stated to the user and stand unless they say
-otherwise.
 
 1. **One shared core, its own process.** The head receiver runs the arms' Rust core (leases, limits, stops,
    protocol, recorder) behind a Feetech `Hardware`, as its own process on the Jetson (`bin/head_controller`). Helm
    drives it with the same client code.
-2. **Collision.** Two receivers cannot check each other's live motion. The head's whole reachable volume, over its
-   swept limits, becomes a fixed keep-out in the arms' collision model, so the head moves freely in its range and
-   never meets an arm. The arms lose only the space next to the head. That collision-model change belongs to the
-   motion-contract owner. Until then, the head moves only with the arms down and disabled.
+2. **Collision.** There are no arm-against-head checks: the arms' collision model has no head, and two receivers
+   cannot check each other's live motion. The operator keeps the arms clear of the head (see
+   [HEAD_NECK_MODEL.md](HEAD_NECK_MODEL.md)). The head's own limits do include its shoulder (see Shoulder clearance).
 3. **Sync.**
    - The arms, head and cameras run on the Jetson's one monotonic clock.
    - One Helm session drives both receivers through the same states.
@@ -62,7 +54,7 @@ otherwise.
     (the homing convention);
   - rustypot [`sts3215.rs`](https://github.com/pollen-robotics/rustypot/blob/main/src/servo/feetech/sts3215.rs).
 
-## Built so far
+## The parts
 
 | Piece | Where | What it does |
 |---|---|---|
@@ -101,9 +93,8 @@ with collision checks off: the swept range plus overtravel, the approach margins
 and the servo calibration all apply unchanged. The receiver works in raw servo radians. Commands come at 25 Hz;
 the receiver ramps each over 40 ms, so the servos get 100 Hz goals.
 
-**Tune: a jog, never a sweep.** The user, 2026-10-29: "do not sweep the head. the sweep test for the head should
-only be a slow jog to its limits, one at a time from their center reference, because at some angles if the head is
-angled all the way down and rotated to the side, it will hit its shoulder." The Tune tab's Head choice runs the
+**Tune: a jog, never a sweep.** With the head tilted all the way down and turned to a side it hits its shoulder, so
+the head is only ever jogged slowly to its limits, one joint at a time from the reference. The Tune tab's Head choice runs the
 arms' sweep engine in its `jog` mode (`servo_sweep.SweepEngine._jog_joint`) on the head's receiver, with direct
 updates and the head's own settings (nothing raised to try):
 
@@ -132,9 +123,8 @@ may tilt depends on how far it is turned, as NAO's head pitch range narrows with
   below the floor rises straight up first.
 - Live sessions take the head only once its clearance is saved (`TeleopSession._head_bundle`); virtual ones always.
 
-**Where the head rests.** The user, 2026-10-30: "the head cannot stay straight and ahead. there should be an
-"engage" phase for the head as it will have a starting position and resting position where it currently is." Limp,
-the head droops. So a live head session or jog starts where it rests:
+**Where the head rests.** Limp, the assembled head droops and cannot stay straight ahead, so it has a resting
+position and an engage phase. A live head session or jog starts where it rests:
 
 - Just before the head's receiver starts, Helm reads the servos limp (`neck.head.read_rest`). The receiver's start
   check then takes that pose (`service_config(start=...)`, tolerance 0.05 rad, the head still) in place of the
@@ -147,9 +137,8 @@ the head droops. So a live head session or jog starts where it rests:
   corner. In teleop that is `HeadTeleop.returning` ('centre', then 'rest'), not the lifecycle's own Shutdown; X with
   the head limp (Idle) just disables it, and H still cuts its torque at once.
 - A virtual session has no head to read: it rests where the real head droops, tilted down to the end of its range
-  on the shoulder's down side (its saved clearance gives the side), so it starts there and Return comes back there
-  (the user, 2026-10-31: it had ended straight ahead, where the real head would fall). With no clearance saved yet
-  it rests at its zero.
+  on the shoulder's down side (its saved clearance gives the side), so it starts there and Return comes back there,
+  where the real head would fall. With no clearance saved yet it rests at its zero.
 
 **Live · Head.** The Teleop tab's Head choice (`helm.head_only.HeadOnlyCore`) runs the head alone under the session's
 keys and pedals B and C, steered by the headset. The arms' receivers are never opened: their drives stay as they are,
@@ -162,22 +151,22 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 
 - **Its speed:** it follows at most 0.7 rad/s (`FOLLOW_SHARE`, 0.7 of its profile's 1.0), catching up included;
   with its shoulder clearance saved, its targets step at 0.63 rad/s. Its receiver keeps its own cap, 1.25 rad/s.
-  Coming down at 1.0 rad/s, the tilt read 1.30 rad/s, and the head tripped (2026-11-02, `sustained_speed`).
+  The margin exists because coming down at 1.0 rad/s the tilt read 1.30 rad/s and the head tripped
+  (`sustained_speed`).
 
 - **Its own process, live:** each exchange with the head's service waits for the service's next 10 ms tick. In the
   arms' 100 Hz loop, a head cycle (two exchanges) took 22 ms of every 40 ms: the arms' commands went out 10 and
-  30 ms apart, each 30 ms long, and Enable faulted (2026-10-31, "command_expired · wrong_owner"). A live head now
+  30 ms apart, each 30 ms long, and Enable faulted ("command_expired · wrong_owner"). A live head now
   cycles in a process of its own (`helm.head_teleop.HeadProcess`, its child `serve_head`): the arms' loop posts it
   their actions and the headset's poses, and reads its last status, and never waits for it (a sender thread and a
   reader thread do the pipe's work). The child moves itself, and so its service, to the background CPUs before it
   builds the head, and cycles it there on its own 40 ms grid (`HeadLoop`). A fault there, or the child dying,
   holds the arms as an inline head's fault does. A virtual head answers at once and cycles on the arms' ticks.
-- **Why a process, not a thread** (2026-10-31): on a thread the head shared the arms' interpreter.
+- **Why a process, not a thread:** on a thread the head shared the arms' interpreter.
   - First, the head's thread ran on the control CPUs beside the arms' loop and receiver. The arms' worst cycles got
     slower: exchanges up to 10.6 ms (2-3 ms alone), and a command came within 2 ms of expiring.
   - Moved to the background CPUs (cameras, the relay, Helm), with the interpreter changing hands after 1 ms instead
-    of 5, the faults went on: 15:15 (blamed then on the CPUs' deep idle state, c7, since disabled) and 15:53,
-    after 2.4 minutes of TELEOP (`live-20261031T195313Z`). The failing cycle mapped its leader sample on time but
+    of 5, the faults went on, one of them after 2.4 minutes of TELEOP. The failing cycle mapped its leader sample on time but
     sent its command 11 ms late, while the arms' receiver ticked regularly. The arms' slow cycles kept time with
     the head's 40 ms cycle (phase-locked, R 0.71; 0.67 in the clean 12-minute session before it, which came within
     1 ms of the same fault). The 1 ms switch interval cannot help a thread holding the interpreter while it is not
@@ -196,8 +185,7 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 - **Faults hold both:**
   - a head fault makes the arms disengage, with a notice;
   - an arms fault sends a powered head back as Return (X) does, to its reference, then down to where it rested,
-    and disables it there; the session closes only once it has. Before, the head only held, and closing the
-    session cut its torque wherever it was (2026-10-31). H disables it at once.
+    and disables it there; the session closes only once it has. H disables it at once.
 - **Start-up:** a head that fails to start shows as a head fault, and the arms run on.
 - **Receivers:** a virtual session gets a virtual head. A live session gets the physical head only when the head's
   files exist and its bus is pinned.
@@ -226,16 +214,15 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
   - what the head does: its state, whether it follows the headset, holds or sits at its zero, or its fault;
   - whether a headset tracks: its name, rate, yaw and pitch;
   - without a headset, the address of the headset page.
-- **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it; since 2026-11-03 the
-  status line, the status panel and the bar below gave way to a ring of controls on A or X, and the wrist pictures
-  sit on the model's wrists: docs/architecture/HEADSET_3D_PLAN.md, "The ring of controls"):
+- **Inside the headset** (`static/xr_scene.js`, three.js, passthrough where the headset has it. The status line, the
+  status panel and the bar described below have given way to a ring of controls on A or X, and the wrist pictures sit
+  on the model's wrists: [HEADSET_3D_PLAN.md](../../architecture/HEADSET_3D_PLAN.md), "The ring of controls"):
   - the head camera's picture on a screen ahead, with a status line under it: the picture's rate and age, and what
     the head does;
-  - a bar under that (the user, 2026-10-31: looking around, the picture was somewhere else):
+  - a bar under that:
     - Follow head: on, the picture stays in front of the eyes as the head turns, level (its yaw and pitch; roll
       left out, as the robot's head keeps its camera); off, it stays where it is. On by default.
-    - 3D (the user, 2026-10-31: "it is very hard to gather a sense of depth from the 2D image"): the head camera's
-      depth instead of the flat picture, below. Off by default. While a session drives the head, it stays where the
+    - 3D: the head camera's depth instead of the flat picture, below. Off by default. While a session drives the head, it stays where the
       head camera saw it in the room, whatever Follow head says.
     - Model: Minerva's model with the world-locked 3D (`static/xr_model.js`), the display model's meshes made coarse
       (`?detail=coarse`, 89 k triangles), its head left out, posed by Helm's guide and placed as the 3D is. On by
@@ -244,7 +231,7 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
       asks for hand tracking; without it, the controllers carry them). On by default; the two streams add about
       1 MB/s to the Quest's Wi-Fi.
     - On a second row, two sliders, 0 to 100 % in 5 % steps: Picture, for the room to show through the picture
-      (flat or 3D) and the model; and Hands, the wrist cameras' own (the user, 2026-10-31: theirs set apart).
+      (flat or 3D) and the model; and Hands, the wrist cameras' own.
     - The headset's browser remembers them (`static/xr_view.js`), and where the picture sits while it follows.
   - **The 3D picture** (`static/xr_depth.js`, phase 1 of the plan: depth images to the headset, 3D built there):
     - The head camera service already publishes its depth beside the picture (640×480 at 15 fps; the D435 makes
@@ -254,8 +241,7 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
     - The headset inflates and fills it in a worker (`static/xr_fill.js`, phase 2; about 3 ms a frame on the laptop,
       off the headset's drawing), and a grid with a vertex per reading (320×240) is placed on the GPU from the
       camera's intrinsics, coloured from the very picture it came with through the camera's registration (its color
-      intrinsics and the depth sensor's pose in the color camera, published by the camera service since `6aeeb56` on
-      `claude/head-depth-registration`). Where the depth sees wider than the color camera, or a camera publishes no
+      intrinsics and the depth sensor's pose in the color camera, published by the camera service). Where the depth sees wider than the color camera, or a camera publishes no
       registration, it is grey, lighter nearer.
     - At a depth edge (a neighbour more than 4 % of the depth nearer) the far reading is cut: near objects keep
       their outline, nothing joins near to far.
@@ -268,10 +254,9 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
         under the object as the plane it lies in (straight in inverse depth). From the camera's viewpoint the object
         hides it; leaning, or with the robot's head turned, it fills what the object hid, a little darker (guessed).
     - Behind it all, the colour picture itself, 3 m ahead of the colour camera (past the depth's 2.5 m range,
-      `BACKDROP_M`), fills where the depth has no reading: too far, or beyond the background layer's reach (the
-      user, 2026-10-31).
+      `BACKDROP_M`), fills where the depth has no reading: too far, or beyond the background layer's reach.
     - Helm's own camera cards ask for every camera; `head_depth` goes only to a viewer that names it (they read
-      "Invalid camera stream" while a headset showed 3D, 2026-10-31).
+      "Invalid camera stream" while a headset showed 3D).
     - **World-locked** (phase 2, while a session drives the head): the head's teleop publishes the head's measured
       pose on a local feed (`neck/head_pose.py`, `tcp://127.0.0.1:5596`): every row of the head service's 100 Hz
       record, at the Jetson's wall time, as the neck's CAD angles and the colour camera's pose in the robot frame
@@ -311,52 +296,33 @@ arms' speed caps, alignment and braking near the ends apply. It cycles every 40 
 4. Look straight ahead and level, and press Start head tracking. The page asks for passthrough, falling back to VR.
 5. The head follows once the session is engaged (T).
 
-**Tests:**
+**Tests** (all in the gate; none of them is evidence from the robot):
 
-- Python:
-  - `tests/unit/test_neck_feetech.py` (13), `tests/unit/test_neck_head.py` (3);
-  - `tests/contract/test_helm_tune_head.py` (4), which includes a whole head sweep on the real core;
-  - `tests/contract/test_head_teleop.py` (13) and `tests/contract/test_teleop_head.py` (11), the head in a session
-    (a live head's process: the arms never wait for it, its fault or death holds them; its pose feed; and its
-    speed, under its receiver's cap with room for the tilt's overshoot);
-  - `tests/unit/test_head_pose.py` (5): the camera's pose from the neck's angles, and the feed's rows and clock;
-  - `tests/unit/test_head_alignment.py` (8): the head camera's alignment on the table's tags (the solve, what the
-    head alone cannot tell, the saved mount the feed takes only for its head reference), and
-    `tests/unit/test_helm_head_alignment.py` (7), Helm's flow for it (HEADSET_3D_PLAN.md, Alignment);
-  - `tests/unit/test_head_loop.py` (4), a live head's cycles on its own grid (in its process);
-  - `tests/unit/test_helm_xr.py` (6): the gaze maths, the one-headset rule, the zero, the socket and the zero
-    endpoint, and a stalled loop.
+- Python: `tests/unit/test_neck_feetech.py`, `test_neck_head.py`, `test_head_pose.py`, `test_head_alignment.py`,
+  `test_helm_head_alignment.py`, `test_head_loop.py` and `test_helm_xr.py`; `tests/contract/test_helm_tune_head.py`
+  (a whole head jog on the real core), `test_head_teleop.py` and `test_teleop_head.py` (the head in a session: the
+  arms never wait for a live head's process, its fault or death holds them, its pose feed, and its speed under its
+  receiver's cap).
+- Browser: `tests/ui/test_helm_head.mjs` (the Head card) and the `test_helm_xr_*.mjs` files (the headset's picture,
+  3D, fill, world-locked rig and model), run by `tests/unit/test_browser_scripts.py`.
+- Rust: host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
 
-  All are in the gate.
-- Browser: `tests/ui/test_helm_head.mjs`, the Head card's text, and `tests/ui/test_helm_xr_follow.mjs`, the headset's
-  picture on the real three.js (following the head or staying, its bar's switch and slider, a trigger on the bar not
-  zeroing, the remembered view), `tests/ui/test_helm_xr_depth.mjs`, the 3D picture (the head_depth packet,
-  inflating, the camera's role switch, the shader's placement and colouring, the bar's 3D switch),
-  `tests/ui/test_helm_xr_fill.mjs`, the fill (dropouts, the colour camera's hidden pixels, the background layer and
-  its plane, the worker), `tests/ui/test_helm_xr_world.mjs`, the world-locked rig (the zero's anchor, a panned
-  head, the scene keeping a frame put as the eyes turn, the model placed by it), and `tests/ui/test_helm_xr_model.mjs`,
-  the model (coarse meshes, the head left out, the guide's poses, a failed load retried) and the wrist cameras above
-  the hands, run by `tests/unit/test_browser_scripts.py`. The coarse meshes: `tests/unit/test_model_viewer.py` and
-  `tests/unit/test_helm_on_robot.py`. The relay's
-  depth, its head pose stamp and Helm's head_depth role: `tests/unit/test_helm_camera_video.py`.
-- Rust: 10 host tests for the Feetech hardware and the head config. The Linux service cross-builds for the Jetson.
+## Bringing up a head
 
-## Bring-up on the hardware, with the user
-
-The servo tools run on whichever computer the Waveshare board is plugged into. The board stays on the Jetson in
-the end; there the tools need the release (a deploy, with the user's OK).
+The servo tools run on whichever computer the Waveshare board is plugged into. The board stays on the Jetson in the
+end; there the tools need the release.
 
 1. Power the board from the servos' 12 V supply, plug its USB in, and run `robot-platform neck ports`. Note the
-   adapter's device, USB serial and its `/dev/serial/by-id/...` path.
+   adapter's device, its USB serial and its `/dev/serial/by-id/...` path.
 2. **One servo on the bus at a time.** Both ship as id 1.
    - Run `robot-platform neck probe --port DEV` and keep the JSON.
    - Run `robot-platform neck set-id --port DEV --to 2 --confirm` for the tilt servo. The pan servo keeps id 1.
 3. **The head's setup is in Helm: Limits tab, Head** (`helm.head_setup`, on Helm on Minerva, where the board is).
-   The user's rule (2026-10-29): calibrations and reference saves run only through flows in Helm, so they can be
-   redone at any time. The servos stay limp throughout; each step can be done again.
+   Calibrations and reference saves run only through flows in Helm, so they can be redone at any time. The servos
+   stay limp throughout; each step can be done again.
    - **Read the head.** A limp reader on the profile's pinned bus (10 Hz, health once a second); the 3D view's head
      follows it, each reading a pose of its own. It stops for any session that needs the motors.
-   - **Set the reference…** With the head held straight ahead and level: both servos centred (each reads 2048,
+   - **Set the reference.** With the head held straight ahead and level: both servos centred (each reads 2048,
      mid-turn), then `<asset>-head-reference.json` saved. If either fails, both offsets go back. Directions
      checked before carry over for the same servos. Saved limits then belong to the old reference and must be
      swept again.
@@ -365,67 +331,47 @@ the end; there the tools need the release (a deploy, with the user's OK).
      `<asset>-head-limits.json`, naming its reference, and each servo's own limits set 0.05 rad outside, a
      backstop under Helm's.
    - Replaced files are kept under the runs folder's `head-setup-*`.
+
    The CLI's `centre`, `save-reference`, `sweep-limits` and `limits` remain for the bench and tests; on Minerva,
    use Helm.
-7. Fill the head profile's `bus` (the by-id path and USB serial), then commit and deploy, with the user's OK.
-8. In Limits → Head, record the shoulder corners and save the clearance.
-9. In Helm's Tune tab, choose Head and run the jog, virtual first, then live with the user present. The arms stay
-   down and disabled.
-10. Teleop → Head (Live · Head) with the headset, before the head joins Live · Both.
+4. Fill the head profile's `bus` (the by-id path and USB serial) in `config/devices/minerva-head.json`, then deploy.
+5. In Limits → Head, record the shoulder corners and save the clearance.
+6. In Helm's Tune tab, choose Head and run the jog, virtual first, then live with the arms down and disabled.
+7. Teleop → Head (Live · Head) with the headset, before the head joins Live · Both.
 
-**Done on Minerva, 2026-10-25 (bench, the head still printing):**
+**What the first bench bring-up taught** (a head still being printed, two servos on the bus):
 
-- **The board:** on the Jetson, a CH343 (`1a86:55d3`, USB serial `5A68010635`) at
-  `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A68010635-if00`, on the onboard hub the CAN adapters share. The
-  head profile's `bus` is pinned to it.
-- **The probe** found two STS3250s (firmware 3.9, 1 Mbaud, 12.1 V, 24-25 °C, torque off, no alarms) at ids 1 and 11.
-  Neither was fresh: both carry offsets and limits from earlier use (id 1: offset −219, limits 360..2145; id 11:
-  offset 2047, limits 1050..3730). Centring and limits replace them on the assembled head.
-- **Which is which:** the user turned the tilt servo; id 1 moved (1783 → 1307 steps), so the tilt was id 1 and the
-  pan id 11.
-- **Renumbered** with both on the bus, each step with its source id answering, its target id free and the servo
-  limp, as `set-id` does: the tilt 1 → 2, then the pan 11 → 1. The bus now holds ids 1 (pan) and 2 (tilt), both
-  locked.
-- **Found doing it:** an EEPROM write is acknowledged only once stored, after the driver's 20 ms reply window. The id
-  write's late acknowledgement (from the old id, `ff ff 0b 02 00 f2`) was read as the reply to the next ping: a
-  "malformed reply", although the write had taken. `set-id`, `centre` and `limits` would hit it too. EEPROM writes
-  now wait up to 100 ms for their own acknowledgement (`feetech.EEPROM_ACK_S`).
-- **First motion (the user asked):** both servos, torque limit 40 %, to their mid-turn reading 2048 (pan from 2224,
-  tilt from 1307), held 2 s, then limp; they stayed at 2048. Two surprises:
-  - A speed register of 400 gave about 1200 steps/s (there in 0.62 s, not 2 s): the STS3250's speed unit is not
-    the simulator's steps/s. The receiver sends goals only, so it does not depend on it.
-  - The tilt reached the 40 % torque limit while moving (the pan 10 %), so it was either the start or a load on its
-    horn. It held at rest with no load.
-- **Second motion, the user watching ("they moved smoothly"):** from 2048, one at a time, the pan ±300 steps and
-  back, then the tilt −300 and back, each held 1 s, then limp at 2048. With the speed register at 100, the tilt
-  moved at 100 steps/s, but the pan at 280-390 (peaks 550-750). Their registers differ only in id, limits and
-  homing offset. The pan's leftover offset (2047) puts its encoder at 4095, the wrap, where it reads 2048: its
-  speed estimate may be off across the wrap. Check again once centring has rewritten the offset.
+- **An EEPROM write is acknowledged only once it is stored,** after the driver's 20 ms reply window. A late
+  acknowledgement from the old id was read as the reply to the next ping: a "malformed reply", though the write had
+  taken. EEPROM writes now wait up to 100 ms for their own acknowledgement (`feetech.EEPROM_ACK_S`). `set-id`,
+  `centre` and `limits` all need that.
+- **The speed register's unit is not the simulator's steps per second:** a register value of 400 gave about 1200
+  steps/s. The receiver sends goals only, so it does not depend on it.
+- **A servo with a leftover homing offset can read wrong across the encoder wrap.** One servo whose offset put its
+  encoder at the wrap showed an erratic speed estimate; check again once centring has rewritten the offset.
+- **Servos from earlier use carry offsets and limits** in their EEPROM. Centring and limits replace them on the
+  assembled head.
+- **Which servo is which** is settled by turning one by hand and watching which id moves.
 
-**To verify on the first live run:**
+## Stopping the head
 
-- Gains written with the EEPROM locked take effect: read P back after the receiver's first gain write. They are
-  lost at power-off by design.
-- The head's directions against the CAD (the sign).
-- **The foot switch does not cut the head's 12 V supply** (the user, 2026-10-25). The user wants Disable to stop the
-  head and Shutdown to bring it to a stable pose, which is what the lifecycle does:
-  - Disable (H) cuts the head's torque at once, in any state.
-  - Shutdown (X) brings each joint to its zero (the reference pose: straight ahead, level) at the shutdown speed,
-    then disables once it settles.
-  - The assembled head does not rest at its zero without torque (it droops), so Shutdown ends where the head
-    rested when the session began (see "Where the head rests").
+**The foot switch does not cut the head's 12 V supply.** The head's stop is the lifecycle:
 
-## Next
+- Disable (H) cuts the head's torque at once, in any state.
+- Shutdown (X) brings each joint to its zero (the reference pose: straight ahead, level) at the shutdown speed, then
+  disables once it settles. The assembled head does not rest at its zero without torque (it droops), so Shutdown ends
+  where the head rested when the session began (see "Where the head rests").
 
-- **Limits tab:** a stopped Feetech reader in Helm's live link, so the head's range is swept in the Limits tab like
-  the arms'. `neck sweep-limits` stands in until then.
-- **Minerva Check:** the head's identity and pose checks, and its live sweep.
-- **Recording:** done in [episode format 9](../../data/EPISODE_FORMAT.md) (2026-11-01), untested on the robot so far.
-- **The assembled head:** reference and limits saved in Helm (2026-10-30 02:02Z); then the shoulder corners, the
-  Tune tab's jog and a Live · Head session with the headset (steps 8-10).
-- **No arm-vs-head collision checks:** the user decided (2026-10-25) the head needs none.
+## What is proven and what is not
 
-## Open questions
-
-- ~~Which servo is pan and which is tilt?~~ Pan is id 1 and tilt id 2, set on the hardware on 2026-10-25.
-- ~~Does the foot switch cut the head's 12 V supply?~~ No (the user, 2026-10-25): Disable is the head's stop.
+- **On the robot:** the head's reference and limits were saved in Helm, its first live jog ran on 2026-10-31, and a 12-minute
+  two-arm session with the head ran the same day. A first VR arms session on 2026-11-03 lost the head to a late tick
+  and led to the head's own CPU and the late-tick rule ([JETSON_CPU_SPLIT.md](../../architecture/JETSON_CPU_SPLIT.md)).
+- **Not confirmed:** that gains written with the EEPROM locked take effect (read P back after the receiver's first
+  gain write; they are lost at power-off by design), and the head's directions against the CAD (the sign) beyond the
+  Looks-right check.
+- **Recording the head** is in [episode format 9](../../data/EPISODE_FORMAT.md). Format 9 has never run on the robot;
+  the running release recorded format 8, which has 14 axes and no head.
+- **Minerva Check** does not cover the head: its identity and pose checks and a live sweep are not written.
+- **No arm-against-head collision checks.** The head needs none in the current design; the operator keeps the arms
+  clear.

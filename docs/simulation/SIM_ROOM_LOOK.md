@@ -1,72 +1,46 @@
-# Feature task: a dark grey robot in a house room
-- **Base commit:** `0cb586f0cb41045f95cf671bc267ca3e907a6b97` (`claude/sim-randomized-layouts`, where the full gate passed on the v3 source).
-  - The user then approved the look for a fine-tune of v3's last checkpoint, v3.1, not v4.
-  - For that, the coordinator asked for the room look to vary per layout from the training randomization file, recorded in each episode.
-- **Problem / saved reproducer.**
-  - Drawn pitch black, the grippers were darker than the black table. In renders of the nominal trial at `0cb586f` (`scripts/sim/render_look.py`, `build/sim-look/before/`), the grippers' mean sRGB luma was 7-12, against 10-21 for the table top, in the head and wrist views.
-  - Beyond the table the scene was black, and the floor was a slate-blue plane.
-- **Hypothesis.** The changes:
-  - a dark grey robot with a little specular;
-  - a blurred house room as the skybox;
-  - a wood floor;
-  - warm lights at the same brightness.
+# A dark grey robot in a house room
 
-  Together they should make the grippers stand out and give the backdrop the user described, while keeping the workcell's exposure and leaving the physics alone.
-- **Owned files:**
-  - `src/robot_platform/simulation/room.py` (new): the look, the painting, `python -m robot_platform.simulation.room`.
-  - `src/robot_platform/simulation/room/*.png` (new): six 512 px backdrop faces and the 1024 px floor wood, about 0.4 MB.
-  - In `simulation/task_scene.py`:
-    - the robot finish (`ROBOT_*`, `robot_finish`, `scene_look`);
-    - the room's assets, the floor's material, the warm lights and the haze;
-    - `RENDER_FLAGS` and the backdrop's tone;
-    - the capabilities' `look` and `room_backdrop`.
-  - `RENDER_FLAGS` in `simulation/task_render_process.py`.
-  - In `simulation/workcell.py`: `look` and `LOOK_KEYS`.
-  - In `simulation/layouts.py`: `look`, `LOOK_RANGES` and the look's draw.
-  - The randomization file's `look`.
-  - `scripts/sim/render_look.py` (new).
-  - Tests:
-    - `tests/unit/test_room.py` (new);
-    - `tests/unit/test_robot_finish.py` (rewritten);
-    - additions to `test_workcell.py`, `test_layouts.py` and `tests/contract/test_generate_layouts.py`.
-  - Docs: this file, MINERVA_TASK_SCENE.md ("Room and look"), SIM_WORKCELL.md, SIM_GENERATION.md.
-- **Shared interfaces held fixed.**
-  - The receiver, the contact model, every geom's and body's physics, and the episode format.
-  - Additive only:
-    - `Workcell.look`, `Randomization.look`;
-    - the scene capabilities' `look` and `room_backdrop`;
-    - `task_scene.RENDER_FLAGS`, `scene_look`, `robot_finish`;
-    - `simulation.room`.
-  - **Behaviour change:** every render looks different. The robot is grey, the room is the skybox, and the floor is wood (the workcell's `floor` colour is no longer drawn). The lights are warm.
-  - **Behaviour change:** with the randomization file's `look`, each layout draws a look. The rest of the draw is unchanged, so v3's seeds give v3's layouts.
-- **Dependencies / integration order.** After `claude/sim-randomized-layouts`; this branch is stacked on it. The coolserver v3.1 generation runs this branch's tree (the coordinator's coolserver agent does that).
-- **Required behavior and bounds:**
-  - **Robot finish:** every robot geom in both visual modes is the look's grey (0.22; the tests allow 0.15-0.3), through a material with specular 0.3, shininess 0.25 and reflectance 0.
-  - **Gripper contrast:** rendered where each arm closes on the block, its gripper is brighter than the table top by more than 25 levels of luma, in the head view and in its wrist view.
-  - **The backdrop files** are exactly what the seeded painting makes. MuJoCo shows each face where the painting meant it.
-  - **The lights** have luma 1, so a warmer light is no brighter.
-  - **A look** changes no physics array and no contact geometry hash.
-  - **The nominal trial is bit for bit the same:**
-    - on `01e2198`'s workcell against `01e2198` itself: 19,687 steps;
-    - on the production workcell against `0cb586f`: 18,103 steps, with pickup 7.111 s, handoff 22.3405 s, bucket 45.2505 s.
+**What it is.** How the simulated scene looks to its cameras: a dark grey robot, a blurred house room as the backdrop, a
+wood floor and warm lights. It changes pixels only, never physics. **Status: done and merged.** The look is described
+under "Room and look" in [MINERVA_TASK_SCENE.md](MINERVA_TASK_SCENE.md) and varies per layout in
+[SIM_GENERATION.md](SIM_GENERATION.md); this page keeps the reasons and the bounds.
 
-    Both are listed in `build/sim-look/traces/`.
-- **Acceptance command and expected result.**
-  - `python scripts/dev.py check --offline`, zero skips. It adds `test_room`. **The full gate passed at `376eb02`** on 2026-10-18, run by the coordinator on the laptop: 1209 passed, none failed or skipped (the ARM64 release test included), and the 132 Rust tests, with the source unchanged; 18 min 50 s (`build/dev-check/20261018T191038Z-32c53d9b/report.json`). The commit after it changes only this doc.
-  - Focused tests on the laptop: see Results.
-- **Source/model identity and seed.**
-  - MuJoCo 3.15.0.
-  - The room's painting: seed 20261018, 512 px faces, an 11 px blur, its files' sha256 in the capabilities' `room_backdrop`.
-  - The renders: the nominal trial's states every 0.1 s, captured at `0cb586f` (`build/sim-look/nominal-states.npz`). They were rendered by `0cb586f` (before) and by this branch (after).
-- **Results / evidence** (this worktree, `build/sim-look/`):
-  - `compare/head-sim-beside-real.png`: the sim head view beside the real head frame.
-  - `compare/left-grasp-left_wrist-before-after.png` and `compare/right-take-right_wrist-before-after.png`: the wrist views mid-grasp.
-  - `compare/*-wide-before-after.png` and `after/left-grasp-wide.png`: a 3/4 view of the whole scene.
-  - `compare/*-head-gripper-crop-before-after.png`: a gripper over the table, before and after.
-  - `after/looks.json` and `before/looks.json`: each view's mean luma per thing.
-  - `traces/`: the nominal trial step by step.
-- **Remaining uncertainty / physical inputs needed:**
-  - The look is a design choice, not measured. The real room behind the table is dimmer and cluttered (`head-sim-beside-real.png`), and the real robot is black.
-  - The backdrop is a skybox. It has no parallax, so a moving wrist camera sees it as it would a sky. The floor plane is 4 x 4 m, and its far edge is faded into the backdrop by MuJoCo's horizon haze, not fogged.
-  - The episode appearance variation (lights' strength, workcell colours, wrist cameras) still runs on top, and its colour tint now also falls on the wood floor.
-  - The table keeps MuJoCo's default specular, so at grazing angles a wrist camera sees its glare (unchanged).
+## Why
+
+Drawn pitch black (the real robot is black), the grippers were darker than the black table: in renders of the nominal
+trial (`scripts/sim/render_look.py`) their mean sRGB luma was 7-12 against 10-21 for the table top, in the head and wrist
+views. Beyond the table the scene was black, and the floor was a slate-blue plane. A dark grey robot with a little
+specular, a blurred room, a wood floor and warm lights of the same brightness make the grippers stand out and keep the
+workcell's exposure.
+
+## Code
+
+- `src/robot_platform/simulation/room.py`: the look, the painting and `python -m robot_platform.simulation.room`. The six
+  512 px backdrop faces and the 1024 px floor wood are in `src/robot_platform/simulation/room/*.png` (about 0.4 MB).
+- `simulation/task_scene.py`: the robot finish (`ROBOT_*`, `robot_finish`, `scene_look`), the room's assets, the floor, the
+  warm lights, the haze, `RENDER_FLAGS`, and the capabilities' `look` and `room_backdrop`.
+- `simulation/workcell.py` (`look`, `LOOK_KEYS`) and `simulation/layouts.py` (`look`, `LOOK_RANGES`): a workcell may give a
+  look, and a randomization file may draw one per layout; the episode records it.
+- Tests: `tests/unit/test_room.py`, `test_robot_finish.py`, and additions to `test_workcell.py`, `test_layouts.py` and
+  `tests/contract/test_generate_layouts.py`.
+
+## Bounds the tests hold
+
+- Every robot geom in both visual modes is the look's grey (0.22; the tests allow 0.15-0.3), through a material with
+  specular 0.3, shininess 0.25 and reflectance 0.
+- Rendered where each arm closes on the block, its gripper is brighter than the table top by more than 25 levels of luma,
+  in the head view and in its wrist view.
+- The backdrop files are exactly what the seeded painting makes (seed 20261018, 11 px blur); their sha256 is in the
+  capabilities' `room_backdrop`. MuJoCo shows each face where the painting meant it.
+- The lights have luma 1, so a warmer light is no brighter. A look changes no physics array and no contact geometry hash.
+- The nominal trial is bit for bit the same: every step's time, qpos, qvel and surface-velocity digest, and the events.
+
+## Not known
+
+- The look is a design choice, not measured. The real room behind the table is dimmer and cluttered, and the real robot
+  is black.
+- The backdrop is a skybox with no parallax, so a moving wrist camera sees it as it would a sky. The floor plane is 4 x
+  4 m, and its far edge is faded into the backdrop by MuJoCo's horizon haze, not fogged.
+- The episode appearance variation (lights' strength, workcell colours, wrist cameras) still runs on top, and its colour
+  tint now also falls on the wood floor.
+- The table keeps MuJoCo's default specular, so at grazing angles a wrist camera sees its glare.

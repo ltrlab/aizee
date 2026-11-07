@@ -1,28 +1,15 @@
 # CI and mandatory release prerequisites
 
-Base: `e20443178df85ef99ae12a8989749f9a005beaf0`.
-Scope: developer/CI build orchestration, mandatory release evidence and portability.
-Control bounds, receiver behavior and robot operation are unchanged.
+CI and the developer gate need the same prerequisites: an ARM64 build of the robot binaries (so the release test does not
+skip), exact file bytes, and a software renderer. This page records what they are and why. Control bounds, receiver
+behaviour and robot operation are not touched by any of it.
 
-## Failure reproduced
+**Triggers.** `.github/workflows/offline-control.yml` runs on pull requests, on pushes to `main`, and on manual dispatch,
+on `ubuntu-latest` and `windows-latest`.
 
-A clean checkout has no ARM64 `guarded_controller`. The existing
-`test_a_built_release_is_small_complete_and_verifiable` therefore skips, although
-pytest returns success. The required developer gate rejects that skip. Previously
-the Windows/Linux workflow ran setup and check without supplying these release
-inputs. This is a missing CI prerequisite, not an optional release test.
-
-Reproducer (before cross-building):
-
-```sh
-python scripts/dev.py setup
-# Use .venv-dev/Scripts/python.exe on Windows, .venv-dev/bin/python on Linux.
-.venv-dev/bin/python -m pytest -q tests/unit/test_ops_release.py::test_a_built_release_is_small_complete_and_verifiable --junitxml=build/missing-arm64.xml
-```
-
-The original focused reproducer recorded one skip in
-`build/ci-prerequisite-reproducer/missing-arm64.xml`. Passing that XML through the
-required gate's results check failed and named the missing release test.
+**Why the ARM64 build is a prerequisite.** A clean checkout has no ARM64 `guarded_controller`, so
+`test_a_built_release_is_small_complete_and_verifiable` would skip while pytest still returns success. The developer
+gate rejects any skip, so the cross-build is a required step, not an option.
 
 ## Build and check
 
@@ -58,35 +45,19 @@ Its uploaded evidence includes `build/cross-build/` and `build/dev-check/`, incl
 failure logs. These reports establish build/package/control evidence only. Linux
 vcan, loaded Jetson timing and attended physical qualification remain separate.
 
-Acceptance: clean Windows and Linux jobs both complete without required skips or
-xfails; source identity remains unchanged; native and ARM64 artifact hashes and a
-verified release archive are present in the required gate evidence. The integrator
-must record actual CI results; workflow configuration alone is not a passing run.
+Acceptance: clean Windows and Linux jobs both complete without required skips or xfails; source identity remains
+unchanged; native and ARM64 artifact hashes and a verified release archive are present in the gate evidence. A workflow
+file alone is not a passing run; record the actual CI result.
 
-## First clean runner results and portability corrections
+## Portability rules the first clean runs established
 
-Run [38952454408](https://github.com/ltrlab/platform/actions/runs/38952454408) tested
-integration commit `610c66bb67586f39cd48dc642d755a1459cc6740` on 2026-10-16.
-Both runners built the mandatory ARM64 inputs and native libraries successfully.
-Windows passed its strict gate. Ubuntu exposed three independent portability gaps:
-
-- The qualified joint limits bind the original CRLF bytes of
-  `config/devices/minerva-reference-20261009.json`; an LF checkout changed its
-  SHA256 from `fd9f5a401d1288cd601ce0f5b13b5f66bff2aed3ee78daa45c5ab89f425c1e5a`
-  to `834af0c1176992548184c44ee550950114b9303543e1a0071a3ce62f0dfc3225`.
-  Git now preserves that reference's qualified bytes. Checksum validation remains
-  exact, and a regression checks real Git exports with both checkout policies.
-- MuJoCo joint validation compared NumPy scalars directly with platform-specific
-  pybind enums. It now compares their numeric values, preserving hinge/slide-only
-  acceptance and rejection of a ball joint.
-- Two scheduling tests previously skipped on Linux. They now exercise the
-  documented Linux no-op contract while retaining the real Windows process-priority
-  and timer assertions. No required skip is accepted by the gate.
-
-The failing Ubuntu evidence is artifact `12069024899`, report
-`dev-check/20261016T191031Z-b5357ede/report.json`; its pytest result was 720 passed,
-67 failed, 12 errors and 2 skipped. These corrections require a new complete CI run;
-the successful Windows result does not establish Linux acceptance.
+- The qualified joint limits bind the exact bytes of `config/devices/minerva-reference-20261009.json` (including its CRLF
+  line endings), so Git preserves that file's bytes on every checkout policy. Checksum validation stays exact, and a
+  regression checks real Git exports under both policies.
+- MuJoCo joint validation compares numeric enum values, not platform-specific pybind enums, and still accepts only
+  hinge and slide joints.
+- Scheduling tests exercise the documented Linux no-op contract and keep the real Windows priority and timer assertions.
+  No required skip is accepted.
 
 ## Wheel and capture dependencies
 
@@ -116,11 +87,8 @@ loads the pinned Mesa 26.2.4 MSVC x64 software driver. Both jobs must execute
 the render contract; missing graphics support is a failed prerequisite, not an
 allowed skip. Rendered simulation frames do not qualify physical camera calibration.
 
-Windows run [38959205082](https://github.com/ltrlab/platform/actions/runs/38959205082)
-at candidate `5aab2da` failed its actual scene/camera contract with `gladLoadGL error`;
-942 Python tests passed, one failed, and no test skipped. Ubuntu's OSMesa job passed
-all 943 Python tests. The same scene passed locally with hardware OpenGL. This
-identifies missing hosted Windows rendering support, not a camera-contract waiver.
+A hosted Windows runner has no usable OpenGL (the scene contract fails with `gladLoadGL error`), which is a missing
+rendering prerequisite, not a camera-contract waiver.
 
 `python scripts/ci_windows_gl.py` downloads the [Mesa distribution](https://github.com/pal1000/mesa-dist-win/releases/tag/26.2.4)
 into ignored `build/ci-mesa/`, verifies the fixed archive SHA256 before extraction,

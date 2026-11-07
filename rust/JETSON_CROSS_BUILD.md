@@ -1,8 +1,9 @@
 # Local Jetson cross-compilation
 
 The Windows development machine can build `motor_control` and `lidar_control`
-for a Jetson Orin Nano without connecting to it. Both robots use these shared
-binaries; their hardware YAML files select the physical devices and endpoints.
+for a Jetson Orin Nano without connecting to it. `motor_control` and `lidar_control` are the older shared services
+(their hardware YAML files select the devices and endpoints); `-Package robot_control` builds Minerva's current
+receivers, `guarded_controller` and `head_controller`.
 
 ## Target and tools
 

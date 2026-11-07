@@ -1,18 +1,23 @@
 # Table fiducial labels
 
 Fiducial tags stuck on the robot table give fixed reference points for the head
-and wrist camera extrinsics and for measuring where the table and bucket really
-are. Today those positions are placeholders in
-`config/devices/simulation/minerva-production-01-workcell.json` (on the sim
-branches; see SIM_WORKCELL.md there). The labels are printed on the Brother
-QL-800 label printer, 300 dpi.
+and wrist camera extrinsics ([calibration order](CALIBRATION.md), step 11) and for
+measuring where the table and bucket really are. The tag positions are recorded in
+`config/devices/minerva-table-board.json`; the simulator's workcell positions are in
+`config/devices/simulation/minerva-production-01-workcell.json` ([workcell](../simulation/SIM_WORKCELL.md)).
+The labels are printed on a Brother QL-800 label printer, 300 dpi.
 
-## Printer and media (2026-10-17)
+**Status.** The labels were printed and stuck on this unit's table inside a taped rectangle (2026-10-17 and 18). Their layout
+as it was measured (to about +-5 mm, by eye and tape) is `config/devices/minerva-table-board.json`, in the taped rectangle's own
+frame; the black square measures 43.18 mm by calipers, and the head camera's fit of tags 0 and 2 to 5 at 0.75 px RMS confirmed
+their orientation. The placement plan and measurement tables below are the original plan for the table's own frame; fill the
+tables in only if you want tag positions in that frame. A new table or a re-stuck label means re-measuring the board file.
 
-- **Printer.** The QL-800 is on this laptop's USB (VID 04F9, PID 209B, serial
-  000C1Z611662, port USB001). The user installed Brother's printer driver
-  1.10.1.0 (bsq16av.inf) on 2026-10-17, which made the "Brother QL-800" queue
-  on USB001. Raw USB printing (Zadig/WinUSB, brother_ql) is not used.
+## Printer and media
+
+- **Printer.** A Brother QL-800 on a Windows PC with Brother's printer driver (1.10.1.0,
+  `bsq16av.inf`) installed, which makes the "Brother QL-800" queue. Raw USB printing
+  (Zadig/WinUSB, brother_ql) is not used.
 - **Media.** The driver offers every QL roll and cannot report which one is
   loaded. Its default page, 29 x 90 mm die-cut in landscape, is a fixed
   default, not a reading of the roll. Read the part number on the roll. The
@@ -127,8 +132,7 @@ end and about 45 mm from the text end, so at 100 mm from both edges every label
 stays about 55 mm or more inside the outer edge, clear of the trim. The exact
 place does not matter; the measured one does.
 
-The head camera looks forward over the table. In its 2026-10-17 recording-proof
-frame (main checkout, `build/recording-readiness-20261016/camera-readback/head.png`)
+The head camera looks forward over the table. In a recording-proof frame taken on 2026-10-17
 the far edge and its trim cross the whole image, the near edge is below the
 image, and the far corners are at or past its sides. Tags 0, 1 and 5 are
 likely outside the head view and serve the wrist cameras; 2, 3, 4 and the
@@ -177,12 +181,11 @@ With the file's placeholders (c = 762 mm, d = 80 mm) the table centre maps to
 ## Printing and reprinting
 
 The generator needs OpenCV 4.7 or newer, which the hash-locked dev venv does
-not include; the Windows Python 3.12 install on this laptop
-(`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`) has it.
+not include; use a Python install that has it.
 
 1. Read the roll's part number. `-Media` takes `62` for DK-22205 or DK-22251
    (62 mm continuous) and `62x100` for DK-11202 (62 x 100 mm die-cut).
-2. From a PowerShell prompt in this worktree, check what the driver will use:
+2. From a PowerShell prompt in the repository root, check what the driver will use:
    `.\scripts\fiducials\print_label.ps1 -Media 62 -DryRun -Image build\fiducials\62-DICT_4X4_50-c85\id00.png`.
    For `-Media 62` it reports media code 259, a 62 x 78.7 mm portrait page at
    300x300 dpi, printable 58.93 mm (696 dots) across.
@@ -204,16 +207,3 @@ instead. There the test label came out unresampled at 58.93 x 71.71 mm, its
 exact 300 dpi size. As a fallback, each page of `labels.pdf` is one label at
 its exact size (58.93 x 71.71 mm, lossless 1-bit images). Print it at "Actual
 size" (100%), never "Fit", with the driver's paper set to the roll.
-
-## Handoff
-  `<workspace>/aizee-fiducials`.
-- **Base commit:** `1580f1e81f8cfe2bf0dfed4c1269ee1e1de74ad2`
-  (`codex/integration-20261016`).
-- **Owned files:** `scripts/fiducials/*`, this file. No shared interface
-  changes; nothing imports these scripts.
-- **Acceptance:** `python scripts/fiducials/make_tag_labels.py` exits 0 after
-  checking all eight labels; then a printed test label measures 43.18 mm.
-- **Remaining uncertainty:** no label is printed yet, because the loaded roll
-  is unknown. The driver's page for each roll is checked by dry run only, so
-  the printed scale still needs a ruler. The head camera's intrinsics and its
-  view of each tag are unchecked, and the positions await measurement.

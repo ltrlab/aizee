@@ -72,7 +72,9 @@ Calibration procedures, in the order [Calibration](operator/CALIBRATION.md) give
 - [Simulator implementation](simulation/SIMULATION_IMPLEMENTATION.md) and [MuJoCo](simulation/MUJOCO.md)
 - [Minerva's MJCF](simulation/MINERVA_MJCF.md) and [task scene](simulation/MINERVA_TASK_SCENE.md)
 - [Simulation against the real robot](simulation/SIM2REAL.md)
-- The generation line: [`simulation/`](simulation/) files named `SIM_*`
+- The simulated task: [the handoff](simulation/SIM_TRACK_HANDOFF.md), [scripted demonstrator](simulation/SIM_DEMONSTRATOR.md),
+  [generated demonstrations](simulation/SIM_GENERATION.md), [randomized layouts](simulation/SIM_RANDOMIZED_LAYOUTS.md),
+  [workcell](simulation/SIM_WORKCELL.md), [driven grippers](simulation/SIM_GRIPPERS.md), [how it looks](simulation/SIM_ROOM_LOOK.md)
 
 ## Develop
 

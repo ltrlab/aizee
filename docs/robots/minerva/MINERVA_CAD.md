@@ -1,6 +1,6 @@
 # Minerva CAD handoff
 
-Updated 2026-09-19. The active viewer now combines detailed 1.1 visuals with
+The active viewer combines detailed 1.1 visuals with
 **URDF 1.2 No Holes collision geometry**. The 1.2 import used 185 requests in one
 retrieval; subsequent work ran offline. It reduces collision triangles from
 2,437,466 to 916,832 with unchanged joint coordinates. See the
@@ -8,25 +8,25 @@ retrieval; subsequent work ran offline. It reduces collision triangles from
 
 The native export is retained as audited reference geometry.
 The intended `onshape-to-robot` export succeeded: 17 links, 12 arm revolutes,
-four jaw slides and two mimic relations. Native-export failures did not
+four jaw slides and two mimic relations. The neck is a separate export,
+[Head V1](HEAD_NECK_MODEL.md), beside this one; this page covers the arms and grippers. Native-export failures did not
 require rebuilding the source CAD joints or rigid groups.
 
 ## Source and export constraint
 
 [Minerva Onshape document](https://cad.onshape.com/documents/359ad50fa475851ee9487588/w/4683cfa4b62fbd0f36348cf6/e/f4466d56fce7b6028aae0a06)
-is the user-supplied workspace. The detailed visual snapshot is
+is the source workspace. The detailed visual snapshot is
 [3DP URDF Version 1.1](https://cad.onshape.com/documents/359ad50fa475851ee9487588/v/38a2716bb2c6c1ebbe27c900/e/f4466d56fce7b6028aae0a06),
 assembly `minerva_urdf`. The 1.1 version was resolved by an authenticated version
-lookup and imported once after the user's left shoulder correction. The user
-supplied an earlier GLTF-based export in `urdf/minerva/` and confirmed it came
+lookup and imported once after the left shoulder was corrected. An earlier GLTF-based export in `urdf/minerva/` came
 from **1.0**. This historical native export is separate from
 the earlier STL export request. All 131 supplied files have source hashes;
 mesh resolution and the original archive checksum are unknown. See the
 [native import audit and exporter comparison](../../../urdf/minerva/README.md) and
 [source manifest](../../../urdf/minerva/source_manifest.json).
 
-The user has a free Onshape account and explicitly authorized the intended
-API-backed `onshape-to-robot` workflow. Detailed 1.1 and simplified collision 1.2
+The export uses a free Onshape account and the API-backed
+`onshape-to-robot` workflow. Detailed 1.1 and simplified collision 1.2
 retrievals are complete. The latter is pinned to version
 `0e3aef4a909ae5843d82a11a`; its assembly element is unchanged. Preserve both caches
 and perform subsequent conversion and model work offline. Do not start background synchronization or
@@ -36,12 +36,12 @@ plus one version lookup; account quotas have not been assumed. See the
 
 Current state:
 
-- The user reports CAD preparation complete and selected the version above.
+- CAD preparation is complete and the version above is selected.
 - All 129 GLTF meshes are available locally and load successfully.
 - The native-exported tree has 64 movable coordinates, six missing intended arm
   names and six arm names exported as translation-plus-rotation pairs.
   Native export did not preserve the intended articulated mechanism.
-- The user confirmed physical materials and mass overrides are not assigned.
+- Physical materials and mass overrides are not assigned.
   Exported masses total only 25 g and imply density approximately 1 kg/m³.
 - Gripper fingers are straight sliding jaws, with 48.2 mm exported stroke per
   jaw. Coupling, aperture, drive ratio, motor zero and CAD-to-motor signs remain
@@ -61,10 +61,9 @@ arm limits are absent; numerical exporter defaults are not physical values.
 The two jaw mimic relations are preserved. See the
 [manifest](../../../urdf/minerva/onshape-to-robot/source_manifest.json).
 
-The user selected independent measured limits for each arm and whole-robot
-collision checking during operation. Follow the
-[collision and limit calibration plan](../../history/plans/COLLISION_AND_LIMIT_CALIBRATION.md)
-instead of treating the exporter's angular bounds as approved travel.
+Joint limits are measured independently for each arm, in Helm's Limits tab, and the exporter's angular bounds are not
+approved travel. The
+[collision and limit calibration plan](../../history/plans/COLLISION_AND_LIMIT_CALIBRATION.md) is the background.
 
 The native URDF and `onshape-to-robot` interpret the assembly differently.
 The latter recognizes the `dof_` naming convention, treats Cylindrical mates
@@ -107,8 +106,10 @@ Revolute mate may use `dof_left_gripper` or `dof_right_gripper`. Otherwise the
 future simulation adapter will map motor angle to jaw displacement. The jaw
 coordinates are internal mechanics, not extra independently commanded motors.
 
-Reserved `head_pan`, `head_tilt` and `lift` remain inactive in software. Their
-presence in CAD must not activate routes or alter the 17-slot recording schema.
+`head_pan` and `head_tilt` are the neck's two motors, driven by their own receiver; their CAD joints are `neck_z` and
+`neck_y` in the [Head V1 export](HEAD_NECK_MODEL.md). `lift` stays inactive in software: nothing in CAD may activate a
+route for it. Recordings carry 16 axes (both arms with grippers, `head_pan`, `head_tilt`;
+[EPISODE_FORMAT.md](../../data/EPISODE_FORMAT.md)).
 
 ### Rigid link groups
 
@@ -173,7 +174,7 @@ used unchanged for Minerva's sliding jaws.
   the selected exporter/engine preserves an Onshape Linear relation.
 - Audit link masses, centres of mass and inertia, including motors and attached
   hardware. Record camera/tool frames and collision-geometry simplifications.
-- Preserve the selected `3DP URDF Version 1.0` URL, assembly/configuration,
+- Preserve the selected `3DP URDF` version URL, assembly/configuration,
   export settings and tool version with the downloaded files. Revisions require
   a new source version; keep the provenance of each import.
   [Onshape version instructions](https://cad.onshape.com/help/Content/Document/versions_and_history.htm).

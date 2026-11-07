@@ -1,5 +1,5 @@
 // Minerva's splat map in the headset (docs/architecture/HEADSET_3D_PLAN.md, phase 4): the 3D Gaussians the trainer on
-// soliloquy builds from the head camera's posed captures (scripts/splat/train_head_scene.py), drawn around the live
+// the operator station builds from the head camera's posed captures (scripts/splat/train_head_scene.py), drawn around the live
 // 3D picture, as GHOST draws its scene. A map lies in its world: the table's board once the head camera is aligned
 // on its tags (helm.head_alignment), else Minerva's own frame. So it is placed by Minerva's pose in that world (Helm's
 // maps listing says it: fixed while the base stands, from odometry once it drives) and the zero mapping M that puts

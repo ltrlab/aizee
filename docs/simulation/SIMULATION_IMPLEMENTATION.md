@@ -1,10 +1,11 @@
 # Simulation implementation and evidence
 
-Updated 2026-09-17. This implements the first slice of the
-[validation plan](../history/plans/SIMULATION_VALIDATION_PLAN.md): a fast simulator for both
-robots, shared source-freshness and producer-lease behavior, and measurement
-instrumentation. All current model parameters are **synthetic**. No robot was
-powered, characterized, or deployed as part of this implementation.
+The loopback protocol simulator: a fast simulator for both robots, shared source-freshness and producer-lease
+behavior, and measurement instrumentation. It implements the first slice of the
+[validation plan](../history/plans/SIMULATION_VALIDATION_PLAN.md). All model parameters are **synthetic**. **Status:
+done as a software tier; the 12-case live matrix passed on a development PC (below).** It serves the legacy collectors
+(`robot-platform run collect`); the way to simulate Minerva with Helm is [SIMULATE.md](../getting-started/SIMULATE.md).
+No robot was powered, characterized, or deployed as part of this implementation.
 
 ## Run it now
 
@@ -97,7 +98,7 @@ timeout/hold behavior is approximate until the production-controller tier runs.
 | Producer could stall while worker resent forever | A target lease defaults to 0.5 s and requires producer renewal; worker sends and incoming telemetry do not renew it | Measure downstream watchdog response, including queues; lease expiry does not itself disable motors |
 | Encoder/reference and torque-scale assumptions | Manual audit with hashes/pages; old pre-gearbox claims corrected; deployed conflicting scales preserved and flagged | Device model/firmware/shaft-reference/captured-frame evidence |
 | Placeholder model/position limits and reversed calibration bounds | Audit reports affected entries; powered bench runs require a per-device verified profile with increasing limits | Determine physical sign, zero, travel, limits, payload, and safe test envelope |
-| Single-destination e-stop example | ESP-NOW/serial design retired by user on 2026-09-24; software stop remains | Replacement power-cutoff design deferred; supervised test stand only |
+| Single-destination e-stop example | The ESP-NOW/serial stop bridge was retired and removed (see below); software stop remains | No hardware power-cutoff in the software; supervised test stand only |
 | Bench faults could be misinterpreted | Filter target CAN ID; preserve sixth error bit; check fresh feedback and envelope; slew-limit from measured starting pose | Physical stop and bounded trajectory verification |
 | Synthetic data could appear to be real evidence | Separate run directories, manifests, episode attributes, and strict synthetic label | Real measurements and held-out fits before promoting any channel |
 | Invalid analysis could report success | Never-settled step returns infinity; no independent torque/backlash/Kt claim; irregular sample times withhold frequency metrics | Measurement uncertainty and valid independent instrumentation later |
@@ -146,8 +147,7 @@ ranges (not the separate 11-bit MIT chapter):
 | RS03 | +/-20 | +/-60 | 5000 | 100 | 42 |
 | RS04 | +/-15 | +/-120 | 5000 | 100 | 45 |
 
-Sources are `docs/vendor/RS00User Manual260112.pdf` through
-`docs/vendor/RS04User Manual260112.pdf`; the audit pins their SHA-256 hashes.
+Sources are the RS00 to RS04 user manuals under `docs/vendor/`; the audit pins their SHA-256 hashes.
 The deployed RS00 codec uses 30/2/100 and RS03 velocity uses 50. These remain
 **unresolved firmware/protocol conflicts**. Matching Python and Rust is not proof
 of physical correctness. Audit also flags `left_arm_j1`, `left_arm_j3`,
@@ -192,10 +192,10 @@ measurement evidence. The Python HDF5 reader rejects incomplete/dropped traces.
 ### Retired hardware stop bridge
 
 The ESP-NOW receiver, serial bridge, service, udev rule and deployment helper
-were removed at the user's request on 2026-09-24. The installed production
-bridge was stopped and uninstalled with backups. Software emergency-stop
-commands and fault latching remain. They do not cut electrical power. See the
-[current commissioning procedure](../operator/POWERED_COMMISSIONING.md) and
+were removed (2026-09-24). Software emergency-stop commands and fault latching
+remain. They do not cut electrical power. The `emergency-stop` scenario above
+exercises the software stop only. See the
+[commissioning procedure](../operator/POWERED_COMMISSIONING.md) and
 [device log](../devices/MINERVA_PRODUCTION_01.md).
 
 ## Validation and next stages
@@ -214,7 +214,7 @@ traces/manifests, and `report.json`. `--scenario nominal` selects one scenario
 for both robots. Nonblocking queue backpressure is recorded separately from
 unexpected errors; subsequent command delivery is required to pass.
 
-The 2026-09-17 live matrix passed **12/12 cases**, with no trace drops or rejected
+The live matrix passed (2026-09-17) **12/12 cases**, with no trace drops or rejected
 commands. Nominal runs lasted 15 seconds per robot; fault runs lasted 6 seconds.
 Mean publication rate was approximately 50 Hz. Nominal p99 gaps were 47 ms, with
 a 125 ms maximum for Minerva on this Windows host. These are functional checks
@@ -228,14 +228,14 @@ recording/dataset round trip. Process tests require collector dependencies and
 skip explicitly when those dependencies are absent. The cross-language fixture
 is also consumed by `cargo test -p comms` (one pre-existing network test ignored).
 
-The final extended Python regression run passed **248 tests**, including the
+At that point the extended Python regression run passed 248 tests (the gate runs far more now), including the
 existing characterization, recording/replay, and Minerva segmentation tests.
 Both actual collector processes received live observations and exited cleanly;
 their serial-device trap recorded no hardware access attempts. A separate
 three-second CLI run completed 150 telemetry cycles with zero trace drops.
 This short run is not the planned load/soak acceptance test.
 
-The updated `motor_control` and `lidar_control` have been cross-built for
+`motor_control` and `lidar_control` were cross-built for
 AArch64 Linux. ELF inspection confirms the AArch64 loader, no library search
 paths, and maximum GLIBC requirement 2.34, within the configured 2.35 baseline.
 They have **not run on a Jetson**. See [cross-build guide](../../rust/JETSON_CROSS_BUILD.md).

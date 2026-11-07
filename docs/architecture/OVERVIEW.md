@@ -1,203 +1,142 @@
-# Shared monorepo: implemented foundation
+# Architecture overview
 
-The repository now has **one installable Python distribution**, `ltrlab-robot-platform` (import namespace `robot_platform`), and **one Rust workspace**, rooted at `Cargo.toml`.
+Start here. This page says what runs on Minerva and what talks to what, then walks the source tree, then explains how a
+robot is selected. The repository is one Python distribution, `ltrlab-robot-platform` (import name `robot_platform`),
+one Rust workspace (`Cargo.toml` at the root; crates under `rust/`, build output in `rust/target`), and firmware,
+configuration and tests around them.
 
-This is the first implementation stage of the [organization plan](MONOREPO_PLAN.md). Shared code and profiles are packaged. Existing collector/training applications run through explicit compatibility adapters while their large UI and workflow modules are migrated incrementally.
+Two robots live here. **Minerva** is the current two-arm torso (14 RobStride arm and gripper motors, a two-servo Feetech
+neck, three cameras) on a Jetson, operated through **Helm**. **AIZEE** is the earlier single-arm prototype, kept as a
+robot option. `lift` is declared in Minerva's definition but inactive: there is no receiver for it and no powered base.
 
-## What lives where now
+## The running system on Minerva
 
-| Area | Implemented responsibility |
+```text
+ operator station (Windows PC)                    Minerva's Jetson (CPUs: 0-2 background, 3 head, 4-5 control)
+ +----------------------------+  SSH, forced    +-----------------------------------------------------------+
+ | GELLO bridge               |  command, 10.42 | Helm  (minerva-helm, user service, HTTPS 8760, HTTP 8762  |
+ |  teleop.gello_bridge       |<===============>|        on loopback)  <-- browsers, pedals, Quest /xr      |
+ |  leader USB sampler 200 Hz |                 |   |  spawns, per session                                  |
+ |  signed UDP leader link ---+--- UDP ---------+-> |  loop process  helm.edge  (100 Hz, CPUs 4-5)          |
+ +----------------------------+                 |   |    |  ZMQ 127.0.0.1:5590     |  ZMQ 127.0.0.1:5591    |
+ browser / Quest / pedals --- HTTPS ------------>|   |    v                         v                        |
+                                                |   |  guarded_controller      head_controller              |
+                                                |   |  (Rust, both arms,       (Rust, Feetech neck;         |
+                                                |   |   CAN canL/canR)          publishes pose on :5596)    |
+                                                |  camera publishers (ZMQ PUB): left wrist :5563,           |
+                                                |    right wrist :5565, head D435 :5564 (control 5573/5574) |
+                                                |  minerva-net (system)   minerva-ups (system)              |
+                                                +-----------------------------------------------------------+
+```
+
+| Process | Where | What it does |
+|---|---|---|
+| **Helm** (`helm --on-robot`, user service `minerva-helm`) | Jetson | The operator web UI and API: login, one device in control, Check, Limits, Leaders, Teleop, Tune, Replay, settings, the camera relay, the headset page. It starts a loop process per session and never runs a control loop inside itself. Entry: `src/robot_platform/helm/cli.py`; installed by `src/robot_platform/ops/helm_service.py`. Details in [HELM_ON_JETSON.md](HELM_ON_JETSON.md). |
+| **Loop process** (`helm.edge`, with `helm/teleop.py`) | Jetson, CPUs 4-5 | One per session: teleop, a Tune sweep or a Replay/policy source. It reads the leader link, runs the control cycle (100 Hz in the production profile), drives the receivers, feeds recording, and sends views back to Helm. |
+| **Rust receiver** (`guarded_controller`, from `rust/control_core`) | Jetson, child of the loop | Owns both arms' CAN buses. Checks every command (limits, speed, lease, watchdogs, optional collision envelope) and stops the motors itself. ZMQ at `tcp://127.0.0.1:5590`. See [GUARDED_CONTROLLER.md](GUARDED_CONTROLLER.md). |
+| **Head controller** (`head_controller`, `rust/control_core/src/bin/head_controller.rs`) | Jetson | Drives the two Feetech neck servos; ZMQ at `tcp://127.0.0.1:5591`, head pose published at `tcp://127.0.0.1:5596`. Python side: `src/robot_platform/neck/`. |
+| **Camera publishers** (`python/nodes/gripper_camera_node.py` for the wrists, `camera_node.py` for the head) | Jetson, CPUs 0-2 | Multipart ZMQ PUB of JPEG frames: left wrist 5563, right wrist 5565, head 5564; wrist control ports 5573/5574. Units: `minerva-left-wrist`, `minerva-right-wrist` and `aizee-scene-cam` (the head D435; the name predates Minerva). |
+| **Leader link** (`teleop/leader_link.py`) | operator station to Jetson | The loop asks for the latest leader pair with a random challenge; the station answers from its newest USB sample over UDP, HMAC-signed under a per-session key. A lost reply costs one sample. |
+| **GELLO bridge** (`teleop/gello_bridge.py`, `helm/bridge.py`) | operator station | Keeps one pinned SSH session whose key may run only Helm's relay; the PC opens every connection and accepts none. It runs the leader-link process and streams leader samples to the Leaders tab. |
+| **`minerva-net`** (`ops/network.py`) | Jetson, system service | The Ethernet port finds its own mode (LAN, or the tether at 10.42.0.1 with DHCP); optional Wi-Fi access point `minerva`. See [MINERVA_NETWORK.md](MINERVA_NETWORK.md). |
+| **`minerva-ups`** (`ops/ups.py`) | Jetson, system service | Reads the UPS once a second for Helm and shuts the Jetson down cleanly before the battery runs out. See [UPS_MONITOR](../robots/minerva/UPS_MONITOR.md). |
+| **CPU partition** (`ops/cpu_partition.py`, `control/scheduling.py`) | Jetson | Control on CPUs 4-5, the head's receiver on CPU 3, cameras and Helm on 0-2, so camera load cannot stretch a control cycle. See [JETSON_CPU_SPLIT.md](JETSON_CPU_SPLIT.md). |
+
+Transports: Helm to browsers is HTTPS with a cookie login. Helm to its loop and Helm to the robot's own tools use
+pinned SSH to `127.0.0.1` or child processes (camera stills and map captures run as Helm's own children). Loop to
+receivers and capture to cameras is MessagePack over ZMQ on loopback. Leader link is signed UDP; bridge control is SSH.
+
+### Clocks and rates
+
+- Production profile `config/devices/minerva-teleop-direct-tuning.json`: `loop_hz` 100, `interpolation_ms` 0, collision
+  checking off, receiver lease 150 ms, direct command freshness 30 ms. `ops/helm_service.py` installs it.
+- Leader USB sampler: 200 Hz on the operator station. The loop asks for the latest pair each cycle.
+- Receiver service period 2.5 ms (`live.period_us`); the head receiver ticks every 10 ms.
+- Clocks never meet across machines: the leader link bounds a sample's age from its source age plus the round trip, and
+  Helm restamps bridge samples on arrival. Capture on the Jetson uses the Jetson's clock for all streams. The hop-by-hop
+  budget is in [TELEOP_LATENCY.md](TELEOP_LATENCY.md).
+
+### Data flow into episodes
+
+Task capture (`helm/task_capture.py`, `helm/task_capture_process.py`, profile `config/devices/minerva-task-capture.json`)
+runs beside the receiver. It is read-only: its worker subscribes to the three camera sockets, takes one immutable paired
+receiver row per control cycle from the loop, and `data/task_capture.TaskEpisodeWriter` writes `task_episode_*.hdf5`
+atomically on the Jetson (`~/minerva/evidence`). Replay (`helm/episodes.py`) reviews episodes in place; Keep/Discard
+decisions are recorded per session. `data/lerobot_export.py` turns kept episodes into a LeRobot dataset, resampled on a
+fixed grid. See [EPISODE_FORMAT](../data/EPISODE_FORMAT.md) and [DATASET_PIPELINE](../data/DATASET_PIPELINE.md). Replay and
+policy mode (`teleop/episode_source.py`, `teleop/policy_source.py`) feed the same loop as a source instead of the leaders.
+
+### Episode formats
+
+| Format | Robot | Written by | Status |
+|---|---|---|---|
+| 4, 5 | AIZEE (5 adds the scene camera) | `data/formats/aizee.py`, AIZEE collector | Legacy; read by the AIZEE training code. |
+| 6, 7 | Minerva, 17-slot arrays | `data/formats/minerva.py`, the older `collect_minerva` collector (7 adds segments) | Legacy collector output. |
+| 8 | Minerva, 14 axes, no torque | Helm task capture | What the running release recorded. Still read by export, Replay and the episode source. |
+| 9 | Minerva, 16 axes with effort, velocity and head pose | Helm task capture (`data/roster.FORMAT_VERSION`) | **Current in the code. Never run on the robot.** Recording refuses without a live head. |
+
+Policy mode drives 14 axes and refuses a policy whose joints differ (`data/lerobot_policy.py`), so a 16-axis policy
+cannot drive the robot yet.
+
+## The source tree
+
+### `src/robot_platform/` (the installed package)
+
+| Package | What it owns |
 |---|---|
-| `pyproject.toml` | Package metadata, dependency extras, `robot-platform` command, offline test selection |
-| `src/robot_platform/contracts.py` | Validated joint, camera, capability and robot definitions |
-| `src/robot_platform/robots/definitions/` | Packaged Aizee and Minerva JSON definitions |
-| `src/robot_platform/settings/` | Packaged defaults, ordered settings overlays, endpoint validation |
-| `src/robot_platform/transport/` | Shared MessagePack wire format and network discovery |
-| `src/robot_platform/control/` | RobotSession, telemetry validity/freshness, endpoint routing, explicit and threaded ZMQ clients |
-| `src/robot_platform/data/formats/` | Aizee v4/v5 and Minerva v6/v7 HDF5 writers |
-| `src/robot_platform/apps/` | Validated collection/training launch adapters |
-| `settings/examples/` | Machine/operator overlays independent of application source |
-| `Cargo.toml` | Five Rust crates in one root workspace: motor, comms, lidar, collision and guarded control core |
-| `rust/control_core/` | Robot-independent guarded controller, CAN adapter, Linux commissioning service and native fault harness |
-| `.cargo/config.toml` | Build output remains `rust/target` to preserve deployed service paths |
-| `python/` | Legacy application implementations and compatibility import shims |
-| `tests/unit/`, `tests/contract/` | Default offline tests, including both robot profiles |
+| `contracts.py`, `cli.py`, `__main__.py` | Validated joint, camera and robot definitions; the `robot-platform` command (`helm`, `sim`, `view`, `leaders`, `calibrate`, `deploy`, `check`, `neck`, `describe`, `config`, `run`, `list`). |
+| `robots/` | Packaged robot definitions (`definitions/minerva.json`, `aizee.json`): joint order, groups, camera roles, capabilities. |
+| `settings/` | Packaged per-robot defaults, layered JSON overlays, endpoint validation. |
+| `apps/` | `launcher.py`: the older launch adapters for the legacy collectors and trainers in `python/`. |
+| `transport/` | MessagePack wire envelopes (`wire.py`) and network discovery. |
+| `control/` | Robot session and freshness, the Python side of the guarded motion contract (approach, collision envelope, guarded config, live receiver start-up, scheduling), calibration, mechanical zero and servo analysis. Motion checks are enforced in Rust (`rust/control_core`); Python prepares and audits them. |
+| `teleop/` | Leader input and mapping, the leader link, the GELLO bridge, direct and guarded lifecycles, supervisor, episode, policy and headset sources, VR arm control. |
+| `helm/` | The operator application: aiohttp server and static UI (`static/`, including `xr*.js` for the headset), access control, loop edge, teleop session, Check, Limits, Tune, cameras and WebRTC relay, task capture, Replay, head setup and headset teleop (`xr.py`, `head_teleop.py`). |
+| `neck/` | Feetech neck: bus access, head pose, clearance, setup and the CLI. |
+| `ops/` | Everything installed or deployed on the Jetson from the build PC: release build and deploy, `helm_service`, `helm_robot` (dependencies, meshes, bridge package), `network`, `ups`, `cpu_partition`, Check and smoke tests, SSH pinning. |
+| `data/` | Episode writers (`formats/`), task capture, the roster of axes, LeRobot export and policy loading, provenance. |
+| `evaluation/` | N-trial closed-loop policy evaluation against simulation or the robot. |
+| `simulation/` | Loopback simulator, MuJoCo plant, task scene and workcell, collision queries, limit sweeps, model audit. |
+| `models/`, `viewer/` | Mechanical profiles (URDF, MJCF, physics audit) and the shared model viewer. |
+| `vision/` | Camera geometry, fiducial board, wrist and head alignment solves. |
+| `characterization/` | Actuator manual audit, response fits, sim-to-real comparison. |
 
-The [repository map](REPOSITORY_MAP.md) and inventory describe the current checkout.
-The [cleanup record](REPOSITORY_CLEANUP.md) lists retired source and local artifacts.
+### Outside the package
 
-## Install
+| Path | Contents |
+|---|---|
+| `python/` | Older collectors, training models, camera/UPS/display nodes, tools and the web shim. See [python/README.md](../../python/README.md). |
+| `rust/` | `control_core` (Minerva's guarded receiver and head controller), `comms`, `collision`, and the older `motor_control` and `lidar_control`. See [rust/README.md](../../rust/README.md). |
+| `firmware/` | OpenRB leader firmware, the Tufty2040 display, the lift actuator controller. |
+| `config/` | Hardware, calibration, device profiles, systemd and udev. See [config/README.md](../../config/README.md). |
+| `scripts/` | Build, deploy, development and bench scripts. See [scripts/README.md](../../scripts/README.md). |
+| `urdf/` | `aizee/` and `minerva/` mechanical exports and collision models. |
+| `settings/examples/` | Operator overlays independent of the source. |
+| `tests/` | Offline tests; see [tests/README.md](../../tests/README.md). |
+| `docs/` | Indexed by [docs/README.md](../README.md). |
 
-From the repository root, in your chosen Python environment:
+### Who owns motion checks
 
-```bash
-python -m pip install -e ".[operator,dev]"
-robot-platform list
-```
+One owner changes the Python/Rust motion contract together. The Rust receiver (`rust/control_core`) is authoritative at
+run time: ownership and expiry, the watchdog start-up gate, limits, speed, and collision enforcement when a profile
+enables it. `control/` and `teleop/` compile profiles and plan motion; `helm/` operates sessions but never bypasses the
+receiver. Physics libraries (collision, MuJoCo) run behind that boundary. The production direct profile has collision
+checking off; see [COLLISION_RUNTIME_IMPLEMENTATION.md](COLLISION_RUNTIME_IMPLEMENTATION.md).
 
-Use `.[learning]` for model training and `.[language]` when real sentence-transformer embeddings are needed. `.[control,data]` installs the shared runtime/data dependencies without GUI or training dependencies. Device-specific RealSense/Jetson GPU packages retain their existing platform-specific installation instructions; they are not forced into the base package.
+## How a robot is selected
 
-Use `.[preview]` for optional mesh simplification and `.[webxr]` for Quest
-transport. Use `.[viewer,collision]` for the shared robot model viewer and FCL
-inspection; [mechanical profiles](../simulation/MODEL_VIEWER.md) keep model selection
-independent of motor/recording contracts. The legacy `/preview` route embeds
-this shared viewer.
+- `robots/definitions/<name>.json` defines joints (with `active` flags), groups, cameras and capabilities.
+  `load_robot(name_or_path)` also accepts a custom schema-1 JSON file.
+- `settings/defaults/<name>.json` holds endpoints, the `{host}` placeholder and the older launcher's application choices.
+  Precedence: packaged defaults, each `--settings FILE`, each `--set key=value`, then `--host`. Examples in `settings/examples/`.
+- `apps/launcher.py` maps `robot-platform run collect|train --robot aizee|minerva` onto the legacy scripts
+  (`python/scripts/collect_demo.py`, `collect_minerva.py`, `python/training/train.py`, `train_minerva.py`). `--plan`
+  prints the resolved command without starting anything. This is the older path; Minerva operation goes through Helm.
+  `src/robot_platform/settings/defaults/minerva.json` still carries AIZEE's old default host `192.168.0.27`; override it with `--host` or an overlay.
+- `data/formats/` holds the legacy per-robot HDF5 writers (AIZEE 4/5, Minerva 6/7).
+- AIZEE is one option here. Its Rust service is `rust/motor_control` (ZMQ commands on 5555, telemetry on 5556, `can1`),
+  the older path that Minerva's first bring-up also used (`aizee-minerva-left/right.service`, `canL`/`canR`, 5555/5575).
+  Minerva's current path is `control_core` under Helm. See [AIZEE](../robots/aizee/README.md).
 
-The old workstation/training requirements files were removed;
-`pyproject.toml` owns these dependency selections.
-
-The base package supports profile inspection and launch-plan generation without Torch, Qt, NumPy or camera SDKs. Data writers require the `data` extra. The explicit ZMQ client requires the `control` extra. The session's pure routing/observation code uses only the standard library.
-
-On the Jetson, bootstrap/setup now install the shared editable package alongside `requirements_jetson.txt`, preserving the existing service interpreter. Existing installations also need this package installed before using updated `python/common/wire.py` compatibility shims.
-
-## Select the robot and settings
-
-The same commands work with either built-in robot:
-
-```bash
-robot-platform describe --robot aizee
-robot-platform describe --robot minerva
-
-robot-platform config --robot minerva --settings settings/examples/usb-tether.json
-robot-platform run collect --robot minerva --settings settings/examples/usb-tether.json --plan
-robot-platform run collect --robot aizee --settings settings/examples/usb-tether.json --plan
-```
-
-`--plan` only prints the resolved command, working directory and settings. It does not import the legacy application, probe the network, open a serial port or move a robot. Removing `--plan` runs the chosen application with its existing controls and startup behavior.
-
-Training uses the same selector:
-
-```bash
-robot-platform run train --robot minerva --set applications.train.data_dir=episodes/minerva --plan
-robot-platform run train --robot aizee --set applications.train.data_dir=episodes --plan
-```
-
-The new Aizee preset writes/reads `episodes/aizee` by default. Existing demonstrations in `episodes/` are preserved; select that path explicitly when training on them.
-
-### Precedence and paths
-
-1. Packaged settings for the selected robot.
-2. Each `--settings FILE`, in the order supplied; nested objects merge and lists replace.
-3. `--set dotted.key=value`, in order; values may be JSON scalars or lists.
-4. `--host`, if supplied, overrides the host setting.
-
-Endpoint strings containing `{host}` use the resolved host. Explicit camera/controller endpoint hosts are preserved, allowing separate machines. Aizee's optional scene camera can be disabled with `--set endpoints.cameras.scene=null`; required cameras cannot be disabled.
-
-Settings files are JSON. Example:
-
-```json
-{
-  "host": "10.42.0.1",
-  "applications": {
-    "collect": {
-      "gui": false,
-      "output_dir": "episodes/minerva",
-      "options": ["--kp-scale", "0.3"]
-    }
-  }
-}
-```
-
-Configured data/output paths are resolved against the caller's current directory. The compatibility process runs with the repository as its working directory so existing calibration/URDF lookups keep working. Other legacy path arguments passed in `options` retain their application's repository-relative behavior; use absolute paths for those when launching elsewhere.
-
-Extra application arguments go after `--`, for example `-- --dry-run` for a collector or `-- --epochs 20` for training. Settings-owned options (including abbreviated spellings of endpoint/output/GUI flags) are rejected in this passthrough; change their settings fields instead. Existing Minerva GUI tuning preferences still apply to legacy tuning options; this stage does not replace that preference store.
-
-The launcher preserves the resolved endpoints exactly. Direct legacy launches retain their original automatic host discovery. This difference is intentional: a concrete settings profile must not silently redirect to another machine.
-
-## Interchangeable components and compatibility
-
-`load_robot(name_or_json_path)` accepts built-in definitions or a custom schema-v1 JSON definition. `load_settings(spec, paths, overrides)` supplies deployment/application choices independently. `RobotSession(spec, settings)` consumes the same contract for Aizee, Minerva, or another definition with valid endpoint routes.
-
-```python
-from robot_platform.robots import load_robot
-from robot_platform.settings import load_settings
-from robot_platform.control import RobotSession
-
-spec = load_robot("minerva")  # or "aizee", or a custom definition JSON path
-settings = load_settings(spec, overrides={"host": "10.42.0.1"})
-session = RobotSession(spec, settings)  # no network connection
-observation = session.observation()
-assert not observation.ready  # no telemetry ingested yet
-```
-
-Joint routes must cover every active joint exactly once. Positional wire order is explicit. Duplicate endpoints, unknown cameras, incompatible robot settings and reordered group joints are rejected.
-
-Minerva has 17 schema slots and 14 active arm/gripper slots. Head and lift are explicitly inactive. The new session exposes missing/inactive/stale observations as NaN with validity masks, and rejects nonzero commands to inactive joints. Historical recording formats retain their existing behavior through separate format adapters.
-
-The packaged definitions describe the **native actuator telemetry**: arm and gripper positions are radians, while the reserved lift position is metres. They do not claim normalized gripper openings or measured jaw widths. Existing policy/GUI normalization conventions remain in the legacy models/adapters until an explicit calibrated conversion is introduced.
-
-Application adapters also validate their joint/camera/capability contract. A compatible custom definition can reuse one of the existing adapters, but a seven-joint collector cannot be attached to a 17-joint definition by changing only its name. `--adapter` selects an explicit compatible adapter; mismatches fail before application startup.
-
-## Shared backend behavior
-
-- Wire helpers now have one implementation; old `common.wire` imports re-export it.
-- Both collectors use shared discovery functions; Minerva no longer imports Aizee's private resolver.
-- Legacy arm constants read joint vocabulary (and Minerva camera roles) from the packaged robot definitions; gains and calibration behavior remain in the existing modules.
-- Both historical HDF5 writers now live in the package. Minerva no longer imports its writer from the Aizee collector package.
-- `RobotSession` merges real Rust `motors` telemetry with monotonic receive times and validates routing without opening sockets.
-- `ZmqRobotClient` has explicit connect/poll/send operations, including receive-only connections. It does not automatically enable motors, clip targets or implement application hold/shutdown policies.
-- `ThreadedRobotClient` owns all its sockets on one worker thread, coalesces pending motion, and optionally resends a submitted target. Freshness is checked on every actual arm transmission; service commands have bounded queues and visible delivery failures.
-
-Both collectors and the Minerva policy node now use the common session. The
-Aizee collector retains its calibrated tracking computation and integrated
-replay, while the Minerva collector retains partial-arm operation and legacy
-17-slot arrays. Minerva inference uses separate left/right controller endpoints
-and checks source freshness again after inference. See the
-[session migration guide](../history/plans/SESSION_BACKEND_MIGRATION.md) for responsibilities,
-behavior changes and remaining standalone tools.
-
-## Rust workspace
-
-On a Linux development machine or Jetson with the Rust toolchain and native dependencies:
-
-```bash
-cargo metadata --no-deps --format-version 1
-cargo build --release -p motor_control
-cargo build --release -p lidar_control
-```
-
-Crates remain under `rust/` for this stage, but `rust/Cargo.toml` is removed. Cargo finds the root workspace from the crate directories. The shared `comms` path dependency is declared once. Deployment bundles include the root manifest and `.cargo/config.toml`, and remove the obsolete nested manifest on the target. Services continue to use `rust/target/release/...`.
-
-The root `Cargo.lock` has now been generated by Cargo and used for successful
-release builds of both services. Windows can cross-compile for the dedicated
-Jetson using workspace-local Rust/Zig tools:
-
-```powershell
-./scripts/build_jetson.ps1 -Bootstrap
-./scripts/build_jetson.ps1 -Offline
-```
-
-Both `motor_control` and `lidar_control` have been built as ARM64 Linux ELF
-binaries for the JetPack 6 / Ubuntu 22.04 baseline. See the
-[Rust build guide](../../rust/README.md) for tool versions, dependencies and
-artifact verification. Cross-compilation does not validate runtime behavior on
-CAN buses or serial hardware.
-
-## Validation and remaining migration
-
-Run the installed package's default offline suite from the repository:
-
-```bash
-python -m pytest
-```
-
-Default discovery is restricted to `tests/unit` and `tests/contract`; existing motor exercises are not run implicitly. Existing ML/GUI integration suites remain explicit commands until they are classified and moved.
-
-The implementation checks cover profile precedence, compatibility rejection, immutable launch plans, seven-/17-slot routing, missing/stale telemetry, fake ZMQ sockets, camera envelopes, discovery and v4–v7 recording contracts. Application `--help` is used to verify imports without starting the control loop. Wheel checks verify robot/settings resources are included.
-
-The simulation baseline passed **248 Python tests** and **12 live process
-scenarios** on 2026-09-17. Both Rust services cross-compile for Linux AArch64;
-`comms` has six passing tests and one pre-existing ignored socket test. Current
-simulation evidence and remaining physical gates are maintained in the
-[simulation guide](../simulation/SIMULATION_IMPLEMENTATION.md). Cleanup verification is
-recorded in the [cleanup report](REPOSITORY_CLEANUP.md).
-
-Still to migrate:
-
-1. Migrate standalone Aizee inference, standalone replay and older diagnostic transports to RobotSession. Both collectors, integrated Aizee replay and Minerva inference now use it.
-2. Extract collector acquisition/UI services and move legacy application implementations into the package. Current launch adapters require an editable checkout or `--repo`/`ROBOT_PLATFORM_REPO`; standalone wheels provide shared libraries and profiles, not all legacy assets/apps.
-3. Move gains, calibrated limits, camera dimensions and tuning preferences into a unified validated configuration model. Current settings cover endpoints, app selection, paths/options and the session's freshness threshold; the migrated collectors now apply that threshold.
-4. Consolidate machine/service configuration, runtime calibration storage, learning resources and additional test tiers.
-5. Extend the dedicated Jetson's native collision builds/tests and scoped 25 Hz replay to production motor-service and full application validation. The development host is provisioned; physical motion and intended deployment-host checks remain. See [device log](../devices/JETSON_DEV_01.md).
-
-No hardware deployment is performed by package installation, plan generation or the offline suite.
+Install and development: `python scripts/dev.py setup` creates `.venv-dev`; `python scripts/dev.py check` is the gate
+([DEVELOPMENT.md](../DEVELOPMENT.md)). Packaging extras are in `pyproject.toml`.

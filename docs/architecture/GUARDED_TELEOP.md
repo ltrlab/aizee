@@ -1,14 +1,16 @@
 # Guarded teleoperation: current implementation
 
-Updated 2026-09-26. **Physical teleoperation of one arm is implemented but not
-yet run on motors. Dual-arm physical teleoperation is not enabled.**
-- The loop runs on Minerva's Jetson, with leader samples over the authenticated
-  tether link.
-- The receiver's `teleop` service mode drives one arm with advisory collision
-  checks. The other arm is never enabled.
-- Loaded stopping, host and CAN loss response and physical speeds still need
-  qualification in attended tests.
-- Two-arm operation needs a tighter, enforced collision bound.
+Guarded teleoperation is how Helm drives Minerva's arms from the GELLO leaders: the leaders' latest sample goes through
+a mapping and a supervisor, and the Rust receiver (`rust/control_core`) decides what the motors may do.
+
+- **Status.** First powered teleop of one arm ran on 2026-09-27 and both arms on 2026-10-09; the head joined later. The
+  production profile is the direct one (`config/devices/minerva-teleop-direct-tuning.json`: 100 Hz, collision checking
+  off). The collision-gated path described below is the guarded profile (`minerva-teleop.json`, 25/50 Hz), used in
+  rehearsal and the viewer; see [COLLISION_RUNTIME_IMPLEMENTATION.md](COLLISION_RUNTIME_IMPLEMENTATION.md).
+- The loop runs on Minerva's Jetson (`helm/edge.py`), with leader samples over the authenticated UDP link from the
+  operator station's GELLO bridge ([GELLO_TELEOP.md](GELLO_TELEOP.md)).
+- Loaded stopping and host and CAN loss response are still attended-test matters; the arms hold after a joint-speed
+  trip (`_trip_hold_due` in `helm/teleop.py`; merged, not yet on the robot).
 
 ## Components and ownership
 
@@ -25,7 +27,9 @@ yet run on motors. Dual-arm physical teleoperation is not enabled.**
 | `control/mechanical_zero.py` | Explicit, stopped-only mechanical-zero and optional parameter-save maintenance |
 | `teleop/leader_link.py` | Authenticated UDP leader samples over the tether; the PC end in its own responsive process |
 | `helm/edge.py` | Helm's teleop loop on the robot computer, driven over one pinned SSH channel |
-| `control/live_receiver.py` | A live session's stopped pre-scan, CAN link and one-arm `teleop` service |
+| `helm/teleop.py` | The session lifecycle (Idle, Enable, Engage/Align, Hold, Shutdown, Disable) and the control cycle |
+| `teleop/direct_lifecycle.py`, `teleop/guarded_lifecycle.py` | The direct (collision-free) and the collision-gated lifecycles |
+| `control/live_receiver.py` | A live session's stopped pre-scan, CAN link and `teleop` service for one arm or both |
 
 Paths above Python modules are relative to `src/robot_platform/`. Robot joint
 names, leader roles, USB identity, routes and CAD mapping belong in profiles;
@@ -73,15 +77,11 @@ two missed cycles, then drops to Hold at the measured pose; only an explicit
 Engage resumes following. Registration pairs current leader and robot positions
 to avoid a jump when engaging. Source age is checked again after collision computation.
 
-Both installed boards report that no joystick is present. An operator engagement
-control still needs wiring into the runner. The operator confirmed the existing
-GUI workflow (2026-09-26 UTC): Idle, Enable, Engage/Align, and Shutdown with a slow
-return to zero. Preserve those actions; do not replace them with a new Start/Stop
-workflow or require hold-to-run. Alignment and shutdown motion must also pass
-the collision/freshness gate. Input loss or collision rejection stops motion;
-neither is an instruction to drive blindly to zero. No engagement is inferred
-from an absent joystick's default values. See the
-[GUI integration map](../history/plans/TELEOP_GUI_INTEGRATION.md).
+Both installed boards report that no joystick is present, so engagement is never inferred from joystick defaults.
+The lifecycle is Idle, Enable, Engage/Align, and Shutdown with a slow return to the reference, driven from Helm's
+keys and pedals. In the guarded profile alignment and shutdown motion also pass the collision and freshness gate.
+Input loss or collision rejection stops motion; neither is an instruction to drive blindly to zero. See the
+[GUI integration map](../history/plans/TELEOP_GUI_INTEGRATION.md) for the earlier design.
 
 Physical adapter enable now also requires configured raw reference positions,
 three or more fresh Reset-state samples spanning at least 100 ms, and the
@@ -101,27 +101,17 @@ the legacy controller has not been migrated and remains disabled.
 
 ## Measured evidence
 
-On Minerva's production computer, a 1,000-cycle 25 Hz run using the real CAD
-keep-out compiler and independently scheduled 400 Hz Rust receiver over **vcan
-with synthetic motors** accepted all cycles: median 14.595 ms, p99 14.733 ms,
-maximum 17.227 ms; zero scheduled misses. Stopping after a silent collision
-producer was verified. Receiver: 16,075 ticks, zero overruns/misses, maximum work
-453 microseconds and lateness 386 microseconds. Physical CAN links stayed down.
+These numbers are from 2026-09-24 bench runs, before the direct profile, and measured the guarded 25 Hz path:
 
-These results exclude real leader transport, cameras, physical motor dynamics
-and loaded stopping. The Windows native-harness test correctly stopped on a
-scheduler stall after 416 accepted cycles. Direct dual-USB input completed
-1,500 cycles without protocol errors but had one 40 ms scheduled miss. The
-read-only SSH input tests failed their 25 ms reply timeout (after one and then
-twelve cycles); the network is **not qualified**. A native OpenSSH comparison
-could not start because Windows rejected existing private-key file ACLs; no key
-contents or permissions were changed. Do not increase deadlines to conceal
-these results. Earlier low-resolution-clock timings are retained but are not
-precise performance evidence.
+- On Minerva's Jetson, 1,000 cycles at 25 Hz with the real CAD keep-out compiler and the 400 Hz Rust receiver over
+  **vcan with synthetic motors** accepted every cycle: median 14.595 ms, p99 14.733 ms, maximum 17.227 ms, no scheduled
+  miss. Stopping after a silent collision producer was verified. Receiver: 16,075 ticks, no overruns, maximum work
+  453 microseconds, lateness 386 microseconds.
+- They excluded real leader transport, cameras, motor dynamics and loaded stopping.
+- An SSH-tunnelled leader input missed its 25 ms reply timeout, which led to the UDP leader link. Hop budgets for the
+  current path are in [TELEOP_LATENCY.md](TELEOP_LATENCY.md).
 
-Tests: 512 Python unit/contract tests and 47 portable Rust tests passed;
-Rust Clippy passed with warnings denied. Linux ARM64 binaries cross-compiled.
-See the [device log](../devices/MINERVA_PRODUCTION_01.md) and
+Raw results are kept in the [device log](../devices/MINERVA_PRODUCTION_01.md) and
 [compact evidence](../devices/MINERVA_TELEOP_20260924.json).
 
 ## Rehearse in Helm
@@ -130,8 +120,8 @@ See the [device log](../devices/MINERVA_PRODUCTION_01.md) and
 the real leaders into the native receiver harness, with receiver limits derived
 from the hand-swept joint limits and each leader channel's
 [hand-swept range](../operator/HELM_MANUAL.md#sweep-leader-ranges) mapped onto its robot joint's
-range. Collision checks there are advisory. On physical motors that applies only
-to [live teleop of one arm](../operator/HELM_MANUAL.md#live-teleop-one-arm).
+range. In the guarded profile collision checks there are advisory; the production direct profile has none. Live
+teleop on the motors is covered in the [Helm manual](../operator/HELM_MANUAL.md).
 
 ## Reproduce without moving motors
 
@@ -141,23 +131,15 @@ python -m robot_platform.teleop.leader_bridge --profile config/devices/minerva-l
 python scripts/benchmark_guarded_teleop.py --model urdf/minerva/model.json --output simulation_runs/new-teleop.json --cycles 1000
 ```
 
-The bridge binds only loopback. The Linux benchmark
-`scripts/benchmark_guarded_teleop_vcan.py` verifies virtual CAN interfaces and
-uses an explicit synthetic motor/CAD identity map. It must not be repurposed as
-a physical motor profile. The isolated deployment stage is documented in the
-device log; it is not an installed production service.
+The leader bridge binds only loopback. `scripts/benchmark_guarded_teleop_vcan.py` verifies virtual CAN interfaces and
+uses an explicit synthetic motor and CAD identity map; it must not be repurposed as a physical motor profile.
+`scripts/guarded_vcan_bench.py` runs the Rust receiver on Linux vcan.
 
-## Before live teleoperation
+## Before live teleoperation of a new unit
 
-1. Completed: all 14 motors received the requested stopped mechanical zero and
-   one save attempt each. All passed raw-position readback after a physical
-   power cycle, including five with absent save responses. Future startup
-   reference checks remain mandatory. See [reference evidence](../devices/MINERVA_MECHANICAL_ZERO_20260924.json).
-2. Verify CAD directions, reference uncertainty and usable intervals, including
-   gripper geometry. Any mechanical-zero change invalidates the old gripper fit's
-   encoder offset; retain its raw measurements but do not apply that offset live.
-3. Qualify loaded hold, controlled stop and command-loss behavior for each arm.
-4. Resolve input-network jitter, provide operator engagement, then test real
-   leaders + collision compiler + virtual motors together under deployment load.
-5. Run attended bounded arm tests, then sustained 25 Hz full-load acceptance.
-   Advance to 50/100 Hz only after timing and stopping evidence support it.
+1. Mechanical zero: stopped zero and a power-cycle readback of every motor
+   ([MECHANICAL_REFERENCE](../operator/MECHANICAL_REFERENCE.md)). Startup reference checks stay mandatory.
+2. Verify CAD directions, reference uncertainty and usable intervals, including gripper geometry. A mechanical-zero
+   change invalidates an older gripper fit's encoder offset.
+3. Confirm loaded hold, controlled stop and command-loss behaviour for each arm in attended tests.
+4. Rehearse with the real leaders against the virtual receiver, then run attended bounded arm tests.

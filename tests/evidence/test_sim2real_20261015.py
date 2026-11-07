@@ -6,8 +6,7 @@ the repository, so this is not part of the development gate. Run it by name:
 
     .venv-dev/Scripts/python.exe -m pytest tests/evidence/test_sim2real_20261015.py
 
-MINERVA_EVIDENCE (default C:/Users/ltr/Workspace/minerva-evidence, as mirrored there) and MINERVA_OPERATOR_RUNS
-locate them.
+MINERVA_EVIDENCE and MINERVA_OPERATOR_RUNS locate them; without both it skips.
 """
 import hashlib
 import json
@@ -21,9 +20,8 @@ from robot_platform.characterization import sim2real
 ROOT = Path(__file__).resolve().parents[2]
 DEVICES = ROOT / 'config/devices'
 ACTUATORS = DEVICES / 'simulation' / 'minerva-production-01-actuators.json'
-EVIDENCE = Path(os.environ.get('MINERVA_EVIDENCE', 'C:/Users/ltr/Workspace/minerva-evidence'))
-RUNS = Path(os.environ.get('MINERVA_OPERATOR_RUNS',
-                           'C:/Users/ltr/.codex/worktrees/dev-baseline/aizee/build/manual-tuning/operator-runs'))
+EVIDENCE = Path(os.environ.get('MINERVA_EVIDENCE', 'minerva-evidence-not-set'))
+RUNS = Path(os.environ.get('MINERVA_OPERATOR_RUNS', 'operator-runs-not-set'))
 REPORT = EVIDENCE / 'analysis/sim2real-20261015/report.json'
 ARM = [f'{side}_arm_j{k}' for side in ('left', 'right') for k in range(1, 7)]
 

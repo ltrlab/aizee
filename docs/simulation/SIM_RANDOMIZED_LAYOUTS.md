@@ -1,45 +1,58 @@
-# Feature task: a black robot and randomized training layouts
-- **Base commit:** `01e2198124211c789d1f3f8d12cda57894e10838` (`claude/sim-table-fiducials`), with `61e996cda7bb3c4bdbb1ce16d98f9ce72bc1bb79` merged at `8b050bc`.
-- **Problem / saved reproducer.**
-  - The sim robot was drawn in the CAD's greys and whites; the real one is black.
-  - Generated episodes all shared one table, box and block: `generate` only moved the cube over a grid.
-  - With the placeholder `robot_offsets`, the calibrated head camera sat inside the robot's torso: 155 of 169 rays through its image met the torso (`git show 01e2198`, any head render; SIM_WORKCELL.md, "The robot's interim place").
-  - On the merged workcell (the box where the depth puts it) the demonstrator found no plan: "no plan reaches the cube at [0.15, -0.35, 0.531]" (`tests/unit/test_demonstrator.py` at `8b050bc`).
-  - At `a7f6c94` the head camera showed the middle of the bucket's opening in only 61 of 102 accepted layouts, and its whole opening in 21% (`layout_refusals.py view` on `build/sim-random/refusals-0789f74/`).
-  - One layout trial in 30 aborted on the right's turn into a large held block: `tests/fixtures/minerva_layout_take_abort_20261018.json`, run by `scripts/sim/repro_take_abort.py` (not fixed; SIM_DEMONSTRATOR.md, "Follow-ups").
-- **Hypothesis.** A matte black material on every robot geom changes only what the cameras see. Layouts drawn per episode from one sourced randomization file, each planned by the demonstrator and drawn again when it cannot be, give episodes whose block, bucket, table placement and head camera vary over the announced ranges, at a rejection rate that is the cost and not hidden. A rectangle offset that clears the torso with margin, and drops that reach taller and farther buckets, make the measured box plannable.
-- **Owned files:**
-  - `simulation/layouts.py` (new), `config/devices/simulation/minerva-production-01-randomization.json` (new)
-  - in `simulation/task_scene.py`: the robot finish (`ROBOT_*`), the table's yaw, the cuboid block, `randomize_appearance(cameras=)`
-  - in `simulation/workcell.py`: `table_yaw`, `on_table`/`table_frame`, `from_document`, `cube_size`/`block`, `bucket_opening_pixels`
-  - in `evaluation/demonstrator.py`: the planning scene's cache key, `DROPS`, the split at the handoff (`_to_handoff`, `_drop`), `notes`, the plan memo, the cuboid grasp (`across`, `_takeable`, `grasp`)
-  - in `evaluation/generate.py`: `draw_layout`, `HeadCameraClearance`, `BucketInView`, `LayoutChecks`, `layout_checks`, the layout loop, `EpisodeRecorder.annotate`, `generate(attempts=)`; `TrialRunner.plan/use_workcell` in `runner.py`; `generate --randomize` in `__main__.py`
-  - the workcell file's `robot_offsets`, `table.center`, `cube.start`, `cube.region`
-  - `scripts/sim/trial_trace.py`, `scripts/sim/layout_trials.py`, `scripts/sim/layout_refusals.py`, `scripts/sim/repro_take_abort.py` (new)
-  - tests: `test_robot_finish.py`, `test_layouts.py`, `test_generate_layouts.py` (new); additions to `test_workcell.py`, `test_demonstrator.py`; `tests/fixtures/minerva_workcell_placeholder_20261017.json`, `tests/fixtures/minerva_layout_take_abort_20261018.json` (new)
-  - docs: this file, and sections of SIM_WORKCELL.md, SIM_DEMONSTRATOR.md, SIM_GENERATION.md, MINERVA_TASK_SCENE.md.
-- **Shared interfaces held fixed.** The receiver, lifecycle, approach and collision contract; the episode writer and format 8; the policy interface. Additive only: `Workcell.table_yaw/cube_size/block`, `workcell.from_document/on_table/table_frame`, `MinervaTaskScene.randomize_appearance(cameras=)`, `TrialRunner.plan/use_workcell`, `generate(layouts=, attempts=)`, `generate --randomize`, the capabilities' `robot_finish` and `task_parameters.cube_size_m`, the episode metadata's `layout` and the demonstrator description's `drops`, `planned_drop`, `planned_grasp`.
-  - **Behaviour change:** the default workcell's robot offset, table, nominal start and cube region (the interim layout). `helm --sim`, the evaluation harness and generation without `--randomize` all use it.
-  - **Behaviour change:** when the first drop does not plan or clear, the demonstrator now tries five more; before, the layout was refused.
-  - **Behaviour change (v3):** generation with `--randomize` refuses a draw whose head image does not hold the bucket's whole opening (the file's `head_view.bucket_opening`), draws buckets only where the head camera sees them (x -0.17 to 0.075 m, y -0.57 to -0.72 m) and blocks 35-55 mm tall. Additive: `Randomization.bucket_view`, `generate.BucketInView`/`LayoutChecks`/`layout_checks`, `workcell.bucket_opening_pixels`.
-- **Dependencies / integration order.** After `claude/sim-table-fiducials` (merged in). Nothing depends on this branch. The coolserver generation pipeline (`~/aizee-sim/bin/gen_parallel.py`, `launch_gen.sh`) runs it unchanged, passing `--randomize config/devices/simulation/minerva-production-01-randomization.json` after `--`; its Linux `control_harness` and `librobot_collision.so` (built from `01e2198`) match this branch's `rust/` tree and `Cargo.lock`.
-- **Required behavior and bounds:**
-  - Every robot geom, both visual modes, is near-black: each RGB channel at most 0.06, its material's too, with no specular, shininess or reflection; rendered at the appearance variation's brightest look, no robot pixel is brighter than 32/255. The workcell, block and tags keep their colours.
-  - The nominal trial is bit for bit the same: on `01e2198`'s workcell, every scene step's time, qpos, qvel and surface-velocity digest, and the events, match `01e2198` at `0789f74`, as they did after the black finish, the handoff split and the cuboid block (19,687 steps; pickup 6.2780 s, handoff 23.6625 s, bucket 49.2160 s; the recordings are in `build/sim-random/traces/`, compared by `scripts/sim/trial_trace.py compare`).
-  - Layouts are reproducible from their seed, stay inside their ranges and regions, keep the bucket on the table and 3 cm clear of the block, and move the table group rigidly; an episode records its layout.
-  - A drawn layout runs only if the demonstrator plans it, its head camera stands clear of the robot and (v3) its head image holds the bucket's whole opening with 5 px to spare at 320 x 240, as the depth-measured box does.
-- **Acceptance command and expected result.** `python scripts/dev.py check --offline`, zero skips; it adds `test_robot_finish`, `test_layouts` and `test_generate_layouts`. Run on the laptop at `7895b35` (2026-10-18) without the gate's ARM64 release-artifact step, whose cross-build the permission system refused: the Rust tests and builds, the collision library's ABI check and the required pytest list ran, 1186 passed, none failed, and 1 was skipped, the release test that needs those ARM64 binaries (`test_ops_release.py::test_a_built_release_is_small_complete_and_verifiable`: "Cross-build the ARM64 binaries first"); 18 min 48 s (`build/dev-check/20261018T071645Z-tests-only-fc5e4c4d/`, a copy of `dev.py check`'s steps without the release check). The gate as written has therefore not passed: the integrator's `dev.py check` still owes the cross-build and that test. The commits after it up to `45fe004` change only `scripts/sim/` and docs. For v3 (the commits after `45fe004`), the focused tests on the laptop: `tests/unit/test_layouts.py`, `test_workcell.py`, `test_demonstrator.py`, `test_robot_finish.py`, `test_scene_appearance.py`, `test_task_scene.py` and `tests/contract/test_generate_layouts.py`, `test_generate.py`, `test_demonstrator.py` through the receiver: 88 passed, none skipped, in 7 min. **The full gate passed at `9ebb37b`** on 2026-10-18, after the ARM64 cross-build the user approved: 1197 passed, none skipped (the release test included), and the 132 Rust tests, with the source unchanged (`build/dev-check/20261018T115034Z-e16add6f/report.json`). That commit is the source of the v3 episodes.
-- **Source/model identity and seed.** MuJoCo 3.15.0; coolserver runs used trees `tree-d8240dd` and `tree-0789f74` (this branch's files), the Linux binaries of `~/aizee-sim/bin/BUILD_INFO.json`. Layout seeds: generate's `--seed` and the attempt, [seed, attempt, draw]; layout trials seed 2000; smoke runs seed 3000; the refusal maps seed 5000 (and 7000 for the v3 region choice).
-- **Results / evidence:**
-  - **Black robot:** SIM_WORKCELL.md and MINERVA_TASK_SCENE.md; renders in `build/sim-random/` (this worktree); the nominal trial's step-by-step recordings in `build/sim-random/traces/` (on `01e2198`'s workcell, taken from `01e2198`'s own tree).
-  - **Interim placement:** SIM_WORKCELL.md, "The robot's interim place"; `build/sim-random/head-interim-0.36.png` (sim head view beside the real frame).
-  - **Drops and blocks:** SIM_DEMONSTRATOR.md, "Drops", "Blocks that are not cubes".
-  - **Layouts:** SIM_GENERATION.md, "Randomized layouts"; layout trials in `build/sim-random/trials-*/`; the refusal maps in `build/sim-random/refusals-0789f74/` and, for v3, `build/sim-random/refusals-v3/`; smoke episodes' contact sheets in `build/sim-random/smoke-random-*/` (episodes on coolserver, `~/aizee-sim/gen/smoke-random-0789f74/`).
-- **Remaining uncertainty / physical inputs needed:**
-  - **The robot's place.** `robot_offsets` is an interim placeholder (0.325, 0.36); tape numbers or the depth registration (SIM_WORKCELL.md) replace it, and then the cube region, nominal start and both randomization regions need re-planning.
-  - **The blocks and the box.** Size, mass and friction; the ranges re-centre on them when taped and weighed.
-  - **Coverage and bias** (SIM_GENERATION.md, "The v3 layouts"): 66% of draws are refused and drawn again, unevenly: 28% put the head camera against the robot, 20% show less than the bucket's whole opening, 14% do not plan, 4% find no bucket place. Against the uniform draws, a v3 set has 0.4x of the tables moved over 2 cm toward the robot (kept: the interim place stays 0.36 m), 0.5x of the blocks beyond y -0.65 m, 0.5x of the bucket centres right of x -0.13 m and 0.7x of the walls over 200 mm; footprints, bucket width, length and yaw, and the table's yaw come out about even. The bucket moves within 24.5 x 15 cm of the table (plus the table offset), where the head camera sees it.
-  - **The head view's margin.** The real box sits about 9 px inside the head image's right edge at 320 x 240, so the required margin is 5 px; a calibration error of a degree or two moves it by 5-10 px.
-  - **The head view.** The robot's arms are seen from a camera whose place on the robot is a guess; the wrist cameras are still uncalibrated.
-  - **One trial in 30 aborted** (SIM_DEMONSTRATOR.md, "Follow-ups"): turning its open jaws upright beside the held block, the right met a 50 mm block, which forced its jaws past their range, and the receiver tripped on the right gripper's position limit. The plan's clearance check leaves the held block out. Not fixed here: `scripts/sim/repro_take_abort.py` reproduces it, and a generator drops such an attempt.
-  - **Blocks under 35 mm** are no longer drawn; the left's retreat past them is a planner follow-up (SIM_DEMONSTRATOR.md, "Follow-ups").
+# Randomized training layouts
+
+**What it is.** `python -m robot_platform.evaluation generate --randomize <file>` draws a different layout for every
+generated episode: block size and pose, bucket size and pose, table placement and the head camera, from one sourced
+randomization file (`config/devices/simulation/minerva-production-01-randomization.json`). The demonstrator plans each
+draw and the generator draws again when it cannot. **Status: done and merged.** The draw and its measured rejection rates
+are in [SIM_GENERATION.md](SIM_GENERATION.md), "Randomized layouts"; this page keeps what it changed and what is open.
+
+## Why
+
+- With the placeholder `robot_offsets` the calibrated head camera sat inside the robot's torso (155 of 169 rays through
+  its image met the torso), and on the depth-measured workcell the demonstrator found no plan.
+- Generated episodes all shared one table, box and block: `generate` only moved the cube over a grid.
+- The head camera showed the middle of the bucket's opening in only 61 of 102 accepted layouts and its whole opening in
+  21%.
+
+## What it changed
+
+- `simulation/layouts.py` and the randomization file (new); `generate --randomize`; `draw_layout`, `HeadCameraClearance`,
+  `BucketInView`, `LayoutChecks`, `layout_checks`; `EpisodeRecorder.annotate` records the layout in the episode metadata.
+- A cuboid block (`Workcell.cube_size/block`), the table's yaw (`table_yaw`, `on_table`/`table_frame`), and a robot offset
+  that clears the torso with margin (an interim placeholder, 0.325 m and 0.36 m).
+- The demonstrator tries five more drops before refusing a layout (`DROPS`), and splits the handoff (`_to_handoff`,
+  `_drop`).
+- The default workcell's robot offset, table, nominal start and cube region are the interim layout; `helm --sim`, the
+  harness and generation without `--randomize` all use it.
+- With `--randomize`, a draw is refused unless its head image holds the bucket's whole opening with 5 px to spare at
+  320 x 240; buckets are drawn only where the head camera sees them (x -0.17 to 0.075 m, y -0.57 to -0.72 m) and blocks
+  are 35-55 mm tall.
+- Scripts in `scripts/sim/`: `trial_trace.py`, `layout_trials.py`, `layout_refusals.py`, `repro_take_abort.py`.
+
+## Bounds the tests hold
+
+- Layouts are reproducible from their seed, stay inside their ranges and regions, keep the bucket on the table and 3 cm
+  clear of the block, and move the table group rigidly. An episode records its layout.
+- A drawn layout runs only if the demonstrator plans it, its head camera stands clear of the robot, and its head image
+  holds the bucket's whole opening.
+- The nominal trial is bit for bit the same across these changes.
+- Tests: `test_layouts.py`, `test_generate_layouts.py`, plus additions to `test_workcell.py` and `test_demonstrator.py`;
+  fixtures `tests/fixtures/minerva_workcell_placeholder_20261017.json` and `minerva_layout_take_abort_20261018.json`.
+
+## Not known
+
+- **The robot's place.** `robot_offsets` is an interim placeholder; tape numbers or the depth registration
+  ([SIM_WORKCELL.md](SIM_WORKCELL.md)) replace it, and then the cube region, nominal start and both randomization
+  regions need re-planning.
+- **The blocks and the box.** Size, mass and friction; the ranges re-centre on them when measured.
+- **Coverage and bias.** 66% of draws are refused and drawn again, unevenly: 28% put the head camera against the robot,
+  20% show less than the bucket's whole opening, 14% do not plan, 4% find no bucket place. Against uniform draws, a set
+  has 0.4x of the tables moved over 2 cm toward the robot, 0.5x of the blocks beyond y -0.65 m, 0.5x of the bucket
+  centres right of x -0.13 m and 0.7x of the walls over 200 mm.
+- **The head view's margin.** The real box sits about 9 px inside the head image's right edge at 320 x 240, so the
+  required margin is 5 px; a calibration error of a degree or two moves it by 5-10 px. The robot's arms are seen from a
+  camera whose place on the robot is a guess; the wrist cameras are uncalibrated.
+- **One trial in 30 aborted** ([SIM_DEMONSTRATOR.md](SIM_DEMONSTRATOR.md), "Follow-ups"): turning its open jaws upright
+  beside a held 50 mm block, the right forced its jaws past their range and the receiver tripped on the right gripper's
+  position limit. Not fixed; `scripts/sim/repro_take_abort.py` reproduces it, and a generator drops such an attempt.
+- **Blocks under 35 mm** are no longer drawn; the left's retreat past them is a planner follow-up.

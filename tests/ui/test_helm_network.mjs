@@ -55,11 +55,11 @@ assert.equal(silent.apEnabled, false);
 // The GELLO pill: where the bridge reached Minerva, and Wi-Fi said.
 assert.equal(bridgeView(null).hidden, true);
 assert.deepEqual([bridgeView({connected: false}).text, bridgeView({connected: false}).tone], ['No GELLO', 'warn']);
-const wired = bridgeView({connected: true, host: 'soliloquy', peer: '192.0.2.225', robot_address: '192.0.2.43',
+const wired = bridgeView({connected: true, host: 'station-1', peer: '192.0.2.225', robot_address: '192.0.2.43',
   path: 'wired'});
 assert.deepEqual([wired.text, wired.tone], ['GELLO', 'good']);
-assert.equal(wired.title, 'The GELLO bridge on soliloquy (192.0.2.225) serves the leader arms at 192.0.2.43, wired');
-const air = bridgeView({connected: true, host: 'soliloquy', peer: '10.42.1.20', robot_address: '10.42.0.1',
+assert.equal(wired.title, 'The GELLO bridge on station-1 (192.0.2.225) serves the leader arms at 192.0.2.43, wired');
+const air = bridgeView({connected: true, host: 'station-1', peer: '10.42.1.20', robot_address: '10.42.0.1',
   path: 'wifi'});
 assert.deepEqual([air.text, air.tone], ['GELLO · Wi-Fi', 'warn']);
 assert.match(air.title, /over Wi-Fi: leader teleop runs, but expect holds/);

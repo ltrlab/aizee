@@ -1,5 +1,7 @@
 # Shared robot model tools
 
+**Status: done and in use.** Kinematic inspection only.
+
 The browser viewer, static audit and collision checker use one mechanical model
 profile. Robot names, arm counts, joint names and presentation groups are data.
 The tools have no Aizee/Minerva branches. Repository naming is unchanged.
@@ -24,11 +26,9 @@ query reports its missing dependency. Freshly installed wheels include the UI
 but do not contain the large CAD library; pass an external profile/URDF or set
 `ROBOT_PLATFORM_REPO` to a hydrated source checkout.
 
-The WebXR server's existing `/preview` link mounts **the same shared viewer**
-at `/preview/`. Its old robot-specific page and permissive collision endpoint
-have been removed. The viewer does not mirror a live Quest session, write
-motor alignment, or change accepted calibration files. Existing WebXR control
-and its in-headset Aizee mirror are separate migration work.
+AIZEE's WebXR server (`python/web/server.py`) mounts **the same shared viewer** at `/preview/`. The viewer does not
+mirror a live Quest session, write motor alignment, or change accepted calibration files. On Minerva the Quest steers
+the head through Helm's `/xr` page ([NECK_FEETECH.md](../robots/minerva/NECK_FEETECH.md)), not this viewer.
 
 ## Controls
 

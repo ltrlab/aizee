@@ -1,6 +1,10 @@
 # Shared motor controller
 
-Linux SocketCAN controller for the Aizee and Minerva ROBSTRIDE deployments.
+Linux SocketCAN controller for the Aizee and Minerva ROBSTRIDE deployments. **This is the legacy path.** Minerva's
+current receiver is `guarded_controller` in `rust/control_core` ([guarded controller](../../docs/architecture/GUARDED_CONTROLLER.md)),
+started by Helm's loop; `motor_control` is AIZEE's service and what Minerva's first bring-up ran, as two processes
+(`aizee-minerva-left/right.service`). The Minerva profiles below are still read by the direct tuning and the older
+collectors.
 The root Cargo workspace owns dependencies and build output stays in
 `rust/target/`.
 

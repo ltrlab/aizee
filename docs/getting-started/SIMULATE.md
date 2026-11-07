@@ -1,102 +1,118 @@
-# Feature task: the leader arms drive a simulated Minerva in Helm
-- Base commit (full SHA): `6fb0510c1182f8d6bddf0090bf4c6b3cb7e93211` (`claude/vff-toggle`, the line Helm runs from,
-  59 commits ahead of `codex/overhaul-integration`), with `claude/minerva-physical-model` merged in for the MJCF.
-  Based on the deployed line because Helm's teleop code has moved well past integration.
-  collection, training and testing; the operator watches a MuJoCo window; sim and real demos are co-trained.
-- Problem / saved reproducer: Helm's virtual receiver moves joints exactly to their commands, so the leaders cannot
-  rehearse or collect anything in simulation. The rehearsal tests already ran TeleopCore against the real receiver
-  and a sweep-measured plant, but only as a test fixture.
-- Hypothesis: TeleopCore's live path (an `exchange`, `last` and per-tick rows) works unchanged over a
-  `PlantReceiver`, so a simulated Minerva needs only a plant builder, a window and a launch option.
-- Owned files: `src/robot_platform/simulation/minerva_sim.py`, `tests/contract/test_helm_sim.py`, this brief; small
-  hooks in `helm/teleop.py` (TeleopCore `simulation`, TeleopSession `simulation`) and `helm/cli.py` (`--sim`); the
-  `PlantReceiver` clock fix in `simulation/arm_plant.py` with its reproducer in `tests/contract/test_mujoco_receiver.py`.
-- Shared interfaces held fixed: the Rust receiver, receiver derivation, lifecycle, recording format, leader mapping,
-  live and virtual paths, Helm's UI.
-- Dependencies / integration order: after the `claude/*` stack it is based on, and after `claude/minerva-physical-model`.
-- Required behavior and numerical/time bounds: the leaders engage, follow and shut down both simulated arms through
-  the real receiver with no fault; every 2.5 ms tick recorded; the 100 Hz direct loop keeps its period on this PC
-  with the window open.
-- Acceptance command and expected result: `python scripts/dev.py check`, zero failures/skips/xfails.
-- Source/model identity and seed: servo calibration `config/devices/minerva-production-01-servo.json`; MJCF
-  `urdf/minerva/mujoco/minerva.xml`; plant seed 1.
+# Simulate
 
-## Change
+You can run Helm against a simulated Minerva on a PC with no robot, no Jetson and no network. It is the safe way to
+learn the interface, rehearse a session, and try changes to the teleop loop. This page covers Helm's simulation
+(`helm --sim`), the model viewer, and the headless simulator, with links to the deeper simulation pages.
 
-`robot-platform helm --sim` (needs `--teleop`; the loop runs on this PC) makes Teleop's virtual receiver drive a
-simulated Minerva:
+## Helm on a simulated Minerva
 
-- The receiver is the one Helm derives for the real arms. It ticks every 2.5 ms against an `ArmPlant`.
-- **Since 2026-10-15 every arm joint runs on values fitted on real teleop:** inertia, friction, damping, its drive's
-  command delay and a gravity scale.
-  - They come from `config/devices/simulation/minerva-production-01-actuators.json`, for each motor whose UID and
-    firmware match the servo file's. See SIM2REAL.md, "Into the simulator".
-  - The session's `simulation` event records the file (path, sha256) and which motors took it.
-- A joint the file does not cover (both grippers) or does not match carries its Tune sweep's inertia, friction and
-  gravity slices. Where a sweep measured none, the joint takes the rehearsals' rough `NOMINAL` value, and the
-  session's `events.jsonl` lists which ones:
-  - without the file, left J1 and both grippers are fully nominal, and right J1 and J3–J6 have nominal inertia;
-  - with it, only the grippers are nominal.
-- Gearbox damping makes up a 0.6 damping ratio where the sweep's gains fall short, as the rehearsals assume. The
-  fitted damping replaces it where the file applies.
-- A MuJoCo window shows the arms through Helm's confirmed directions and the grippers' preview transmissions. The
-  window draws at 30 Hz in its own thread and never steps physics.
-- Sessions record every tick (`samples.f32`) and event under `<runs>/<asset>-sim/sim-<UTC>/`, as a live session
-  records them.
-
-`PlantReceiver` read the caller's clock again after ticking. On a real clock a slow tick put a request past the next
-scheduled tick, which then stepped the receiver back (`clock_regression` at the first request, while the window
-started). It now reads the clock once per exchange and takes a request at the next tick, as the live service does.
-Tick times also round to whole milliseconds: tick 1606 is 4015 ms, not int(4014.9999999999995).
-
-## Results
-
-- **Reproducer.** It jumps the clock 6 ms every 3, 5 or 7 readings. Before the fix both service modes faulted
-  `clock_regression`; after it, all 6 variants pass.
-- **Contract tests.** Scripted leaders engage, follow and shut down both simulated arms through the real receiver,
-  under both the guarded (`minerva-teleop.json`) and the direct (`minerva-teleop-direct.json`) profile.
-  - The shoulders and elbows moved; the wrists, left alone, held.
-  - Every tick was recorded.
-  - The rehearsals and MuJoCo receiver tests still pass (41 tests).
-- **Real clock on this PC**, scripted leaders, window open, Helm's loop scheduling, 10 s of TELEOP:
-
-| Profile | Teleop cycle host time (ms) p50 / p99 / max | Over the 10 ms period |
-|---|---|---|
-| Direct | 4.27 / 6.28 / 11.74 | 1 |
-| Direct | 4.16 / 6.20 / 7.56 | 0 |
-| Direct | 4.06 / 6.49 / 7.70 | 0 |
-| Direct manual tuning | 3.79 / 6.49 / 7.24 | 0 |
-
-- Without Helm's loop scheduling (`prefer_responsive`), two of three direct runs expired a command. Windows'
-  throttling, seen before on the live loop, is the likely cause. Helm's loop process always sets the scheduling.
-- Gate: 741 Python tests, zero failures/skips/xfails, and 125 Rust tests, on `c9ce3b2`
-  (`build/dev-check/20261015T025114Z-1f8dfe49/report.json`). ARM64 binaries were cross-built locally for the
-  release test; nothing was deployed.
-
-## Running it
-
-Close any running Helm first: two would share the runs folder's lock and the leaders' USB ports. Use the operator
-runs folder, which holds the verified directions. A fresh runs folder falls back to the seed and mirrors right
-J3/J4; there the right arm's J2–J4 also lose their fitted gravity scales, and the session's `simulation` event
-lists them under `gravity_unscaled`. `--sim` reads the actuator file in `simulation/` beside the servo file; no
-option is needed. From this worktree:
+Install the development environment first (`python scripts/dev.py setup`, [DEVELOPMENT.md](../DEVELOPMENT.md)) and
+build the receiver harness the simulation runs (`cargo build -p robot_control --bin control_harness`, which
+`python scripts/dev.py check` also does; `ROBOT_CONTROL_HARNESS` names another binary). Then, from the repository root
+on Windows:
 
 ```powershell
-.venv-dev/Scripts/python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --runs <worktree> --seed docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json --teleop config/devices/minerva-teleop-direct-tuning.json --sim --port 8760
+.venv-dev/Scripts/python.exe -m robot_platform helm --profile config/devices/minerva-joint-calibration.json --teleop config/devices/minerva-teleop-direct.json --sim
 ```
 
-In Teleop, keep the virtual receiver selected and start. The MuJoCo window opens beside Helm. I, E, T, H and X work
-as with the arms. Leader ranges and zero come from this checkout's `config/devices/gello-dual-leader-ranges.json`,
-which matches the operator's current file.
+Open `http://127.0.0.1:8760/` (`--port` changes it). The header says **Simulation only** and the process prints
+`SIMULATION ONLY; no physical robot connection`. A simulation-only Helm cannot make a robot connection: it never
+opens SSH, the stopped-motor reader, Minerva Check, the sweep or drive-zero workspaces, the UPS watch or the Jetson's
+episodes. `--sim` needs `--teleop` and cannot be combined with `--on-robot`. For the production profile's timing
+(100 Hz, collision checking off) use `config/devices/minerva-teleop-direct-tuning.json` instead.
 
-## Remaining uncertainty / next steps
+### What you need
 
-- **Not a physics scene.** There are no objects or contacts, and the joints do not load each other beyond their
-  measured gravity. Pick-and-place needs `MujocoPlant` on the MJCF with masses, jaw contact geometry, a table and
-  objects, and the three cameras. It also needs episode recording in the trainers' HDF5 format. Masses come from
-  the operator's Onshape actuator masses plus weighed printed parts.
-- **Nominal values.** Nominal joints and the gearbox damping are rehearsal assumptions, not measurements.
-  - Since 2026-10-15 the arm joints run on values fitted on real teleop instead (SIM2REAL.md).
-  - Those hold at the gains and on the day they were recorded.
-  - The grippers stay nominal: calibrating them needs objects to grasp.
-- **Not run here.** Real leaders were not connected to the simulated loop: the operator's Helm held them.
+- **Leaders: yes, for Teleop.** The simulated receiver is driven by the same GELLO leaders, over their USB ports on this
+  PC. Teleop needs the leader ranges and zero saved (the profile's `leader_ranges`, edited in the Leaders tab), and a
+  session owns the leaders' USB ports, so close the leader viewer and disconnect the Leaders tab first. Without
+  leaders the pages still open and the 3D view works, but no session starts. The tests drive the same path with
+  scripted leaders; there is no operator-facing switch for that.
+- **A window: yes.** The first session start opens a MuJoCo window beside Helm that draws the arms. It draws at 30 Hz
+  in its own thread and never steps the physics, so closing or covering it does not slow the loop.
+- **No robot files.** The profile names a device and SSH identity, but a simulation does not read them.
+
+Close any other Helm first: two would share the runs folder's lock and the leaders' USB ports.
+
+### Using it
+
+In **Teleop**, keep the virtual receiver (the only choice in `--sim`) and start. The keys and pedals work as on the
+robot: I Idle, E Enable, T Engage, X Shutdown, H Disable ([Helm manual](../operator/HELM_MANUAL.md)). The task setup
+in `--sim` builds the simulated task scene (a table, bucket and cube from a workcell file, with simulated cameras);
+`--sim-workcell` picks the workcell file or `synthetic`, and `--sim-visual-mode` chooses the cameras' appearance
+(`collision_proxy`, the default, or full `cad`). See [SIM_WORKCELL.md](../simulation/SIM_WORKCELL.md) and
+[MINERVA_TASK_SCENE.md](../simulation/MINERVA_TASK_SCENE.md).
+
+### What it does
+
+Helm derives the receiver for the simulation exactly as it does for the real arms: limits, gains, feed-forward and
+lifecycle are the production ones, and the real Rust receiver runs it, ticking every 2.5 ms. Only what the receiver
+drives differs: an `ArmPlant` per arm instead of motors.
+
+Every joint's plant takes its values from measurement, in this order:
+
+1. **Fitted on real teleop.** `config/devices/simulation/minerva-production-01-actuators.json` holds inertia, friction,
+   damping, the drive's command delay and a gravity scale per motor, fitted from recorded sessions (see
+   [SIM2REAL.md](../simulation/SIM2REAL.md), "Into the simulator"). The file binds each entry to the motor it was fitted
+   on by UID and firmware, so it applies only to those motors. The session's `simulation` event records the file (path
+   and sha256) and which motors took it.
+2. **The Tune sweep.** A joint the file does not cover (both grippers, or a motor that does not match) carries the
+   inertia, friction and gravity slices its Tune sweep measured.
+3. **Rehearsal nominals.** Where a sweep measured none, the joint takes a rough value from the rehearsal tests
+   (`NOMINAL` in `simulation/minerva_sim.py`, not measured), and the session's `events.jsonl` lists which joints. With
+   the actuator file only the grippers are fully nominal; without it, left J1 and both grippers are, and right J1 and
+   J3-J6 have nominal inertia.
+
+Gearbox damping makes up a 0.6 damping ratio where the sweep's gains fall short of it; the fitted damping replaces
+that where the file applies. The arm joints hold at the gains and on the day they were recorded.
+
+### How it differs from the robot
+
+- **It is the receiver and the operator loop on measured joints, not a physics scene.** The task scene adds a table,
+  bucket and a cube with contact, but contact does not load the arms or change a motor's response, the joints do not
+  load each other beyond their measured gravity, and the grippers' values are nominal (calibrating them needs objects
+  to grasp).
+- There is no CAN, no motor faults from real hardware, no cameras from the Jetson, and no UPS.
+- Timing differs: the loop runs on this PC, where Windows' 15.6 ms clock and scheduling can move the cycle. Helm's loop
+  process sets its own scheduling, which a run without it showed to matter (two of three runs expired a command).
+- The Teleop tab's Live receiver choices are hidden.
+- The directions come from Helm's runs folder. A fresh `--runs` folder falls back to a seed and mirrors right J3 and
+  J4; there the right arm's J2-J4 also lose their fitted gravity scales, and the session's `simulation` event lists
+  them under `gravity_unscaled`. To use the verified directions, point `--runs` at a folder that holds them, or
+  `--seed` at an earlier directions file.
+
+### Where runs are written
+
+`--runs` (default `calibration_runs`, git-ignored) holds Helm's state. A simulated session records every tick
+(`samples.f32`) and its events under `<runs>/minerva-production-01-sim/sim-<UTC>/`, the way a live session records.
+What a task scene records is described in [MINERVA_TASK_SCENE.md](../simulation/MINERVA_TASK_SCENE.md).
+
+## Other ways to look at Minerva
+
+**The model viewer** shows the robot's model and jogs its joints. It commands no motor.
+
+```powershell
+.venv-dev/Scripts/python.exe -m robot_platform view --robot minerva
+```
+
+`view` takes `--robot`, `--model <model.json>` or `--urdf <file>`, and `--port`. See
+[MODEL_VIEWER.md](../simulation/MODEL_VIEWER.md); it is also how a new robot's model is checked.
+
+**The headless simulator** runs a robot's receiver against a loopback simulation, with scenarios for the failures
+(`feedback-loss`, `frozen-feedback`, `malformed-feedback`, `camera-loss`, `emergency-stop`):
+
+```powershell
+.venv-dev/Scripts/python.exe -m robot_platform sim run --robot minerva --output simulation_runs/minerva-001
+```
+
+`--output` must not exist yet; `--duration` is in seconds (0 runs until Ctrl-C), `--seed` fixes the noise,
+`--no-cameras` leaves the camera stream out. How the run's settings, freshness checks and evidence work is in
+[SIMULATION_IMPLEMENTATION.md](../simulation/SIMULATION_IMPLEMENTATION.md).
+
+## Further reading
+
+- [MuJoCo plant and receiver](../simulation/MUJOCO.md) and [Minerva's MJCF](../simulation/MINERVA_MJCF.md)
+- [Simulation against the real robot](../simulation/SIM2REAL.md): how the fitted values were found and how far to trust
+  them
+- [Policy evaluation](../simulation/MINERVA_EVAL.md): N-trial closed-loop runs in simulation or on the robot
+- The generation line (`docs/simulation/SIM_*.md`): scripted demonstrators, randomised layouts, sim data for training

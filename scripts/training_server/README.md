@@ -3,7 +3,8 @@
 These scripts run on the training server (coolserver: Ubuntu 24.04, two RTX 3090s). They generate simulation
 episodes, train and evaluate policies, and train LeRobot ACT on real demonstrations. They are not part of the
 `robot_platform` package and never run on the robot. Until 2026-11-01 they lived only in `~/aizee-sim/bin` on the
-server; this folder is now their source.
+server; this folder is now their source. The procedure from a recording to a policy is
+[TRAINING.md](../../docs/data/TRAINING.md).
 
 ## The server's folder
 
@@ -26,14 +27,14 @@ files into `$AIZEE_SIM/bin`: the launchers call their helpers there.
    the av, datasets and huggingface-hub versions that revision needs.
 3. `check_lerobot_dataset.py <dataset> <source episode>` loads the export with LeRobot itself and compares sampled frames
    with the source episode: timestamps, state, action, format 9's extras and decoded video quality.
-4. `train_act.sh` trains ACT in tmux; its defaults are the 2026-10-22 smoke run's.
+4. `train_act.sh` trains ACT in tmux; its defaults are those of a 200-step smoke run, so set `STEPS`.
 5. `python -m robot_platform.data.lerobot_policy export` turns a checkpoint into the TorchScript policy the robot loads.
 
 ## Simulation: generation, training and evaluation
 
-These need a source tree from the simulation line (`claude/sim-room-look` and its ancestors), which has
-`python -m robot_platform.evaluation generate`, the scripted demonstrator and the layout sampler. The current
-integration branch does not have them yet.
+These need a source tree of this repository (`tree-<commit>/`), which has `python -m robot_platform.evaluation
+generate`, the scripted demonstrator and the layout sampler. Generated episodes are format 9 with a fixed simulated
+head ([SIM_GENERATION.md](../../docs/simulation/SIM_GENERATION.md)).
 
 | Script | Does |
 | --- | --- |
@@ -51,7 +52,7 @@ integration branch does not have them yet.
 ## Native binaries
 
 The simulation and the contract tests use the Rust receiver and collision library built for the server. Build them
-from the same commit as the source tree, with the repository's Rust toolchain (1.98.1) under `$AIZEE_SIM/rust`:
+from the same commit as the source tree, with the repository's Rust toolchain under `$AIZEE_SIM/rust`:
 
 ```bash
 cargo build --locked -p robot_control --bin control_harness --release
@@ -60,12 +61,11 @@ cargo build --locked -p robot_collision --release
 
 Copy `target/release/control_harness` and `target/release/librobot_collision.so` into `$AIZEE_SIM/bin`.
 `sim_env.sh` points `ROBOT_CONTROL_HARNESS` and `ROBOT_COLLISION_LIBRARY` at them. A build stays valid for another
-commit while `git rev-parse <commit>:rust` and `<commit>:Cargo.lock` are unchanged. The 2026-10-18 build (from
-`01e2198`) passed the Rust tests and 20 contract test files on the server.
+commit while `git rev-parse <commit>:rust` and `<commit>:Cargo.lock` are unchanged.
 
 ## Not kept here
 
 - `lerobot_policy_draft.py`, `export_lerobot_policy.py` and `check_lerobot_policy.py` were drafts of what is now
   `src/robot_platform/data/lerobot_policy.py`.
 - `v31_watch.sh` watched one pair of runs (v3 and v3.1).
-- `BUILD_INFO.json` recorded the 2026-10-18 build; its commands and checks are in "Native binaries" above.
+- `BUILD_INFO.json` recorded one build; its commands are in "Native binaries" above.

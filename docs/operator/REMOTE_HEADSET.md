@@ -1,15 +1,20 @@
 # The headset on a slow or lossy link
 
-Started 2026-11-03, after the first test from another network: a Quest Pro on a phone hotspot, over Tailscale, steered the
-head well but showed about 2 video frames in 2 minutes. `ss -ti` on the Jetson showed 15-35 % of bytes retransmitted and
-25-330 kbit/s delivered. One head view as JPEGs at 10 frames a second needs about 4 Mbit/s, over TCP, which resends what
-is already out of date.
+A Quest Pro on a phone hotspot, over Tailscale, steered the head well but showed about 2 video frames in 2 minutes. On the
+Jetson `ss -ti` showed 15-35 % of bytes retransmitted and 25-330 kbit/s delivered. One head view as JPEGs at 10 frames a second
+needs about 4 Mbit/s, over TCP, which resends what is already out of date. `/xr?remote` sends the head camera as rate-controlled
+H.264 over WebRTC instead.
 
-## What it does
+**Status.** Built and measured in pieces: the worker and a real peer on the LAN, offline link rehearsals, and a probe from the
+headset's own browser. **WebRTC with real video on a Quest has never been seen working**: both Quest tests on a hotspot ran on
+the ordinary link, not the remote one. Head steering from another network (over Tailscale, on the ordinary link) worked.
 
-Open the headset's page as `/xr?remote`. Everything else about the headset is unchanged, and the ordinary `/xr` still uses
-its WebSockets. The page's Video row names its link and a button leads to the other. Inside a session they look alike, except
-that the ordinary link has wrist pictures and the remote one has a `Remote link` line in the ring.
+## Using it
+
+Open the headset's page as `/xr?remote`. Everything else about the headset is unchanged, and the ordinary `/xr` still uses its
+WebSockets. The page's Video row names its link and a button leads to the other. Inside a session they look alike, except that the
+ordinary link has wrist pictures and the remote one has a `Remote link` line in the ring. **A button reading "Use the remote
+link" means the ordinary link is open.**
 
 | | `/xr` | `/xr?remote` |
 |---|---|---|
@@ -20,50 +25,42 @@ that the ordinary link has wrist pictures and the remote one has a `Remote link`
 | Wrist pictures | Yes | No |
 | Helm's state, the model's pose | Every 0.5 s, 0.1 s | Every 2 s, 0.5 s |
 
-Zero and start messages stay on the socket. A pose reaches `helm.xr.Headset.receive` by either path, with the same checks:
-its sequence drops anything older than the last one. The channel steers only for the login whose socket is connected, and
-offers need a login, not control, as the socket does.
+Zero and start messages stay on the socket. A pose reaches `helm.xr.Headset.receive` by either path with the same checks (its
+sequence drops anything older than the last one). The channel steers only for the login whose socket is connected, and offers
+need a login, not control, as the socket does. A Helm restart ends logins; a page left open then goes to `/login?next=/xr`.
 
 ## The parts
 
-- `helm/webrtc_worker.py`: its own process, on the background CPUs and nicer than Helm, because libx264 and aiortc's Python
-  must not share Helm's interpreter: a head thread holding the arms' process's GIL once stretched their cycles to 40 ms.
-- `helm/webrtc_link.py`: Helm's side, on its loop. Sends only the head camera's newest frame, and only while a peer lives.
+- `helm/webrtc_worker.py`: its own process, on the background CPUs and nicer than Helm, because libx264 and aiortc's Python must
+  not share Helm's interpreter (a head thread holding the arms' process's GIL once stretched their cycles to 40 ms).
+- `helm/webrtc_link.py`: Helm's side. Sends only the head camera's newest frame, and only while a peer lives.
 - `helm/webrtc_video.py`: libx264 at the rate control's target. No STUN or TURN: Tailscale or the LAN reaches Minerva.
 - `helm/webrtc_rate.py`: Google Congestion Control's loss rule, with slow growth near the last rate that lost too much.
 - `static/xr_remote.js`: the page's side, with the same face as `xr_camera.HeadCamera`.
 - `requirements/helm-webrtc.lock`: installed by `ops.helm_robot deps` (and a deploy) into its own folder, on the worker's path only,
   so its cryptography never reaches Helm's paramiko. If it is missing, Helm runs and refuses `?remote` with a message.
 
-The Orin Nano has no hardware encoder, and no GPU encoder exists for it, so this is CPU work: 17 % of one core when measured
-on the Jetson, below.
+The Orin Nano has no hardware encoder, so this is CPU work: 17 % of one core measured on the Jetson, below.
 
 ## Limits on x264
 
-All measured on 640x480 at 10 frames a second. Without VBV the first picture of a busy scene was 148 kB, over 2 s at
-600 kbit/s, so `bufsize` limits a picture to 20 kB. x264 follows a rate changed mid-stream only below the rate it was opened
-at: opened at 300 kbit/s it stays near 290 whether asked for 150 or 1000, while opened at 1.5 Mbit/s it gave 152 and 706
-with no new whole picture. So it opens at the top and is steered down.
-
-aiortc answers every resend request. At a 300 kbit/s cap they reached 600 packets a second, so nothing new got through, and
-a budget of 3 a second showed nothing at 30 % random loss, where resends are what make a picture at all. Hence at least 15
-a second, or half the rate.
+All measured on 640 x 480 at 10 frames a second. Without VBV the first picture of a busy scene was 148 kB, over 2 s at 600 kbit/s,
+so `bufsize` limits a picture to 20 kB. x264 follows a rate changed mid-stream only below the rate it was opened at, so it opens
+at the top (1.5 Mbit/s) and is steered down. aiortc answers every resend request; at a 300 kbit/s cap they reached 600 packets a
+second and nothing new got through, hence at least 15 resends a second, or half the rate.
 
 ## Finding what a link carries
 
-`scripts/webrtc_link_probe.py` measures from the headset's own browser and needs nothing of Helm's. It sends fixed rates of
-real H.264 padded with filler the decoder skips, so its CPU use is negligible, and compares poses over the socket and the
-channel. Results go to a JSON file. Running it from `ltr-portal` covers all of the path but the last 0.3 ms to the Jetson.
+`scripts/webrtc_link_probe.py` measures from the headset's own browser and needs nothing of Helm's. It sends fixed rates of real
+H.264 padded with filler the decoder skips, compares poses over the socket and the channel, and writes a JSON file. On a Quest
+Pro on a phone hotspot over Tailscale the link carried 0.25 Mbit/s whole at 10 frames a second, lost frames at 0.5 and showed
+none from 1 Mbit/s up, so a cap of about 0.3-0.4 Mbit/s against the 4 Mbit/s one JPEG view needs. Poses over the socket on the
+idle link had gaps up to 3.1 s; once settled on the channel with video saturating the link, their worst gap was about 200 ms.
 
-First result, 2026-11-04, a Quest Pro on a phone hotspot over Tailscale: the link carried 0.25 Mbit/s whole at 10 frames a
-second, lost frames at 0.5, and showed none from 1 Mbit/s up, with what got through falling as more was sent. So a cap of
-about 0.3-0.4 Mbit/s, where one JPEG view needs 4. Poses over the socket on the idle link had gaps up to 3.1 s, with 429 of
-938 in time. Once settled, on the channel with video saturating the link, their worst gap was about 200 ms.
+## Offline rehearsal and the Jetson
 
-## Rehearsal, and what it does not show
-
-All offline, on one PC: a real Helm, a fake camera relay making 68 kB JPEGs, a headless browser, and a UDP relay that drops
-what exceeds a token bucket, 45 s each. The rehearsal scripts are not in the repository.
+A real Helm, a fake camera relay making 68 kB JPEGs, a headless browser and a UDP relay that drops what exceeds a token bucket,
+45 s each (not a Quest, the Jetson, a real carrier or Tailscale):
 
 | Link | Frames a second | Video Mbit/s |
 |---|---|---|
@@ -74,82 +71,30 @@ what exceeds a token bucket, 45 s each. The rehearsal scripts are not in the rep
 | 400 kbit/s cap and 10 % loss | 7.5-9 after 15 s | 0.12-0.18 |
 | 30 % loss | 0.5-5.5, gaps to about 2 s | 0.08-0.14 |
 
-Decoding and encoding took 15 % of one Raspberry Pi 4 core at 10 frames a second, on those JPEGs. aiortc's own Python comes
-on top and is not in that figure.
-
-This rehearsal ran on neither a Quest, the Jetson, a real carrier nor Tailscale.
-
-## On the Jetson
-
-2026-11-05, release `20261105T014134Z-8d47e2f`, with nothing running on the arms: the real worker on Minerva and a real peer
-on a PC on the LAN, without Helm between them, fed the same 68 kB JPEGs at 10 frames a second through an SSH pipe, with poses
-coming back on the channel. 599 of 600 frames arrived at 640x480, the first after 0.3 s, the worst gap 0.19 s, and 2687 poses
-reached the worker. No resends.
-
-| Rate | Worker | CPUs 0-2, each |
-|---|---|---|
-| Target climbing 0.44 to 1.0 Mbit/s | 16.8 % of one core | 47-50 % busy |
-| Target 1.5 Mbit/s, 0.93 sent | 17.1 % of one core | 43-50 % busy |
-| No worker | none | 35-39 % busy |
-
-The worker sat on CPUs 0-2 at nice 5, with 71-77 MB resident. Most of the baseline is the wrist cameras, and part of the rise
-is the test's own SSH pipe. Nothing was measured at a hotspot's 0.3 Mbit/s, or beside a teleop session.
+On the Jetson, with nothing running on the arms, the real worker and a real peer on a PC on the LAN (without Helm between them),
+fed the same JPEGs at 10 frames a second: 599 of 600 frames arrived at 640 x 480, the first after 0.3 s, the worst gap 0.19 s, no
+resends. The worker took about 17 % of one core and 71-77 MB at nice 5 on the background CPUs, which were 43-50 % busy against
+35-39 % without it (most of the baseline is the wrist cameras). Nothing was measured at a hotspot's 0.3 Mbit/s or beside a
+teleop session.
 
 ## Reading a test afterwards
 
-Each run of the worker writes `~/minerva/evidence/remote-link-<UTC>.jsonl`:
+Each run of the worker writes `~/minerva/evidence/remote-link-<UTC>.jsonl`: `offer` and `answer` with their candidates and each
+connection `state`; `stats` each second (rate and target, loss, round trip, resends, JPEGs in from Helm, poses in); and `page`
+every 2 s (the headset's own bytes and frames received, decoded and handed to the screen, the video element's state, visibility,
+and the path used). `received` rising with `shown` flat means the picture is lost inside the headset; `frames_in` flat means the
+camera stopped, not the link. No file and no worker means the page was on the ordinary link.
 
-- `offer` and `answer`, with their candidates, and each `state` of the connection.
-- `stats` each second: the rate and its target, loss, round trip, resends, JPEGs in from Helm, poses in.
-- `page` every 2 s, the headset's own counters: bytes and frames received, frames decoded, frames handed to the screen, the
-  video element's state, the page's visibility, and the path it uses.
-
-So `received` rising with `shown` flat means the picture is lost inside the headset, and `frames_in` flat means the camera
-stopped, not the link. No file and no worker at all means the page was on the ordinary link.
-
-## The first test of it, 2026-11-05
-
-A Quest Pro on a phone hotspot opened what was meant to be `/xr?remote`, and saw 2-3 head frames and a few wrist frames. It
-ran on the ordinary link: the remote page opens no wrist streams, and no worker had started since Helm's restart. So this says
-nothing of WebRTC. How `?remote` was lost is not known. One way was found and fixed: logins end when Helm restarts, and a page
-left open went to `/login?next=/xr`. The head camera published 15 frames a second throughout: the picture was lost on the link.
-
-The head faulted in that session, `command_expired`, with its next command about 15 ms late. A command's lifetime counts from
-the reply before it, so `command_ms` of 100 spans two 40 ms gaps and leaves about 20 ms. The head's Python loop runs at nice 0
-on CPUs 0-2 with the cameras and Helm. The arms kept every cycle on time. Why the loop ran late is not proven. The dropped
-sockets restarted the camera relay 11 times in about 7 minutes, each with a loopback SSH login, and one login landed within
-0.2 ms of the last good reply. But a stand-in loop on an otherwise quiet machine was at worst 9.7 ms late beside logins that
-start Python, against 6.6 ms with none, and 0.9 and 0.4 ms on CPU 3. `/xr?remote` keeps one viewer, so it should not restart
-the relay, but the thin margin remains in any session.
-
-## The second test, 2026-11-05
-
-Release `20261105T040341Z-fc68d9d`, which keeps `?remote` through a login and adds the Video row and the link button, also ran
-on the ordinary link. The headset saw about a frame in 30 s from the head and from the wrists, and control stayed very good. No
-worker started, no `remote-link` file exists, and the remote page opens no wrist streams. So WebRTC with real video on a Quest
-is still untried. How the page came to be on `/xr` is still not known. The button beside Start tells the links apart: "Use the
-remote link" means the ordinary one is open.
-
-The head faulted again, `command_expired`, 3 min 20 s into following, and this one rules out the login. No login or logout came
-near it, and the relay had run steadily since 04:04:04Z. Its cycle also started on time, 40.4 ms after the request before it,
-and the head was still. The receiver stopped 60 ms after the last accepted command (298257, stopped at 298317). The cycle
-finished after 28.2 ms with one exchange. The receiver's stats for the session: 35046 ticks, 2 deadline misses, 11.1 ms worst
-lateness, 5.2 ms worst work, no overruns. The arms had 20023 cycles, 10.9 ms worst gap.
-
-The margin, from the code. A command takes the offer of the reply before it, so it expires 60 ms after it was accepted. The
-service checks expiry at each 10 ms tick before it reads its socket, so the next command must be read at the tick 50 ms after
-the last, where it is due at 40. That is one tick: 10-20 ms from a cycle's start to the receiver. Here the request took more
-than that. The next limits are close: feedback older than 60 ms (`feedback_max_age_s`) and more than 80 ms between steps
-(`max_step_s`) fault the head too.
-
-Not known: where those milliseconds went, since nothing records the head's cycles, and why both faults came in hotspot
-sessions, 4 and 3.3 minutes into following, when 29 minutes on the LAN on the same CPUs had none.
-
-## Not tried yet
+## Open
 
 - Real camera video in a Quest's immersive session. `xr_remote.js` reads frames with `createImageBitmap` on a timer because a
   video element's frame callback may pause there.
 - Helm's own relay feeding the worker on Minerva, which needs a login.
-- The path through `ltr-portal`'s subnet route to Minerva, where the Quest's address is not reachable from Minerva and the
-  connection depends on the Quest's checks arriving first.
+- A path through a subnet router to Minerva, where the Quest's address is not reachable from Minerva and the connection
+  depends on the Quest's checks arriving first.
 - The worker beside the arms, and arm control over the channel.
+- **The head faulted with `command_expired` in both hotspot sessions** (3 to 4 minutes into following) while the arms kept every
+  cycle on time. A command's lifetime counts from the reply before it, so the head's 100 ms `command_ms` spans two 40 ms gaps and
+  leaves about 20 ms; the receiver checks expiry at each 10 ms tick, so the next command must be read within one tick of its due
+  time. Nothing records where the milliseconds went, and 29 minutes on the LAN on the same CPUs had no fault. Feedback older than
+  60 ms or more than 80 ms between steps also fault the head. The margin is thin in any session.

@@ -1,17 +1,34 @@
 # Teleop latency, end to end
 
-Analysed 2026-10-04 for two-arm live teleop. This is how a leader motion becomes
-arm motion, hop by hop, with each hop's latency. It ends with the changes that
-cut it.
+How a leader motion becomes arm motion, hop by hop. The first section is the production path today; the rest is the
+2026-10-04 analysis of the guarded 25 Hz path, which explains where each hop's time goes and why the loop was
+changed. Each number is labelled **measured** (with what was measured), **recorded** (from a session log), **from the
+code**, or **from the profile**. No end-to-end figure has been measured for the production path.
 
-**Basis.**
-- Measured: leader USB timing from the 100 Hz capture of 2026-09-26
-  (`calibration_runs/gello-dual/input-parallel-100hz-20260926.json`), and the
-  link round trips from Minerva Check's link test (2026-09-30).
-- Recorded: loop cycle times from the device log's live and virtual sessions,
-  and servo lag from the servo sweeps.
-- From the code: the receiver tick and the interpolation, with the code paths
-  cited per hop. Each hop is labelled measured, recorded or from the code.
+## The production path (direct profile, loop on the Jetson)
+
+```text
+leader servos -(Dynamixel sync-read)-> OpenRB board -(USB CDC)-> operator-station sampler (200 Hz, GELLO bridge)
+  -(signed UDP request/reply over the tether)-> Jetson loop process (100 Hz, CPUs 4-5): map, lease, move
+  -(ZMQ, 127.0.0.1:5590)-> guarded_controller (2.5 ms ticks) -(SocketCAN)-> drive -> joint
+```
+
+| Hop | What changed since the guarded analysis | Basis |
+|---|---|---|
+| Sampler cache | 200 Hz instead of 100 Hz; the bridge runs it in its own process, so Helm moving to the Jetson did not touch this hop | leader sampler rate from `teleop/gello_bridge.py`; timing unchanged by design |
+| Link | Same UDP request/reply, bridge to loop; the bridge reaches Helm over SSH but the leader link does not ride it | from the code (`teleop/leader_link.py`) |
+| Loop sampling | One 10 ms cycle instead of 40 ms | from the profile: `loop_hz` 100 |
+| Loop work | No collision query; direct lifecycle. The arms' tick took 5.6 ms median of the 10 ms cycle in a 12-minute two-arm session with the head | recorded: live session 2026-10-31, see [HELM_ON_JETSON.md](HELM_ON_JETSON.md) |
+| Interpolation | None | from the profile: `interpolation_ms` 0 |
+| Receiver | Still one request per 2.5 ms tick, applied on the next tick; command lease 150 ms, direct command freshness 30 ms | from the code and profile |
+| Servo and arm tracking | Set by each joint's gains; unchanged | recorded: servo sweeps |
+
+Leader-link timing is recorded per session as each ends (report written by Helm; the bridge sends back counts and
+timing). In two virtual sessions over the tether, 25,657 requests at 100 Hz went unskipped with one 20 to 50 ms gap, and
+the station answered within 0.4 ms (recorded, 2026-10-24). The CPU partition ([JETSON_CPU_SPLIT.md](JETSON_CPU_SPLIT.md))
+exists because camera load on shared cores stretched loop cycles past the command lifetime.
+
+## The guarded 25 Hz path (analysis of 2026-10-04)
 
 ## The path
 
@@ -80,7 +97,10 @@ before); alignment judges settling speed over at least 40 ms (one 20 ms cycle
 read the drives' position steps as twice the speed); and a cycle faults the
 session only past 35 ms (a slower one starts the next late).
 
-## Two arms (built 2026-10-05)
+## Two arms in the guarded profile (built 2026-10-05)
+
+This section describes the collision-gated profile. The production direct profile has no collision bound; it sizes nothing
+from a motion envelope.
 
 - **One receiver for both arms.** It runs both CAN buses (7 drives each) and
   all 14 motors in one tick, so one collision verdict covers both arms

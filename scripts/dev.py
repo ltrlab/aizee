@@ -45,7 +45,6 @@ CORE = [
     'tests/contract/test_session_transport.py', 'tests/contract/test_shared_discovery.py',
     'tests/contract/test_shared_recording.py', 'tests/contract/test_shared_wire.py',
     'tests/contract/test_source_freshness.py', 'tests/contract/test_verified_release_model.py',
-    'tests/evidence/test_sim2real_20261015.py',
     'tests/unit/test_approach.py', 'tests/unit/test_joint_box_bound.py',
     'tests/unit/test_runtime_collision.py', 'tests/contract/test_guarded_controller.py',
     'tests/contract/test_collision_envelope.py', 'tests/contract/test_motion_envelope.py',

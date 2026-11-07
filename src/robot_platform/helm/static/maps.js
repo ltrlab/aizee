@@ -42,7 +42,7 @@ export function mapLines(maps) {
   for (const capture of maps.captures || []) {
     lines.push({title: `Capture ${capture.name}`, bad: false,
       text: `${capture.frames} frames in ${WORLD_LABELS[capture.world] || capture.world}`
-        + (capture.trained ? ' · trained' : ' · train it on soliloquy (scripts/splat/train_on_station.py)')});
+        + (capture.trained ? ' · trained' : ' · train it on the operator station (scripts/splat/train_on_station.py)')});
   }
   return lines;
 }

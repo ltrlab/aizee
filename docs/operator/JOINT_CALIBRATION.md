@@ -6,43 +6,39 @@ direction/offset corrections, and preserves progress between runs. Robot layout,
 motor identity and CAD source come from profiles; the implementation contains no
 Minerva joint-name or CAN-ID assumptions.
 
-## Minerva: launch from Windows
+## In Helm
 
-From the repository root:
+On Minerva, directions are checked in Helm's **Limits** tab ([Helm manual](HELM_MANUAL.md#limits)): connect, move a disabled
+joint by hand, and **Flip** a joint whose model turns the other way, then **Looks right**. Those edits go to the same direction
+session file as the standalone tool below. The rest of this page describes the standalone tool, which does the same on a
+development PC with a route to the robot (for bench work without Helm), and the file it shares with Helm.
 
-```powershell
-.\scripts\calibrate_minerva.ps1
+For the current Minerva setup, connect both USB-CAN adapters directly to the Jetson, not through a hub: an external hub path
+repeatedly lost replies, while the direct connection passed a 30-minute stopped-read test and the patched host driver a clean
+60-second dual-arm comparison ([evidence](../devices/MINERVA_DIRECT_USB_20260924.json),
+[driver pass](../devices/MINERVA_CAN_DRIVER_SHORT_PASS_20260926.json)).
+
+## The standalone tool
+
+```sh
+python -m robot_platform calibrate --profile config/devices/minerva-joint-calibration.json --live --resume
 ```
 
-For the current Minerva setup, connect both USB-CAN adapters directly to the
-Jetson. The external hub path repeatedly lost replies; the direct right-arm
-connection passed a [30-minute stopped-read test](../devices/MINERVA_DIRECT_USB_20260924.json).
-The patched host driver subsequently passed a clean
-[60-second dual-arm comparison](../devices/MINERVA_CAN_DRIVER_SHORT_PASS_20260926.json).
-
-Open **http://127.0.0.1:8766/**. The terminal stays open for commands; the model
-follows hand movement automatically. Motors remain disabled. The two previously
-checked shoulder swivel signs are imported: left J1 +1, right J1 -1. Other signs
-start at provisional +1 and show `?`; visually checked signs show a checkmark.
-All arm angle scales currently assume 1:1. Existing sessions preserve their
-operator-confirmed signs; the current Minerva session has all twelve directions
+(`scripts/calibrate_minerva.ps1` wraps this for a Windows PC and seeds the session from
+`docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json`.) Open `http://127.0.0.1:8766/`. The terminal stays open for commands; the
+model follows hand movement. Motors remain disabled. The two earlier-checked shoulder swivel signs are imported (left J1 +1,
+right J1 -1); other signs start at a provisional +1 and show `?`, and visually checked signs show a checkmark. All arm angle
+scales assume 1:1. Existing sessions keep their operator-confirmed signs; the Minerva session has all twelve directions
 confirmed, including negative right J1, J3 and J4.
 
-The device profile's optional `preview_transmissions` map rotary motor readings
-to independent prismatic CAD joints. Minerva's sliders use **0 m = fully closed**;
-the second jaw follows the URDF mimic relation automatically. The live table
-shows motor angles in radians and slider positions in millimetres. Slider
-position is one jaw's travel, not total jaw gap.
-
-Minerva currently uses an **approximate display scale** of 9.205 mm per jaw per
-motor radian, derived from the historical right-gripper gap measurements. The
-left magnitude is borrowed from the right and has not been measured separately.
-Positive motor rotation was observed to open the left gripper; the right uses
-the earlier positive-opening observation, pending fresh visual confirmation.
-The current fully closed mechanical reference anchors both mappings. The old
-fit's absolute intercept and interpolation interval remain invalid after
-hardware zeroing and are not reused. These preview mappings do not establish
-aperture accuracy, contact force, mechanical limits, or powered-control approval.
+The device profile's optional `preview_transmissions` map rotary motor readings to independent prismatic CAD joints. Minerva's
+sliders use **0 m = fully closed**; the second jaw follows the URDF mimic relation. The table shows motor angles in radians and
+slider positions in millimetres; a slider position is one jaw's travel, not the total gap. Minerva uses an **approximate display
+scale** of 9.205 mm per jaw per motor radian, derived from historical right-gripper gap measurements; the left magnitude is
+borrowed from the right and has not been measured separately. Positive motor rotation was observed to open the left gripper;
+the right's sign is pending fresh visual confirmation. The fully closed reference anchors both mappings; the old fit's absolute
+intercept and interpolation interval are invalid after hardware zeroing. These preview mappings do not establish aperture
+accuracy, contact force, mechanical limits or powered-control approval.
 
 Move one joint at a time. Use these terminal commands, with the joint name shown
 in the viewer:
@@ -84,16 +80,12 @@ physical bounds and loaded-stop qualification before teleoperation.
 
 ## Other modes
 
-```powershell
-# Identity, six stationary samples per motor, and CAN-down cleanup; no movement.
-.\scripts\calibrate_minerva.ps1 -Mode Check
-
-# Guided Enter-to-capture positive-direction checks, including return to reference.
-.\scripts\calibrate_minerva.ps1 -Mode Directions
-
-# Validate profiles and list steps without opening hardware.
-.\scripts\calibrate_minerva.ps1 -Mode Plan
+```sh
+python -m robot_platform calibrate --profile config/devices/minerva-joint-calibration.json --check   # identity, six stationary samples per motor, CAN-down cleanup; no movement
+python -m robot_platform calibrate --profile config/devices/minerva-joint-calibration.json --plan    # validate profiles and list steps without opening hardware
 ```
+
+Guided Enter-to-capture positive-direction checks (with return to reference) are `calibrate_minerva.ps1 -Mode Directions`.
 
 The guided mode resumes completed steps and rejects too-small movements,
 substantial movement of another joint, non-stationary captures and wrong motor
@@ -109,8 +101,7 @@ still has runtime readers and is not an approved input to guarded teleoperation.
 
 ## Shared entry point and device behavior
 
-```powershell
-python -m pip install -e ".[calibration]"
+```sh
 python -m robot_platform calibrate --profile path/to/device-calibration.json --live --resume
 ```
 

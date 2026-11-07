@@ -1,12 +1,25 @@
 # The headset's 3D view: plan
 
 The operator teleoperates Minerva's arms through the GELLO leaders, with a Meta Quest Pro showing what the robot
-sees. The 2D picture gave little sense of depth (the user, 2026-10-31), so the headset now shows the head camera's
-depth in 3D (phase 1, deployed `adc2484`). This plan takes it further, in the order the pieces depend on each other.
-The user asked for all of it on 2026-10-31: world-locked depth with smarter hole filling, the wrist cameras floating
-above the tracked hands (as GHOST floats Spot's gripper camera above the controllers), Minerva's 3D model aligned
-with the camera views, and Gaussian splatting, first on the operator station soliloquy (RTX 3080), later on the Quest
-Pro alone.
+sees. The 2D picture gave little sense of depth, so the headset shows the head camera's depth in 3D. This plan covers
+the pieces in the order they depend on each other: world-locked depth with smarter hole filling, the wrist cameras
+floating above the tracked hands (as GHOST floats Spot's gripper camera above the controllers), Minerva's 3D model
+aligned with the camera views, and Gaussian splatting, first on the operator station's GPU, later on the Quest Pro alone.
+
+## Status
+
+| Part | State |
+|---|---|
+| Phase 1: head camera depth in 3D | Built and deployed (`static/xr_depth.js`, `xr_view.js`). |
+| Phase 2: world-locked depth, holes filled | Built (`xr_fill.js`, `xr_fill_worker.js`, `xr_scene.js`). |
+| Phase 3: model and wrist cameras (`xr_model.js`, `xr_wrists.js`), ring of controls (`xr_ring.js`, `xr_panels.js`) | Built. The model needs a head alignment to show. |
+| Alignment: head camera | Built (`vision/head_alignment.py`, `helm/head_alignment.py`); not yet run on the real head. |
+| Twin correction (drawing only) | Built (`vision/twin.py`); not yet run on real stills. |
+| Phase 4: Gaussian splatting | A static map is built end to end (`scripts/splat/`, `xr_splat*.js`); not yet captured live. A live map for a moving Minerva is not built. |
+| Learned depth completion | Not built. |
+
+Everything here is verified by offline tests and the UI scripts (`tests/ui/test_helm_xr_*.mjs`); the Quest has not been
+used for all of it on the robot. The headset also runs on a slow link ([REMOTE_HEADSET](../operator/REMOTE_HEADSET.md)).
 
 Reference: GHOST (Brown/MIT, [arXiv 2608.29080](https://arxiv.org/html/2608.29080v1), Spot VR teleoperation):
 completes each RGB-D frame with PromptDA on the VR client's GPU (131 ms), renders splats, floats the gripper
@@ -57,7 +70,7 @@ would; every other camera pose and every robot link follows through `M`.
 - **Checked offline** (a synthetic table, box and wall through the real scene and worker in Chromium): leaning 35 cm,
   the region behind the box shows the table, darker, where phase 1 showed the box's colours projected 3 m away.
   Not yet seen in the headset.
-- **Next for the holes:** learned completion (PromptDA-style, as GHOST) needs a GPU: soliloquy's first (phase 4),
+- **Next for the holes:** learned completion (PromptDA-style, as GHOST) needs a GPU: the operator station's first (phase 4),
   the Quest's own once WebGPU models are small enough.
 
 ## Phase 3: Minerva's model and the wrist cameras (built)
@@ -66,7 +79,7 @@ would; every other camera pose and every robot link follows through `M`.
   (`/api/models/<id>`), posed by the positions the 3D view follows (`/api/calibration-guide`, arms and neck, at
   10 Hz while shown), and places it by `M`, as the 3D picture is. The arms in the depth then lie on the arms of the
   model: the operator sees the arms even where the camera does not, and any misalignment shows the camera's mount
-  needs a calibration (through a Helm flow, the user's rule). It shows with the world-locked 3D only (M comes from
+  needs a calibration (through a Helm flow: calibrations are only made through Helm flows). It shows with the world-locked 3D only (M comes from
   the depth's head pose).
   - Its meshes come coarse: the full model is 2.66 M triangles and 128 MB, too much for a Quest in stereo. Helm
     serves each mesh with `?detail=coarse` (`viewer/server.py`: vertices merged within 5 mm cubes, made once from the
@@ -75,11 +88,11 @@ would; every other camera pose and every robot link follows through `M`.
   - It is drawn see-through (55 % of the picture's opacity), on top where it and the depth meet; a real surface in
     front of it still hides it.
 - **The wrist cameras on the model's wrists** (`static/xr_wrists.js`, since 2026-11-03; before, `xr_hands.js` floated
-  them above the tracked hands, facing the eyes, which the user found in the way). Each wrist camera's picture
+  them above the tracked hands, facing the eyes, which was in the way). Each wrist camera's picture
   (Helm's `left_wrist`, `right_wrist`) sits a little in front of its lens on the model, as wide as the camera sees,
   so it moves and turns with the real wrist. It is squared to the gripper's axis (the rig file's `picture_axis`: the
   gripper link's y, along the gripper to its fingers), perpendicular to the wrist: the camera itself looks 37° off
-  that axis, and the user found the picture at the camera's tilt awkward (2026-11-03). The picture keeps the
+  that axis, and the picture at the camera's tilt was awkward. The picture keeps the
   camera's side to side and loses only the tilt. The mount (T_link_camera, optical axes), field of view and axis come
   from `GET /api/helm/xr/wrists` (`helm.xr.wrist_mounts`): the recommended model of the newest solved wrist
   calibration run, else the nominal mount from the simulation's wrist camera (35 mm along the link's y and z, 37°
@@ -94,15 +107,14 @@ would; every other camera pose and every robot link follows through `M`.
 
 ## The ring of controls (2026-11-03)
 
-The user found the floating status panel, the picture's status line and its bar in the way, and asked for a ring of
-controls worked with the Quest Pro controllers' own buttons, and for starting and stopping sessions from the headset.
+The floating status panel, the picture's status line and its bar were in the way, so a ring of
+controls, worked with the Quest Pro controllers' own buttons, replaced them. It also starts and stops sessions from the headset.
 
 - **Opening and choosing** (`static/xr_ring.js`): A or X opens the ring about 70 cm ahead and 20° below where the
   eyes look, about 36° across; it stays there until closed. That controller's thumbstick, tilted past half, picks an
   item (clockwise from the top), which stays picked as the stick comes back to the centre; pressing the thumbstick
   down chooses it.
-  A or X goes back a level, or closes the ring. (First built with A or X choosing while the stick tilted; the user
-  found that awkward, 2026-11-03.) A pick is dropped when the session changes another item into its place. The
+  A or X goes back a level, or closes the ring. (First built with A or X choosing while the stick tilted; that was awkward.) A pick is dropped when the session changes another item into its place. The
   trigger, grip and B/Y keep their arm jobs; while the ring is open on a controller, its arm takes no part (`ui`),
   and its thumbstick press is the ring's, never the head's zero (the other controller's still zeroes it). The pointer
   rays and screen grabbing are gone.
@@ -114,7 +126,7 @@ controls worked with the Quest Pro controllers' own buttons, and for starting an
 - **The card** over the ring, as wide, shows the status (the session, a fault, view-only, the head, the cameras),
   a picked item's confirmation, or why it is out of reach, and at its foot how the ring is worked now.
 - **Text size:** first drawn at 21 to 38 canvas pixels (0.75 to 1.35° of view), the text was far too small in the
-  headset (the user, 2026-11-03). All of the ring's and card's text is now 44 pixels or more (1.55°; the ring's
+  headset. All of the ring's and card's text is now 44 pixels or more (1.55°; the ring's
   1024 pixels span 36°, the Quest Pro shows about 22 pixels a degree), item labels 52 (1.85°) and wrapped onto two
   lines where a segment is narrow; the alert's is 72 of 1536 pixels across 38° (1.8°).
 - **Held to confirm:** anything that powers or moves the robot needs the thumbstick held down 1 s on it, with the
@@ -133,7 +145,7 @@ controls worked with the Quest Pro controllers' own buttons, and for starting an
 
 ## Alignment: the cameras with each other, then the model with the cameras (head camera built)
 
-The user asked (2026-10-31) for one way to align everything, using the table's fiducials, which are placed to within
+The aim is one way to align everything, using the table's fiducials, which are placed to within
 5 mm. Today each view lines up only by CAD: the head camera's mount is the `AWG_RGB_CAMERA` part's centre, looking
 along the model's front, and the wrist cameras are only calibrated for their own lenses. Everything after (the model
 over the depth, the wrist pictures, the map's frame) depends on these being measured.
@@ -142,7 +154,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   outer corner, x toward tag 1, y away from Minerva, z up; tags 0-5, 43.18 mm squares) is the world frame of the
   workcell, and later the map's.
 - **Head camera first.** The head is held at a few poses where it sees the board, steered by the headset or jogged
-  (never swept: the user's rule). At each, a noise-stacked still (as the wrist calibration takes them) and the neck's
+  (never swept). At each, a noise-stacked still (as the wrist calibration takes them) and the neck's
   measured angles (the head pose feed). Each still's tag corners give the camera's pose against the board (the
   camera's own published intrinsics). Over the poses, one solve finds both the camera's mount in the head link and
   where the board lies in Minerva's frame (a hand-eye problem, refined on every corner's reprojection). It reports
@@ -153,7 +165,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
 - **Then the model with the cameras.** With every mount measured, the model's arms and grippers are drawn over each
   camera's picture: where they miss, the residuals say whether a joint's zero is off (a separate, deliberate step),
   or a mount.
-- **A Helm flow, redone at will** (the user's rule: calibrations only through Helm flows): steps on screen, a capture
+- **A Helm flow, redone at will** (calibrations only through Helm flows): steps on screen, a capture
   key or pedal per still, the solve, its residuals and the overlay, then save into the operator files with the
   previous ones kept. The head pose feed, the headset's model placement and the map all read the saved mounts.
 - **Accuracy to expect:** the board's tags within 5 mm, each still's pose to 1-2 mm at the table (the head camera fit
@@ -191,7 +203,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   holds up live, the zeros set deliberately (the arms' and the head's reference flows) instead of drawn.
 
 **Twin correction, built (2026-11-01; drawing only, deployed `e664767`; not yet run on real stills):**
-- **What the user asked** (2026-11-01): calibrate the wrist cameras to the head camera, then correct the digital twin
+- **Aim** (2026-11-01): calibrate the wrist cameras to the head camera, then correct the digital twin
   to those joint positions with the relative calibration; "drawing only first". No measurement of where Minerva's
   base stands is needed: both solves give the board's place in Minerva's own frame.
 - **What it corrects** (`vision.twin`): the arms' joint zeros J1-J5 from the newest solved wrist run, when its
@@ -218,21 +230,21 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   1.2 mm and 0.05 degrees of the true one (6.1 mm and 1.97 degrees without); the map's board, turned, is the arms'
   within 1.4 mm.
 
-## Phase 4: Gaussian splatting on soliloquy (a static map built end to end; a moving Minerva needs a live map)
+## Phase 4: Gaussian splatting on the operator station (a static map built end to end; a moving Minerva needs a live map)
 
 - **Frames:** the map in the world frame (the table's board, from the alignment), Minerva's pose in it
   `T_world_robot`: fixed today (the alignment's board pose), from odometry and the map's tracking once the base moves.
   Every capture and every live frame carries the camera's pose in the world: `T_world_robot · T_robot_camera(q)`.
-- **Static first:** with the base still, the head camera's posed RGB-D builds the map on soliloquy (the trainer here,
+- **Static first:** with the base still, the head camera's posed RGB-D builds the map on the operator station (the trainer here,
   then the live mapping), in the world frame; the headset draws it placed through Minerva's pose.
 - **Rover-ready from the start:** `T_world_robot` is an input of its own everywhere (a constant now, a stream later),
   so nothing changes when the base starts reporting odometry but where that pose comes from.
-- **Training on soliloquy** (set up 2026-10-31, the user: "yes, set up WSL2 training on soliloquy"). Its Ubuntu (WSL2)
+- **Training on the operator station** (set up 2026-10-31). Its Ubuntu (WSL2)
   has a venv of its own in `~/minerva-splat` (5.1 GB: CUDA PyTorch 2.4.1 cu124, gsplat 1.5.3's prebuilt wheel,
-  nothing system-wide). WSL runs bridged there (the user's `.wslconfig`) and its Ubuntu has no network, so
+  nothing system-wide). WSL runs bridged there and its Ubuntu has no network, so
   `scripts/splat/download_wheels.ps1` fetches the Linux wheels on the Windows side (2.7 GB, including torch's
   Linux-only CUDA libraries, which pip skips on Windows) and `scripts/splat/install_wsl.sh` installs them offline.
-  Switching WSL to mirrored networking would let it download directly; that is the user's setting.
+  Switching WSL to mirrored networking would let it download directly; that is a setting on the station.
 - **The trainer** (`scripts/splat/train_head_scene.py`) takes a head scene capture: `scene.json` (the colour and
   depth intrinsics, the registration, each frame's colour camera pose in the robot frame), the camera's JPEGs and its
   depth (zlib uint16). Gaussians start from the depth, registered into the colour camera and back-projected into the
@@ -242,13 +254,12 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
 - **Checked on a synthetic capture** (`scripts/splat/synthetic_scene.py`: a table, a box and a wall seen as the neck
   pans and tilts, 64 frames): 3000 steps in 59 s on the 3080 (shared), 105 k to 158 k Gaussians, 34.3 dB PSNR on the
   held-out frames; the PLY is 39 MB (spherical harmonics of degree 3).
-- **Not a static scene: Minerva will move** (the user, 2026-10-31: "Minerva will not stay static, I am working on a
-  mobile base for it"). A scene trained once in the robot frame stops lining up the moment the base drives. The map
+- **Not a static scene: Minerva is meant to move** (a mobile base is planned). A scene trained once in the robot frame stops lining up the moment the base drives. The map
   has to live in a world frame, with Minerva's pose in it tracked all the time:
   - **Tracking:** Minerva's pose in the world from the head camera's RGB-D (visual odometry against the map), with
     the neck's measured pose (the camera's motion relative to the body, known exactly) and, once the base exists,
     its wheel odometry as priors.
-  - **Mapping, live, on soliloquy:** an incremental RGB-D Gaussian-splatting SLAM fed by the head camera's frames as
+  - **Mapping, live, on the operator station:** an incremental RGB-D Gaussian-splatting SLAM fed by the head camera's frames as
     they come (candidates to try on the 3080: GS-ICP SLAM and RTG-SLAM for speed; MonoGS and SplaTAM as references).
     It adds what the camera sees, refines what it saw before, and keeps out what moves: Minerva's own arms (the
     model, posed, projected into each frame) and anything the live depth disagrees with.
@@ -269,7 +280,7 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
     `/mnt/minerva-data/maps` (2026-11-01, as the session evidence does), and with the drive missing the link
     dangles, so a capture fails rather than fill the microSD.
   - **Train:** `scripts/splat/train_on_station.py` on the build PC (it holds both keys) zips the newest capture
-    without a map on Minerva, trains it in soliloquy's WSL venv (its GPU's load printed first; nothing trains with
+    without a map on Minerva, trains it in the station's WSL venv (its GPU's load printed first; nothing trains with
     less than 3 GB free) and writes `map.splat` and `map.json` into `~/minerva/helm/maps/maps/<capture>/`. The
     trainer builds the scene in the capture's world and writes the compact `.splat` (32 bytes a Gaussian, most
     visible first: 3.5 MB for 109 k Gaussians, against the PLY's 27 MB). Run end to end on the real machines.
@@ -283,14 +294,14 @@ over the depth, the wrist pictures, the map's frame) depends on these being meas
   - **Rover-ready:** Minerva's pose in the world is an input of its own everywhere (each capture frame records it,
     the listing gives the headset the current one); when the base drives, only where that pose comes from changes.
 - **Next:**
-  1. Stream the head camera's posed RGB-D to soliloquy: the relay's frames with their head pose (phase 2), at a rate
+  1. Stream the head camera's posed RGB-D to the operator station: the relay's frames with their head pose (phase 2), at a rate
      the tether carries.
-  2. A live splatting SLAM on soliloquy from that stream, the neck's pose as its prior; first with the base still,
+  2. A live splatting SLAM on the operator station from that stream, the neck's pose as its prior; first with the base still,
      then with odometry once the base exists.
   3. The map's changes to the headset, and a splat renderer there (instanced quads, the splats sorted by depth in a
      worker), placed by Minerva's tracked pose.
   4. **Then on the Quest alone:** rendering splats is light enough for the Quest Pro's GPU; building them is not
-     yet. When it is (WebGPU, smaller models), soliloquy drops out.
+     yet. When it is (WebGPU, smaller models), the station drops out.
 
 ## What each phase must show
 

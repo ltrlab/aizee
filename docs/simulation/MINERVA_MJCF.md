@@ -1,27 +1,21 @@
-# Feature task: Minerva MJCF, kinematics first
-- Base commit (full SHA): `f846b65a945f612a94f60081d1905caa4b32029e` (`codex/overhaul-integration`)
-- Problem / saved reproducer: `MujocoPlant` runs fixtures only. Minerva's URDF cannot drive it: its 17 masses
-  are exporter placeholders (`1e-9 kg`), its two jaw mimics have no MJCF coupling, and no Minerva MJCF
-  exists. Measurements are still unavailable (confirmed 2026-10-10), so dynamics stay blocked. The
-  [lane brief](NEXT_TASKS.md#minerva-physical-model) allows kinematic frame comparisons before them.
-- Hypothesis: the active URDF converts to an MJCF that keeps every link frame, joint axis and range, mesh
-  placement, inertial and jaw coupling. That MJCF is then the base the measured inertials replace.
-- Owned files: `src/robot_platform/models/mjcf.py`, `scripts/view_mujoco.py`, `urdf/minerva/mujoco/`,
-  `tests/unit/test_mjcf_export.py`, `tests/fixtures/physics/coupled_jaws.urdf`, this brief.
-- Shared interfaces held fixed: `MujocoPlant` and its placeholder-mass refusal, `PlantReceiver`, the URDF,
-  its meshes and model profile, `CollisionScene` kinematics. No receiver, teleop or collision code changed.
-- Dependencies / integration order: none; touches no file another open branch owns. `scripts/dev.py` gains
-  one gate entry, and `.gitattributes` gains LFS/line-ending rules for the export.
-- Required behavior and numerical/time bounds (declared before running):
-  - Link frames equal the URDF's within 1e-9 m and 1e-9 in rotation, at 200 seeded poses plus every joint
-    at both ends of its range.
-  - Every mesh keeps its triangle count. Its world bounds and centroid sit within 2 µm of the source STL
-    placed by the URDF. MuJoCo stores vertices as float32.
-  - A mimic jaw follows `offset + multiplier × source` within 0.1 mm while driven across its stroke.
-  - The export never overwrites a file. Regenerating the committed export reproduces it.
-- Acceptance command and expected result: `python scripts/dev.py check`, zero failures/skips/xfails.
-- Source/model identity and seed: URDF sha256 `792f32da…ddcf8`; MuJoCo 3.15.0; pose seeds 20261012
-  (frames) and 7 (meshes). The export's own sha256 and every mesh hash are in `minerva.manifest.json`.
+# Minerva MJCF, kinematics first
+
+**What it is.** A MuJoCo model of Minerva's 17-link arms-and-torso URDF (the neck has its own export,
+[HEAD_NECK_MODEL.md](../robots/minerva/HEAD_NECK_MODEL.md)), generated from the URDF and committed at
+`urdf/minerva/mujoco/`. **Status: done for kinematics; not usable for dynamics.** All 17 URDF masses are exporter
+placeholders (`1e-9 kg`), so `MujocoPlant` still refuses the model. The contact task scene
+([MINERVA_TASK_SCENE.md](MINERVA_TASK_SCENE.md)) uses the model's forward kinematics only.
+
+Code: `src/robot_platform/models/mjcf.py`, `scripts/view_mujoco.py`, `tests/unit/test_mjcf_export.py`,
+`tests/fixtures/physics/coupled_jaws.urdf`. The model was built to these bounds, which the tests hold:
+
+- Link frames equal the URDF's within 1e-9 m and 1e-9 in rotation, at 200 seeded poses plus every joint at both ends of
+  its range.
+- Every mesh keeps its triangle count. Its world bounds and centroid sit within 2 um of the source STL placed by the URDF
+  (MuJoCo stores vertices as float32).
+- A mimic jaw follows `offset + multiplier x source` within 0.1 mm while driven across its stroke.
+- The export never overwrites a file. Regenerating the committed export reproduces it. The export's sha256 and every mesh
+  hash are in `minerva.manifest.json`.
 
 ## Change
 
@@ -40,14 +34,14 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
 - Meshes are referenced in place, named by their source path. The two RB04 motor-body visuals have about
   269,000 triangles, over MuJoCo's 200,000-face STL limit. They are stored as lossless OBJ (same triangles,
   exact duplicate vertices merged) under `urdf/minerva/mujoco/meshes/`, in LFS.
-- Arm ranges come from Helm (operator request, 2026-10-13). Each arm joint's hand-swept motor range
+- Arm ranges come from Helm. Each arm joint's hand-swept motor range
   (`minerva-production-01-joint-limits.json`, reference `minerva-mechanical-reference-20261009`) goes
   through Helm's confirmed direction mapping, `model = sign × motor + offset`, as the receiver's `cad_map`
   applies it. Right J1, J3 and J4 have sign −1 and all offsets are 0. The swept ends are used exactly,
   without the receiver's 0.02 rad overtravel, which is a fault margin. The wrist swivels span about
   6.5 rad, past the URDF's ±π.
-  - **Mapping source.** The complete direction session (all 12 confirmed) from the Codex worktree that runs
-    Helm. A newer session in the main checkout has only J1s confirmed and was not used.
+  - **Mapping source.** A complete Helm direction session (all 12 joints confirmed). It is local Helm state, not in
+    Git; the manifest records what was used.
   - **Manifest.** It records the session's bindings and each joint's motor, sign, offset and swept values,
     so the export can be checked without the session.
   - **Jaws.** These keep the CAD stroke. Their swept motor travel through the unverified preview scale is
@@ -69,14 +63,8 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
 - The export loads in MuJoCo in about 2.5 s; the kinematic-only tree loads in 0.02 s.
 - Rendered at the reference pose and a test pose, inspected by eye (not compared with Helm's view). The
   collision set lines up with the visuals. The interactive viewer opened and stayed up for an 8 s smoke test.
-- Gate: 656 Python tests, zero failures/skips/xfails, and 122 Rust tests, on `a6939f2`
-  (`build/dev-check/20261012T161039Z-538a042c/report.json`). The first run skipped the release test, because
-  this new worktree had no ARM64 binaries. `scripts/build_jetson.ps1 -Offline -Package robot_control,robot_collision`
-  built them locally; nothing was deployed.
-- Gate with the swept ranges: 662 Python tests, zero failures/skips/xfails, and 122 Rust tests, on `3443ca6`
-  (`build/dev-check/20261014T021953Z-455acccf/report.json`).
 
-## Remaining uncertainty / physical inputs needed
+## Not known
 
 - **Dynamics.** All 17 links need measured or corrected-CAD mass, COM and inertia, per
   [the checklist](../robots/minerva/MINERVA_PHYSICS_MEASUREMENTS.md). Until then the model is kinematic only.
@@ -89,6 +77,7 @@ writes the MJCF and its manifest. It refuses to overwrite either; delete the old
   A sweep can only fall short of a hard stop. MuJoCo will treat them as stops once dynamics are enabled.
   The direction session is local Helm state, so a new sweep or direction change needs a regenerated export.
 - **Not run.** Contacts, gravity direction against the real mounting, and Linux CI.
-- **Next.** Map the 14 receiver motors to model joints. This is not identity: Helm's directions reverse right
-  J1, J3 and J4, and the grippers need their transmission. Also import a measured link record (the checklist's schema) into a new MJCF revision,
-  with validation. Both can be built and tested on synthetic records before measurements exist.
+- **Next.** Import a measured link record (the checklist's schema) into a new MJCF revision, with validation; this can be
+  built and tested on synthetic records before measurements exist. The motor-to-model mapping is not identity (Helm's
+  directions reverse right J1, J3 and J4, and the grippers need their transmission); the task scene applies it through its
+  own `joint_map`.

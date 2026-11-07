@@ -1,5 +1,5 @@
 # The splat trainer's Linux wheels (train_head_scene.py), downloaded on the operator station's Windows side: its Ubuntu
-# (WSL2) has no network while WSL runs bridged (soliloquy's .wslconfig, 2026-10-31), so install_wsl.sh installs from
+# (WSL2) has no network while WSL runs bridged (the station's .wslconfig, 2026-10-31), so install_wsl.sh installs from
 # this folder. CPython 3.10, x86-64 Linux, binary wheels only: CUDA PyTorch 2.4.1 (cu124), gsplat's prebuilt wheel
 # for it, and torch's Linux-only dependencies (the CUDA libraries, triton), which pip skips on Windows because it
 # evaluates their platform_system == "Linux" markers on the machine that downloads.

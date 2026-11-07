@@ -1,5 +1,11 @@
 # Dual GELLO setup
 
+The GELLO leaders (two OpenRB boards, seven encoder channels each) stay on the operator station. In production they
+reach the robot through the **GELLO bridge** (`teleop/gello_bridge.py`), which Helm on the Jetson drives: the bridge runs
+the 200 Hz USB sampler and the signed UDP leader link toward the robot's loop, and streams samples to Helm's Leaders
+tab. See [HELM_ON_JETSON.md](HELM_ON_JETSON.md) and [TELEOP_LATENCY.md](TELEOP_LATENCY.md). This page covers the
+stand-alone viewer used to check the leaders and the offline rehearsal tools.
+
 The shared leader viewer reads both OpenRB boards and shows their seven encoder
 channels, a six-joint arm schematic, and a gripper trigger. The USB serials,
 joint axes, link lengths, labels, and display calibration are profile data.
@@ -105,35 +111,22 @@ The leaders were effectively stationary (0–1 tick variation), so this verifies
 input integration and stationary collision timing, not a moving-arm trial.
 Maximum source age was 42.66 ms at intake and 48.39 ms after the complete cycle.
 
-## Progression to Minerva
+## From the viewer to the robot
 
-- Confirm leader topology and direction in the viewer, then build the explicit
-  leader-to-motor routes using the separately verified motor-to-CAD map.
-- Preserve the existing GUI lifecycle: **Idle → Enable → Engage/Align → Teleop**,
-  with **Shutdown** returning slowly to zero before disabling. Reuse the existing
-  I/E/T/H/X actions; no new Start/Stop workflow or hold-to-run is required. Every
-  alignment and shutdown step must use fresh measured feedback and pass the same
-  collision gate. A fault stops the session rather than launching an unchecked
-  zero return. See the [GUI integration map](../history/plans/TELEOP_GUI_INTEGRATION.md).
-- Qualify the PC-to-Jetson input transport. The earlier SSH experiment exceeded
-  its 25 ms deadline; a local viewer test cannot resolve that result.
-- Qualify loaded hold and stopping on each arm, then implement and exercise the
-  whole-robot physical runner through the guarded receiver. Physical network
-  motion remains refused until these prerequisites are met.
-- Run bounded attended dual-arm tests before sustained 25 Hz operation.
+Done: the leaders are routed to the motors through the verified motor-to-CAD map; the Idle, Enable, Engage/Align, Hold,
+Shutdown lifecycle (keys I, E, T, H, X) runs live on both arms through the guarded receiver (see
+[GUARDED_TELEOP.md](GUARDED_TELEOP.md)); and the SSH input experiment that exceeded its 25 ms deadline was replaced by
+the UDP leader link plus the bridge, so the PC-to-Jetson hop no longer rides an SSH tunnel. Every alignment and
+shutdown step uses fresh measured feedback, and a fault stops the session rather than launching an unchecked zero
+return.
 
-Minerva's current collision policy covers coarse **inter-arm** keep-out, with
-finger links excluded by the selected policy. It does not establish same-arm,
-environment, payload, or finger collision protection. See
-[guarded teleoperation](GUARDED_TELEOP.md) for the receiver contract and evidence.
+Minerva's collision policy in the guarded profile covers coarse **inter-arm** keep-out, with finger links excluded;
+it does not establish same-arm, environment, payload or finger protection, and the production direct profile runs with
+collision checking off ([COLLISION_RUNTIME_IMPLEMENTATION.md](COLLISION_RUNTIME_IMPLEMENTATION.md)).
 
-## Next input: Quest Pro / WebXR
+## Other inputs
 
-After the GELLO path works, migrate the useful parts of the legacy WebXR UI and
-Quest leader into the shared package: controller poses, grip/clutch state,
-coordinate-frame conversion, and inverse kinematics. The VR adapter will produce
-whole-robot targets for the same guarded collision/receiver path and existing GUI
-lifecycle. It must preserve source freshness and stop on tracking loss or session
-exit. Any device-specific clutch remains separate from the GUI's engagement state.
-Browser HTTPS setup and Quest Pro behavior need device verification in that phase.
-The legacy VR launcher is not a shortcut around the guarded runner.
+The Quest Pro headset is built: it steers the head today through Helm's `/xr` page (`helm/xr.py`, `helm/head_teleop.py`,
+`helm/static/xr*.js`), and its controllers can drive the arms by grab and drag (`teleop/vr_arms.py`). Both are
+described in [HEADSET_3D_PLAN.md](HEADSET_3D_PLAN.md) and [VR_ARM_TELEOP_PLAN.md](VR_ARM_TELEOP_PLAN.md), with their
+status. The legacy WebXR launcher under `python/web/` is not a shortcut around the guarded receiver.

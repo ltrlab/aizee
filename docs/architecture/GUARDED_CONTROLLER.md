@@ -1,21 +1,21 @@
 # Guarded controller core and protocol
 
-Implemented 2026-09-24: a robot-independent Rust core, ideal hardware harness,
-strict RobStride CAN adapter, and independently scheduled Linux commissioning
-service. The service has run on Minerva's production computer using virtual CAN
-and physical stopped-motor diagnostics. A separate finite executable has tested
-motor-side command loss, two unsuccessful micro-jogs, and right-gripper breakaway
-ramps. The initial reverse ramp triggered a post-stop speed bound. An opt-in
-damped stop subsequently passed four bounded trials, two in each direction.
+A robot-independent Rust core, an ideal hardware harness, a strict RobStride CAN adapter and an independently scheduled
+Linux service. This is **Minerva's receiver**: Helm's loop process starts `guarded_controller` in `teleop` mode for
+live teleop, on both arms' CAN buses (`control/live_receiver.py`, ZMQ at `tcp://127.0.0.1:5590`), and the neck has its
+own sibling, `head_controller` (`rust/control_core/src/bin/head_controller.rs`, `tcp://127.0.0.1:5591`). The older
+`rust/motor_control` service is AIZEE's path and Minerva's first bring-up; it does not use this core.
 
-**The existing ROBSTRIDE/ZMQ motor service does not use this core yet.** Its
-watchdog, enable and fault behavior have not changed. The new session adapter
-requires synthetic, loopback-only settings. The new `guarded_controller` entry
-point is separate from the legacy service. Physical modes allow observation,
-explicit parameter/identity/version reads or a bounded single-actuator nominal
-zero-torque trial; physical network movement commands are rejected. The separate
-`motor_watchdog_trial` requires a pinned UID/firmware and explicit flags. See
-[powered commissioning](../operator/POWERED_COMMISSIONING.md).
+The service has modes (`rust/control_core/src/service_config.rs`): `VirtualCan` (synthetic motors on vcan), `Observe`,
+`ParameterProbe`, `MotorDiagnostics` (stopped-motor reads), the finite `ZeroTorqueTrial`, `BoundedJogTrial` and
+`BreakawayTrial`, and `Teleop`, which drives one arm, or both under a motion collision bound, after the same watchdog
+and reference-pose gates. Powered modes need explicit flags (`--allow-powered-trial`, `--allow-powered-teleop`,
+`--confirm-reference-pose`). The separate `motor_watchdog_trial` requires a pinned UID and firmware. Powered
+commissioning is in [powered commissioning](../operator/POWERED_COMMISSIONING.md).
+
+The sections below were written while the core was commissioned, so their measurements (virtual CAN, 25 Hz,
+single-gripper trials) predate the production loop at 100 Hz with collision off; treat them as protocol evidence, not as
+the production timing.
 
 ## Code ownership
 
@@ -31,12 +31,11 @@ zero-torque trial; physical network movement commands are rejected. The separate
 | `rust/control_core/src/watchdog.rs` | Nonblocking stopped startup verification, fresh single-use enable proof, periodic disarmed audits and fail-closed invalidation |
 | `rust/control_core/src/service.rs`, `service/linux_can.rs` | Monotonic control schedule, kernel reception age, exclusive CAN ownership, acknowledged loopback ZMQ |
 | `src/robot_platform/control/guarded_transport.py`, `commissioning.py`, `parameter_probe.py`, `motor_diagnostics.py` | Explicit transport, observation/diagnostic profiles, typed parameters and raw identity/firmware/stop evidence |
-| `rust/control_core/src/watchdog_trial.rs`, `src/bin/motor_watchdog_trial.rs` | Finite command-loss experiment, separately enabled micro-jog or breakaway ramp, acknowledged final stop and raw trace |
+| `rust/control_core/src/watchdog_trial.rs`, `rust/control_core/src/bin/motor_watchdog_trial.rs` | Finite command-loss experiment, separately enabled micro-jog or breakaway ramp, acknowledged final stop and raw trace |
 | `src/robot_platform/control/watchdog_trial.py` | Offline generator of single-motor profiles pinned to captured UID/firmware |
 | `scripts/guarded_vcan_bench.py` | Actual Linux service, synthetic motors over vcan, fault/restart tests and 25 Hz command soak |
 
-There is still one Python distribution and one Rust workspace, now containing
-five crates. The portable core uses Serde, JSON and MessagePack; the optional
+There is one Python distribution and one Rust workspace of five crates. The portable core uses Serde, JSON and MessagePack; the optional
 `linux-service` feature adds SocketCAN, ZeroMQ and libc. No
 Intrinsic runtime, ROS, Kubernetes, C++ bridge or additional IPC stack is used.
 
@@ -112,12 +111,12 @@ lease; separate endpoints are not an atomic transaction. A failed acquisition
 instead releases only claims obtained by this client, leaving another owner's
 group alone.
 
-The user confirmed a test stand that tolerates the arms dropping on torque loss
-and retired the old ESP-NOW/serial bridge. Software stop is best-effort CAN
+The test stand tolerates the arms dropping on torque loss, and the old ESP-NOW/serial
+stop bridge is retired. Software stop is best-effort CAN
 disable, not electrical isolation. Reset responses have been captured after stop
 requests, but loaded stopping remains unqualified. A host crash cannot guarantee
 delivery of a disable frame. All 14 motors have now passed the bounded nominal-
-zero-gain command-loss test after the user's left RS00/RS02 firmware updates;
+zero-gain command-loss test after the left RS00/RS02 firmware updates;
 this does not qualify loaded stopping or full host/CAN failure response.
 
 ## Run the checks
@@ -216,7 +215,7 @@ Linux commissioning increment:
   setup before opening its socket, then audits every roughly 10 ms plus reply
   cycles without rewriting. Any failure revokes proof; each enable consumes it.
   A new service process is required after disable/fault. Kernel-verified vcan
-  alone bypasses physical preflight. Physical move commands remain unavailable.
+  alone bypasses physical preflight. (Teleop mode later added physical moves behind the same gates.)
 - Jetson checks rejected a wrong UID and held the correct gripper disarmed/ready
   through audits. No network enable was requested in that hardware check. The
   adapter's actual enable/refusal behavior passed deterministic tests. The same
@@ -234,23 +233,10 @@ Linux commissioning increment:
   Historical immediate-stop profiles retain their behavior. Fault exits still
   attempt immediate disable rather than continuing active damping.
 
-Remaining integration work:
-
-1. Independently verify jaw travel versus elastic encoder displacement and
-   establish bounded useful motion/return. Four small damped-stop trials passed
-   the existing bounds; this is limited repeatability evidence at one pose.
-   The mandatory watchdog gate is implemented; all 14 behavior passes remain
-   individual, nominal-zero-gain qualification rather than loaded-stop evidence.
-2. Migrate applications from legacy motion publishing after physical settings
-   and the full movement gate are qualified. No automatic legacy fallback.
-3. Receiver-owned collision bounds and expiry are implemented and tested with
-   the real CAD compiler over vcan. Qualify physical stopping bounds, real input
-   transport and same-arm/body policy while preserving finger exclusions.
-4. The 1,000-cycle production-host vcan run including collision work passed at
-   25 Hz. Run sustained tests including real leaders, cameras and physical CAN.
-5. Verify motor-to-CAD mapping, firmware units and supported physical stopping
-   before enabling guarded hardware motion. Continue at 50/100 Hz after measured
-   results support it.
+Open items at the time of the trials: independent verification of jaw travel against elastic encoder displacement
+(four damped-stop trials at one pose are limited repeatability evidence), loaded-stop qualification beyond the
+nominal-zero-gain watchdog passes, and same-arm and body collision policy. Production runs without collision checking
+(see [COLLISION_RUNTIME_IMPLEMENTATION.md](COLLISION_RUNTIME_IMPLEMENTATION.md)).
 
 Architectural references: Intrinsic's
 [command freshness validator](https://github.com/intrinsic-ai/intrinsic-core/blob/895281d62b950ca46d21885906796848692b9638/intrinsic_control/intrinsic/icon/hal/command_validator.h)

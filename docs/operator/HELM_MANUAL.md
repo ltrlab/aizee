@@ -1,764 +1,386 @@
-# Helm
+# Helm manual
 
-Helm is the operator web UI for the robot. It runs on the operator PC, serves
-`http://127.0.0.1:8760/` on loopback only, and combines the live 3D model with
-robot workflows: **Check** (Minerva Check, the go/no-go before a session),
-**Limits** (hand-swept joint limits on the real, disabled arms), **Leaders**
-(hand-swept leader-arm ranges) and **Teleop** (the leader arms driving the
-guarded receiver in its virtual form; no motors move).
+Helm is Minerva's operator console: a web page served by the Jetson. It checks the robot, calibrates it, drives the arms
+and head with the leaders or a headset, records episodes and plays them back. Read [Safety](SAFETY.md) first.
 
-```powershell
-.\scripts\helm.ps1
-```
+Helm runs on the Jetson as the user service `minerva-helm` (`helm --on-robot`). Any logged-in device can open it; one device
+at a time is in control. The leader arms are on the operator station, which joins Helm through the **GELLO bridge**. How the
+service, the bridge and the password are installed is in [Install the Jetson](../getting-started/INSTALL_JETSON.md) and
+[Install the operator station](../getting-started/INSTALL_OPERATOR_STATION.md); the design is in
+[Helm on the Jetson](../architecture/HELM_ON_JETSON.md). To try Helm without a robot, see
+[Simulate](../getting-started/SIMULATE.md) (`helm --sim`).
 
-**The live view.** Whenever Minerva is online over the tether, Helm reads the
-arms with their motors disabled and shows them in the 3D view, with a status
-badge: all drives answering, which ones are not, or Minerva not reached (it
-tries again every 10 s). When teleop, a servo sweep, a return or Minerva Check
-needs the motors, the reader steps aside for it and starts again once it ends.
-Meanwhile the 3D view shows that session's arm as its receiver reads it, enabled
-or not, and the other arm as last read. **Disconnect** turns the live view off
-until **Connect**. **Via** (top right) chooses how Helm reaches Minerva's
-Jetson: **Tether** (the USB Ethernet tether, 10.42.0.1, the
-default) or **Wi-Fi** (the address in the device profile). Connect, Minerva
-Check and teleop all use it. Wi-Fi is for stopped reads and virtual teleop only:
-Minerva Check fails anything but the tether, and live teleop is refused on Wi-Fi.
-The choice is locked while a check, a sweep or a teleop session runs. Over
-Wi-Fi the reader starts only on Connect.
+## A session, start to finish
 
-The live view uses the same stopped-only reader as the calibration tool: it checks the pinned host, CAN adapter serials,
-conflicting services, every motor UID/firmware and Reset state, then reads
-positions only. Motors are never enabled; no zero, save or parameter write is
-possible over this path. **Disconnect** (or closing Helm with Ctrl+C) stops the
-reader and confirms both CAN links are down. The reader renews itself every
-15 minutes.
+**Start**
 
-If motors stop answering (a loose plug, a power cycle), the reader shuts down
-cleanly and Helm shows **Waiting for motors**, naming every silent motor. It keeps
-the last pose and your sweep, and retries every few seconds until they answer or
-you press Disconnect; power-cycling the motors while it waits is fine. Each retry
-repeats the full identity check. A different motor identity, unconfirmed CAN
-cleanup or a problem on the robot computer stops instead of retrying. If a
-joint's reading jumps by more than 1.5 rad across a reconnect, its unsaved sweep
-is discarded rather than mixed with the earlier readings.
+1. Power the motors (foot switch released and in reach) and the Jetson. The arms hang straight down in their reference pose,
+   grippers closed, path clear. The head is limp until a session drives it.
+2. The GELLO bridge on the operator station starts with the station. Plug in both leaders. Pedals, if used, are keyboard keys.
+3. Open `https://<robot-address>:8760` on any device, log in, and press **Take control** (a second press confirms if another device holds it). The header should show **In control**,
+   **GELLO** and the battery.
+4. Press **Connect**. Helm reads the arms with the motors disabled and the pill shows `Live · frame N · X ms`.
+   (If Helm's service was installed with `--live` it connects by itself.)
+5. **Check** tab: **Run check**. Do not continue unless the stopped stages pass; run the live sweeps as the check asks.
+6. **Teleop** tab: choose **Live** and **Both** (or **Left**/**Right**), **Mode** and **Input**, then **Start session**. Confirm the
+   dialog. Wait for the session to be ready.
+7. **I** (Idle: motors on, limp), **E** (Enable: hold), **T** (Engage: align, then follow). Hands off the arms from Start
+   until Idle.
 
-Before connecting: motor power on, both USB-CAN adapters connected, legacy motor
-services stopped, and no other calibration tool or leader/robot controller using
-the CAN links. The arms are limp; support them while moving them by hand.
+**Stop**
 
-## Minerva Check
+1. **T** to hold. **X** to return to the reference and disable; wait until the Phase reads Off/Disabled.
+2. Stop recording first if one is running, and wait for Complete.
+3. **Stop session**, then **Disconnect** if you want the arms' reader off.
+4. Switch the motors' power off. Helm keeps running; there is nothing to shut down on the Jetson for a normal day. (The docs do
+   not give a Jetson power-off procedure; a UPS low-battery shutdown is automatic and described in [Safety](SAFETY.md).)
 
-The **Check** tab answers "are Minerva's systems ready?" before a session. It
-checks the robot only, not how it is controlled: no leader arms, leader ranges,
-routes or leader link, since the control interface may change (checks before
-teleop are separate). **Run check** works through the three stopped stages and
-shows each result as it lands; the fourth, the live joint sweep, is run from the
-tab afterwards. A check whose prerequisite failed is skipped, not guessed:
+## Opening Helm
 
-1. **Operator PC**: the calibration profile, confirmed motor-to-model directions,
-   joint limits for every motor, the servo calibration of every arm joint (a
-   warning while joints are not yet swept, a failure if a motor was replaced
-   since; grippers are not swept), the receiver settings derived from all of
-   them, fresh ARM64 builds and a route to the USB Ethernet tether.
-2. **Link and Jetson**: pinned SSH over the tether; the deployed release intact
-   and identical to this PC's files (otherwise it says to deploy); its smoke test;
-   each arm's live receiver configuration, validated by the deployed receiver;
-   and the Jetson's disk, memory, temperatures and clock.
-3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on
-   their pinned serials and free, no motor service running, then the stopped
-   reader scans all 14 motors (identity, firmware, fault-free Reset, one position
-   and its power-on range each; CAN ends down) and checks every position is
-   inside its swept range. A drive still at the factory power-on range (0…2π)
-   is a warning: a joint resting just below its zero at power-up reads a whole
-   turn high. Such a reading is named as a whole turn, with how to clear it. A
-   drive with a latched fault is named with the fault. When nothing on either bus
+- **Address:** `https://<robot-address>:8760` on the tether (`10.42.0.1`), the robot's wired address, its Wi-Fi address or its
+  access point. Settings → Network lists them. On the robot itself, plain `http://127.0.0.1:8762` serves the same page for its
+  own tools and SSH tunnels.
+- **Certificate:** self-signed, made on the robot. Each device accepts it once. Compare the fingerprint the browser shows
+  with `helm_service status`.
+- **Login:** one password, set by the operator at install time. Wrong passwords back off up to a minute. A session lasts
+  12 hours from its last use and a Helm restart (a deploy) logs every device out.
+- **Control:** only the device in control starts, moves or changes anything. Others see **View only · Take control**; pressing
+  it twice (it asks "Take control from ...?") takes control. Any logged-in device can always press **H** or **X**.
+- **Touch consoles:** Settings → Display & touch has *Touch mode* (larger controls), *Look* (RetroUI or Original) and
+  *Day and night*, saved in that browser.
+
+## The header
+
+| Item | Meaning |
+|---|---|
+| Tabs | Check, Limits, Leaders, Teleop, Replay, Tune, Settings |
+| **In control** / **View only · Take control** | Whether this device may change anything |
+| **GELLO** (green) / **GELLO · Wi-Fi** (amber) / **No GELLO** | The bridge from the operator station. Over Wi-Fi leader teleop runs but holds when samples arrive late; use a cable. Replay, policies and Check need no bridge. |
+| Network pill | `Wired`, `Tether`, `Wi-Fi`, `Tether + AP`, `AP`, `No address` (the Ethernet cable is on a network whose DHCP did not answer: replug it) |
+| Battery pill | The UPS: charge, or the seconds to power-off during a shutdown. A banner appears on battery. |
+| Feed pill | `Live · frame N · X ms`, `Live feed stale`, `Connecting…`, `Reconnecting…`, `Waiting for motors`, `Connection failed`, `Not connected`, or `Motors in use: <owner>` |
+| **Connect** / **Disconnect** | The stopped-motor reader that feeds the 3D view |
+| Moon/sun, **Touch mode** | Day and night, larger controls |
+
+The left of the page is the live view: **Cameras** (head, right wrist, left wrist) beside the **Model** (3D, with joint
+telemetry; **Display options**). While a session or sweep runs, a bar with **Hold**, **Return & disable** and **Disable now** is
+on every tab. A red frame and a **REC** badge show a running recording.
+
+**The live view.** Connected, Helm reads the arms with their motors disabled. When teleop, a sweep, a return or Check needs
+the motors, the reader steps aside and starts again afterwards; meanwhile the model shows that session's arm. The reader
+checks the host, CAN adapters, conflicting services and every motor's identity and Reset state, then reads positions only.
+It never enables a motor and renews itself every 15 minutes. If motors stop answering (a loose plug, a power cycle) the pill
+shows **Waiting for motors** and a banner names every silent motor; Helm keeps the last pose and your sweep, and retries every
+few seconds until they answer or you press Disconnect. A different motor identity, unconfirmed CAN cleanup or a problem on the
+robot stops instead of retrying. A joint that jumps by more than 1.5 rad across a reconnect loses its unsaved sweep. The arms are
+limp: support them when moving them by hand. The live model is a display, not a collision or safety check.
+
+## Check
+
+**Check** answers "is Minerva ready?" before a session. It checks the robot only, not how it is controlled. **Run check**
+works through three stopped stages and shows each result as it lands; the fourth, the live joint sweep, is run from the tab
+afterwards. A check whose prerequisite failed is skipped, not guessed.
+
+1. **Operator PC**: the stage's on-screen title. It checks the calibration profile, confirmed motor-to-model directions, joint
+   limits for every motor, the servo calibration of every arm joint (a warning while joints are not yet swept, a failure if a
+   motor was replaced since; grippers are not swept), the receiver settings derived from all of them, the builds and the route.
+2. **Link and Jetson**: pinned SSH; the deployed release intact and identical to the files Helm runs from; its smoke test;
+   each arm's live receiver configuration validated by the deployed receiver; the Jetson's disk, memory, temperatures and clock.
+3. **Motors, stopped**: CAN helpers and serial pinning installed, both adapters on their pinned serials and free, no other motor
+   owner, then the stopped scan of all 14 motors (identity, firmware, fault-free Reset, a position and its power-on range each;
+   CAN ends down) and every position inside its swept range. A drive at the factory power-on range (0...2 pi) is a warning:
+   a joint resting just below zero reads a whole turn high, and the check says how to clear it. When nothing on either bus
    answers, motor power is off or the foot switch is pressed.
-4. **Live joint sweep**, one item per arm, attended, with the foot switch in
-   hand. Once the stopped checks pass, each item has a **Sweep left arm** /
-   **Sweep right arm** button; Helm asks first (the arm hangs in its reference
-   pose with its path clear, the other arm stays disabled), then switches to
-   the Tune tab for its progress, Finish (X) and Disable (H). X and H also work
-   from the Check tab while it runs. It is the servo sweep of the Tune tab in a
-   short verify mode, at the settings teleop would use, under the same live
-   receiver: per joint, a slow out-and-back for friction, then a pass across
-   its swept range at its speed. A joint fails on any guard event, on lag over
-   55% of its tracking bound (the sweep sized the bound at twice its lag; 55%
-   leaves a re-measurement room and stays under the 60% lead cap, where a
-   joint that cannot keep up gets held), or on lag or friction well up on what
-   it was swept with (drag, wear or a loose joint). A joint not yet servo-swept
-   is judged on
-   the profile settings alone, which is a warning. A gripper is not servo-swept
-   (it squeezes what it holds): its command moves at 2 rad/s from its swept min
-   to its swept max and back, trailing it as in teleop, and it passes when it
-   covers 95% of that travel each way within 8 s of its command getting there.
-   It ends closed at its stiffest gain, as a return does, so it rests inside the
-   next live start's 0.1 rad gate.
-   A gripper pushing ever harder (jammed) is stopped by the effort guard and
-   fails.
+4. **Live joint sweep**, one item per arm, attended, foot switch in hand. After the stopped checks pass, each item has
+   **Sweep left arm**/**Sweep right arm**; Helm asks first (arm hanging in its reference pose, path clear, the other arm stays
+   disabled), then shows progress on the Tune tab. It is the servo sweep in verify mode at the settings teleop uses: per joint
+   a slow out-and-back for friction, then a pass across the swept range at its speed. A joint fails on any guard event, on lag
+   over 55 % of its tracking bound, or on lag or friction well above what it was swept with. A gripper is not swept: its command
+   moves at 2 rad/s from its swept minimum to maximum and back and passes if it covers 95 % of that travel each way within 8 s.
+   It ends closed at its stiffest gain.
 
-The verdict is **GO** only when nothing failed or was skipped and both arms'
-live sweeps passed; warnings are listed. After the stopped stages it is
-**INCOMPLETE** until the live sweeps are run, and a live sweep's outcome goes
-into the report it followed, saved over the same file. Nothing in the stopped
-stages enables a motor. The check reads the motors itself, so the live view
-steps aside while it runs; stop teleop and any sweep first (the Leaders tab may
-stay connected).
-Every run is saved under `calibration_runs/minerva-check/`, and the last one is
-shown when Helm starts. A report saved before checks were added shows as
-**OUTDATED**, with what it said then; run the check again (the file is left as
-it was). The stopped stages also run from a terminal:
+The verdict is **GO** only when nothing failed or was skipped and both live sweeps passed, **NO GO** when something failed,
+**INCOMPLETE** until the live sweeps run, and **OUTDATED** for a report saved before checks were added. Nothing in the stopped
+stages enables a motor. The check reads the motors itself, so the live view steps aside; stop teleop and any sweep first.
+Every run is saved under `calibration_runs/minerva-check/` (in the runs folder Helm uses) and the last is shown at start.
+The stopped stages also run from a command line: `python -m robot_platform check`.
 
-```bash
-.venv-dev/Scripts/python.exe -m robot_platform check
-```
+## Limits
 
-## Sweep joint limits
+Sweep each joint's travel by hand with the motors disabled. The Limits tab holds three flows: **Joint zero**, the joint
+sweep with **Flip** and **Looks right**, and **Head**.
 
-1. Connect. The model follows the disabled arms.
-2. Move one joint at a time to each end of its travel and **hold it there for a
-   moment**. An end counts only when two consecutive readings agree, so a single
-   glitch or a flick past a stop cannot widen a limit. Every joint is recorded
-   continuously; order does not matter.
-3. When a joint shows both ends held, press **Confirm**. Confirmation requires a
-   real span (at least 0.1 rad) with the mechanical reference inside it.
-4. **Save limits** writes every confirmed joint. You can sweep some joints now and
-   the rest later; saving merges with the existing file. **Reset** clears one
-   joint's sweep. A confirmed joint whose range grows is flagged for re-confirmation.
+**Sweep joint limits**
 
-If the model moves opposite to the arm, press **Flip** on that joint; **Looks
-right** confirms an unconfirmed direction. These edits need live readings and are
-saved to the direction session (`calibration_runs/<asset>-directions/`), shared
-with `scripts/calibrate_minerva.ps1`.
+1. **Connect**. The model follows the disabled arms.
+2. Move one joint at a time to each end of its travel and **hold it there for a moment**. An end counts only when two
+   consecutive readings agree, so a glitch or a flick past a stop cannot widen a limit. Every joint records continuously.
+3. When a joint shows both ends held, press **Confirm**. Confirmation needs a real span (at least 0.1 rad) with the mechanical
+   reference inside it.
+4. **Save limits** writes every confirmed joint, merging with the existing file. **Reset** clears one joint's sweep. A
+   confirmed joint whose range grows is flagged for re-confirmation.
 
-## Joint zero
+If the model moves opposite to the arm, press **Flip** on that joint; **Looks right** confirms a direction. These edits need
+live readings and are saved to the direction session.
 
-A joint that goes back on differently (a wrist structure remounted) no longer
-reads 0 at the zero pose. The **Joint zero** card at the top of the Limits tab
-sets arm joints' motor zeros again, with Helm on Minerva (it keeps the arms'
-reference among its operator files):
+**Joint zero.** A joint that goes back on differently (a wrist remounted) no longer reads 0 at the zero pose. The **Joint
+zero** card sets arm joints' motor zeros again, nothing enabled:
 
-1. Hold the arm in its zero pose, straight down as in the 3D view's reference
-   pose, and keep it still. **Choose joints to zero…** lists the twelve arm
-   joints with their readings; pick the ones that moved and press **Zero**. The
-   robot checks every drive, then zeroes and saves the chosen ones, nothing
-   enabled (`ops.probe zero_joints`).
-2. The zeros wait for the motors' power cycle; nothing that moves the arms
-   starts until then. Switch the motors' power off and on, leave the arm where it
-   is, tick the box and press **Verify**. It reads every drive stopped; each
-   zeroed joint must read within 0.01 rad of zero. A joint that reads its old
-   value lost its zero: zero it again.
-3. Verify records the arms' next reference revision as
-   `<asset>-arms-reference.json` in the operator files and moves what was bound to
-   the old one onto it: the joint limits less the zeroed joints', the direction
-   session and the manual tuning presets. The old copies go to the run's evidence
-   folder (`joint-zero-<UTC>/`). Helm then restarts to load it; log in again.
-4. Sweep the zeroed joints again and save, then run Minerva Check before a
-   session. Move each zeroed joint by hand first: if the 3D view turns it the
-   other way, the remount reversed it; Flip it.
+1. Hold the arm in its zero pose, straight down as in the 3D view's reference pose, and keep it still. **Choose joints to
+   zero...**, pick the joints that moved, and press **Zero the chosen joints now**. The robot checks every drive, then zeroes
+   and saves the chosen ones.
+2. The zeros wait for a power cycle; nothing that moves the arms starts until then. Switch the motors' power off and on, leave
+   the arm where it is, tick *I switched the motors' power off and on, and the arm stayed where it was* and press **Verify**.
+   Every zeroed joint must read within 0.01 rad of zero; one that reads its old value lost its zero: zero it again.
+3. Verify records the arms' next reference revision as `<asset>-arms-reference.json` in the operator files and moves what was
+   bound to the old one onto it: the joint limits (less the zeroed joints'), the direction session and the manual tuning
+   presets. The old copies go to the run's evidence (`joint-zero-<UTC>/`). Helm then restarts to load it; log in again.
+4. Sweep the zeroed joints again and save, then run Check. Move each zeroed joint by hand first: if the 3D view turns it
+   the other way, the remount reversed it: **Flip**.
 
-Wrist camera stills and the twin correction recorded before a zero are refused
-afterwards: they belong to the old reference.
+Wrist camera stills and the twin correction recorded before a zero are refused afterwards. Joint zero ran on the robot on
+2026-11-01 (right J4 and J5).
 
-## Persistent calibration
+**Head.** The head's servos stay limp: turn it by hand. **Read the head**, hold it straight ahead and level and **Set the
+reference...**, turn each joint and **Flip** a joint that turns the other way, then **Looks right**. Sweep each joint to both ends,
+confirm both and **Save head limits**. Last, the shoulder corners: turn the head to a side and tilt it down until it is just
+clear of the shoulder, **Record corner**; record each side's end and halfway, then **Save shoulder clearance**. Live sessions
+take the head only once its clearance is saved. A new reference asks for a new sweep and new corners.
 
-Limits are saved to `config/devices/minerva-production-01-joint-limits.json`
-(next to the calibration profile, named after the device). Values are raw motor
-radians from the recorded mechanical zero, with sample counts and times. The
-file is bound to the mechanical reference id and file hash and to each motor's
-bus, CAN id, UID and firmware; Helm ignores it (and says why) if any of these
-change. A new mechanical zero therefore requires a new sweep. The file records
-`runtime_approved: false`: the Teleop workspace derives the receiver's limits
-from these values with margins (below); sweeping alone does not qualify motion.
+**Files.** Limits are raw motor radians from the recorded mechanical zero, with sample counts and times, bound to the
+mechanical reference's id and hash and to each motor's bus, CAN id, UID and firmware. Helm ignores a file (and says why) if any
+changes, so a new mechanical zero needs a new sweep. On the robot they live in `~/minerva/helm/operator/`, which a deploy never
+overwrites unless it carries a changed copy (then your saved copy moves to `operator/replaced/` and the banner says so). The
+file records `runtime_approved: false`: sweeping does not qualify motion. Each run keeps evidence in
+`~/minerva/helm/runs/helm/<UTC time>/` (every live frame, cleanup reports, copies of saved or replaced limits).
 
-Each Helm run keeps local evidence in `calibration_runs/helm/<UTC time>/`: every
-live frame (`frames.jsonl`), each reader cleanup report and a copy of every saved
-or replaced limits file.
+## Leaders
 
-Helm takes the direction session's lock. If a previous tool exited without
-removing it, Helm checks that the recorded process is gone before taking over,
-and refuses while it is still running.
+The Leaders tab records each leader channel's full travel (six joints and the trigger per leader) and the leader zero. Teleop
+scales each channel's range onto its robot joint's usable range, from the zero.
 
-The live model is a display, not a collision or safety check.
+1. **Connect leaders** (read-only: boards are polled, servos stay torque-free). The leaders are on the operator station; the
+   header must show **GELLO**.
+2. Move each joint and trigger **all the way to both ends**. An end counts once three consecutive readings (40 ms) reach it.
+   Each card shows which robot joint the channel drives.
+3. **Confirm** each channel once its recorded range covers its travel, then **Save** (merges with the file).
+4. Hold both leaders in the robot's reference pose (arms straight down, triggers released) and press **Set leader zero**. It
+   records every channel at once and saves. Set it again at any time, here or in Teleop (**Z**).
 
-## Sweep leader ranges
+On a card's bar: dark is everything swept, green the recorded range, a dashed outline the saved range, amber the zero, white the
+current reading. Readings are unwrapped while you sweep because an encoder can cross its 0/2 pi seam; a saved range is a
+center and a span and a range within about 20 degrees of a full turn is refused. A jump that persists discards that channel's
+unsaved sweep. Ranges and zero are saved to `config/devices/gello-dual-leader-ranges.json` (an operator copy on the robot),
+bound to the leader profile and each board's USB serial. The Leaders connection and a teleop session exclude each other.
 
-The Leaders tab records each leader channel's full travel (six joints and the
-gripper trigger per leader) and the leader zero. Teleop scales each channel's
-range straight onto its robot joint's usable range, from the zero.
+## Teleop
 
-1. **Connect leaders** (read-only: the boards are only polled and their servos
-   stay torque-free). Close the leader viewer first; Helm needs the USB ports.
-2. Move each joint, and each trigger, **all the way to both ends** of its travel.
-   No pause is needed: an end counts once three consecutive readings (40 ms)
-   reach it, so one or two glitch readings cannot widen a range. Each card shows
-   which robot joint the channel drives.
-3. **Confirm** each channel once its recorded range covers its travel.
-4. **Save**. Saving merges with the existing file, so you can sweep some channels
-   now and the rest later.
-5. Hold both leaders in the robot's reference pose (arms straight down, triggers
-   released) and press **Set leader zero**. It records every channel at once and
-   saves immediately. You can set it again at any time, here or in Teleop (Z).
+Teleop starts a session: a loop process on the Jetson (CPUs 4-5) drives the receiver, which drives the motors. The leaders'
+samples come through the bridge. The production profile is `config/devices/minerva-teleop-direct-tuning.json`: 100 Hz, direct
+position commands, **collision checking off**.
 
-On each card's bar: dark is everything swept, green is the recorded range (what
-Confirm saves), a dashed outline is the saved range, amber is the zero and white
-is the current reading.
+**Choices (before Start session)**
 
-Readings are unwrapped continuously while you sweep, because an encoder can cross
-its 0/2π seam mid-range. A saved range is stored as a center and a span; at
-runtime a reading r becomes center + wrap(r − center). That is unambiguous for
-any range under a full turn, even after a power cycle resets the servo's turn
-count. A range within about 20° of a full turn is refused. One glitch reading is
-ignored. A jump that persists, or any jump across a pause or reconnect, discards
-that channel's unsaved sweep instead of mixing readings from both sides of it.
+| Row | Options |
+|---|---|
+| **Receiver** | **Virtual** (no motors move). **Live**: **Left**, **Right**, **Both**, or **Head** (the head alone, steered by the headset; the arms are left as they are). Live needs the wired route and the loop on the Jetson. |
+| **Mode** | **Direct** (drive and record, pedal A), **Calibrate** (camera stills, nothing recorded), **Policy** (a trained policy drives) |
+| **Input** | **GELLO** (the leaders) or **Headset** (the Quest's controllers drag the grippers; not recorded) |
 
-Ranges and the zero are saved to `config/devices/gello-dual-leader-ranges.json`
-and bound to the leader profile and each board's USB serial. Replaced and saved
-copies go to the Helm run's evidence folder. The Leaders connection and a teleop
-session exclude each other.
+There is no "Loop runs on" choice on Minerva: every loop runs in its own process on the Jetson. "Enforced" is hidden: it exists
+only with a collision-enabled profile in a virtual rehearsal.
 
-## Teleop (virtual receiver)
-
-The Teleop tab runs the original GUI lifecycle against the guarded Rust receiver
-in its virtual form (the native harness): real GELLO leaders, a virtual follower,
-**no motors**. The 3D model shows the follower (`VIRTUAL FOLLOWER` badge). It
-needs saved limits for every motor, saved leader ranges for every routed channel,
-the leader zero and the teleop profile (`config/devices/minerva-teleop.json`,
-passed by `scripts/helm.ps1`). Close the leader viewer, and disconnect the Leaders tab,
-first: a session owns the leader USB ports. A teleop session and Connect exclude
-each other.
-
-**Where the loop runs.** By default the loop runs on Minerva's Jetson, the head
-computer that will run the arms' control loop, from the deployed release. Helm
-starts it over pinned SSH on the USB Ethernet tether and relays keys, route edits
-and the zero. A process on this PC serves the leaders over the authenticated
-leader link. The Jetson refuses to start unless its release carries this PC's
-calibration files: deploy first (Minerva Check shows whether they match).
-**Loop runs on** switches between Minerva's Jetson and this PC while no session
-runs; `helm --loop pc` starts on this PC.
-
-**Mode** says what a session is for (the choice is kept in this browser):
-
-- **Direct**: drive the arms with the leaders and record episodes (pedal A, or
-  the task card's Record).
-- **Calibrate**: the camera calibration card instead of the task card, a guide
-  in three steps: **1 Wrist cameras**, **2 Head camera**, **3 Digital twin**
-  (calibration_guide.js). Each step's tab says how far it got, and the card
-  opens on the first not done. A box says the one thing to do next: the card's
-  button for it is the blue one, or the box's own button moves on to the other
-  wrist camera or the next step. What a still needs (a live session, the arms or
-  head enabled, no recording) is listed only while something is missing. Each
-  wrist camera has a bar of its stills with tags (15 wanted) and a 4 x 3 map of
-  where in its image tags were seen; the box names the corner or edge to fill
-  next. The head has bars for its stills with tags (10), how far it turned and
-  how far it tilted (20 degrees each), and a map of where it pointed for each
-  still: a dashed box from the farthest still toward where the box sends it, and
-  a cross where it is now. A solve gets a verdict, good, check or not usable,
-  with its reasons worst first (the solve's own numbers fold away under it):
-  about 1 px is good, over 1.5 px is checked and over 3 px is not usable;
-  held-out stills fitting worse, an uncertain mount, too few stills or image
-  parts, and the two arms' boards more than 10 mm apart (25 mm: not usable) are
-  checked too, and for the head a turn or tilt under 20 degrees (10: not
-  usable) and a mount far from where it is fixed. Stills more than 30 minutes
-  apart in one run are flagged: the table or Minerva may have moved between
-  them (a head run mixing two days fitted at 21 px). Save alignment on a solve
-  that is not usable asks first: press it again within 4 s. To take a still,
-  bring the camera over the table's tags and pause (pedal B, or T while
-  following): once the session has held for one second, Helm takes a still of
-  that camera. Resuming before then takes none,
-  and neither does a hold the operator did not ask for (a camera dropping off
-  USB, a head fault). Once the still is being taken the arms hold until it is
-  saved, about two seconds: Resume (B or T, or C's Engage) waits, and the card
-  says "Taking a still…", then what the still found (its tags, or that it saw
-  none). H, X and Shutdown are never held back. P still captures by hand.
-  Nothing is recorded: pedal A cannot start a recording here, and a still
-  refuses to run beside one.
-- **Policy**: choose a policy in the policy card; Start session then starts a
-  policy session (policy mode, docs/operator/POLICY_MODE.md) with the
-  leaders connected. Take over with pedal B (or O, or the card's button): the
-  arms hold where they are; line the leaders up with them, and Resume (B or T)
-  aligns the arms to the leaders at the alignment speed. B again hands back the
-  same way: the arms hold, the policy plans from there, and Resume aligns them
-  to its first action. Pedal A records an episode of both: each frame is
-  labelled with who drove it (policy or correction), and the LeRobot export
-  keeps each stretch, without the holds and alignments between them.
-
-Direct and Calibrate switch during a leader session (not while it records);
-Policy needs a session of its own.
-
-Measured with the real leaders, 30 s in TELEOP, at 25 Hz (before 2026-10-04)
-against its 40 ms period:
-
-| Loop on | Cycle p50 / p99 / max | Overruns |
-|---|---|---|
-| Minerva's Jetson | 6.5 / 14.4 / 26.5 ms | 0 |
-| This PC | 4.7 / 5.8 / 8.6 ms | 0 |
-
-The Jetson's longest cycles are waits for a late leader reply (up to 20 ms).
-Leader samples older than the 50 ms target limit are skipped for that cycle
-(10 of about 650 on the Jetson, 18 on this PC). Those come from the leaders'
-sample age, not the link.
-
-**Start session** loads the keep-out model and the receiver: 2–3 s on the Jetson,
-whose release has no meshes to load, and about 10 s on this PC. Then:
+**Start session** checks the arms before it accepts commands: identity, firmware, Reset state, each motor still and within
+tolerance of its reference (a joint out of pose is named with how far, as is a joint at or beside a receiver limit), brings the
+CAN link up, starts the receiver and arms each motor's watchdog. It is refused while the UPS announces a shutdown, while Check
+or a sweep runs, and without the bridge for GELLO input. Keep your hands off the arms from Start until Idle: a motor reading
+over 0.2 rad/s three times in a row fails the watchdog audit and faults the session.
 
 | Key | Action |
 |---|---|
-| I | Idle: zero torque, the command follows the measured pose |
+| I | Idle: motors on, zero torque (limp): support the arms |
 | E | Enable: hold the current pose |
-| T | Engage: align slowly to the leaders, then follow them. T again holds |
+| T | Engage: align slowly to the leaders, then follow. T again holds |
 | X | Shutdown: return slowly to the reference pose, then disable |
-| H | Disable |
-| Z | Set zero: the leaders' pose now maps onto the robot's reference pose (saved) |
+| H | Disable: torque off at once; asks first while the arms are under torque (see [Safety](SAFETY.md)) |
+| Z | Set zero: the leaders' pose now maps onto the robot's reference. An engaged arm holds first; Engage again follows |
+| O | In Policy mode: take over from the policy, or hand back |
 
-Keys work anywhere on the page, including over the 3D view. Start with I, then E
-and T. If leader samples stop (unplugged, late), the follower keeps its last
-target for 80 ms (four cycles) and then holds; press T to engage again.
+The enable is single-use: after **H** or a completed **X** the arms are limp, and a new session (which checks the pose again)
+is needed. Keys work anywhere on the page. The phase bar above shows **Off, Idle, Hold, Align, Teleop, Return**; the status line
+shows Phase, Receiver, Cycle, Collision (off) and Control. In touch mode a border shows the state: blue Hold, flashing green
+Engaging, solid green Teleop, flashing yellow Shutdown, red fault.
 
-Each joint card shows its usable band with the leader target, the command and
-the (virtual) robot position, plus its route: leader, channel and sign. The
-route signs in the profile are candidates. Verify each joint by moving its
-leader: **Flip** reverses a route and **Looks right** marks it verified. Both
-need the follower held, not engaged, and are saved to
-`calibration_runs/<asset>-teleop/routes.json`.
+**Pedals.** Three keys A, B, C (a USB pedal, or the keys). Each is offered for 750 ms; the Teleop panel shows what each does now.
+They are not an emergency stop.
 
-Every channel scales straight and covers the robot's whole usable range. An arm
-joint scales from the leader zero, which maps onto the robot's reference pose,
-with one scale for both directions: the larger of robot travel over leader
-travel on the two sides of the zero. So both robot ends are reached within the
-leader's range. On the side where the leader has travel to spare, the robot
-stops at its limit and the leader goes on past it (also past its recorded range,
-if it can). Each card shows its scale and how far before the leader's end the
-robot stops. **Set zero (Z)** works at any time: an engaged
-arm holds first rather than jumping, then Engage (T) aligns slowly and follows
-from the new zero. A gripper maps end to end (a released trigger and closed
-jaws are already ends). For an arm joint, +1 means the leader and robot joint
-angles increase together. For a gripper, +1 means the trigger angle increasing opens it.
-The CAD slide axes are mirrored between the two grippers, so the sign is defined
-by opening instead. Gripper route edits made before the proportional mapping
-are dropped; verify the grippers again.
-
-The robot follows no faster than each joint's speed cap. Where a leader's range
-is much smaller than the robot's, as with the wrist swivels (about 1.2–2 rad onto
-4.6 rad) and the grippers (about 0.9 rad onto 5.1 rad), the robot has to move
-several times faster than your hand. It lags when you move quickly. Hold the leader
-still while engaging: alignment finishes once the robot settles on the leader's
-target. A leader reading that moves faster than 20 rad/s is treated as an encoder
-glitch, and the arm holds; a quick trigger squeeze stays well under that.
-
-**Where the limits come from.** Each arm joint's operational interval is its
-hand-swept range (the Limits tab), plus 0.02 rad of overtravel at each end
-before the receiver faults. The CAD's nominal limits no longer narrow it.
-
-**Joints slow down near the ends.** A joint may approach an end only as fast as
-it can still stop at it:
-- the receiver checks feedback every tick, so it reacts within the feedback
-  timeout and its reaction allowance, 40 ms (the collision verdict's 80 ms
-  lifetime bounds the collision box, not a joint limit);
-- it brakes at its stop acceleration;
-- in open travel it runs at its speed cap, and near an end it never slows below
-  0.5 rad/s.
-
-The receiver enforces this braking curve on feedback while it drives the arm,
-as it does the cap. Targets keep only the stopping margin at 0.5 rad/s inside
-the interval, about 0.03 rad, so neither a faster cap nor a looser tracking
-bound costs range: on the right arm 99–100% of each joint's swept travel is
-usable, and the leader scaling covers all of it. The collision box keeps its
-own wider reserve, clipped at the limits.
-
-**The control law.** Commands are no longer position-only:
-- the receiver ramps each command over one loop period, 20 ms
-  (`interpolation_ms`, which sets the loop's rate: 50 Hz), from where the
-  previous one pointed to its target, with the command's velocity fed forward,
-  so a joint's own damping no longer brakes it (J2 at 1.5 rad/s lost 22 Nm to
-  it, 0.1 rad of lag);
-- a joint whose servo sweep is saved also gets 70% of its measured friction fed
-  forward in the direction of motion;
-- J2–J4 get gravity fed forward at the commanded pose (below), so the position
-  loop no longer holds the arm up and J2/J3 lift through their whole range;
-- a stop keeps the last command's feed-forward, so the arm does not sag when
-  the receiver brakes.
-
-Grippers keep position-only commands: fed-forward velocity would add to the
-squeeze while the jaws close on an object.
-
-**Gravity feed-forward.** J2, J3 and J4 turn about parallel horizontal axes, so
-the torque each holds against gravity is a sum of sines of the absolute angles
-of the links beyond it. `control/gravity.py` finds each arm's chain and each
-motor's sense from the model's joint frames and the verified directions. Each
-joint's gravity slice (`A sin q`, measured by its servo sweep at the reference
-pose, where the arm hangs straight down) is split into link moments. The slices
-live in the servo calibration's `gravity` section. The right arm's came from the
-2026-09-28 sweep (J2 16.78, J3 6.40, J4 2.51 Nm), the left arm's from the
-legacy collector's sweep of it (2026-08-22), until its own sweep refits them.
-
-**Commands keep headroom under what the receiver enforces.** Servos overshoot
-the speed they follow:
-- the receiver's speed cap is 1.25 × the commanded cap;
-- near an end, commands move at most 80% of the curve's speed there.
-
-A command still leads its measured position by at most 60% of the joint's
-tracking bound. Caps: J1–J3 1.5 rad/s, J4 2.5, the wrists 4. A servo
-calibration saved before this control law (2026-09-28) keeps its gains, braking
-and tracking bound but not its speed. The speeds and gains are unqualified.
-
-**Grippers are exempt.** They touch and hold objects, so the receiver treats a
-joint marked `"gripper": true` differently. It gets no margin and no stopping
-reserve: its targets span its whole range, from the model's closed limit
-(0.055 rad, 0.5 mm per jaw) to fully open. It does not brake on a stop; it keeps
-its last target, so a grasp is not released. It does not fault when it trails
-its command, as it does when stalled on an object, and its command may lead its
-position by its whole range. Effort, gain, speed, position and temperature
-limits still apply; on real motors the effort limit is what bounds grip force.
-The grippers run at 10 rad/s.
-
-**Collision checks are advisory here,** unless you choose **Virtual ·
-enforced**. In the plain virtual receiver every cycle checks the target pose against
-the keep-out geometry and shows the result (clear, distance, or the contacting
-shapes), but does not block. The receiver still enforces its limits, stopping
-reserve and single-use offers. Live teleop of one arm (below) uses the same
-advisory checks. **Virtual · enforced** enforces the two-arm bound that
-**Live · both** runs (described there), so you can rehearse how close the arms
-may come with no motors moving.
-
-**Timing.** The 50 Hz loop (25 Hz before 2026-10-04) runs in its own process,
-so browser traffic cannot stall a cycle. On Windows it runs at high priority,
-and it and the receiver process opt out of power throttling (EcoQoS). Without
-that, on this laptop's hybrid CPU some cycles took 27–37 ms instead of about 5,
-and one 60 s run in three faulted. A cycle slower than its 20 ms period only
-starts the next late; one not done within 35 ms faults the session, and one
-about 60 ms late lets the receiver's 80 ms collision verdict expire: the
-receiver stops itself and the session faults with the receiver's reason. Stop
-the session and start it again. The panel shows cycle time (p50 / p99) and
-counts cycles over the period as overruns.
-
-## Live teleop (one arm)
-
-Live teleop drives **one arm's real motors** through the guarded receiver on
-Minerva's Jetson. The other arm is not in the receiver and is never enabled.
-Collision checks are advisory, as agreed until a two-arm bound exists: every
-cycle checks the target pose against the keep-out geometry, with the other arm
-taken at its reference pose. Nothing stops the arm on a contact. The motion
-settings are unqualified, so these are attended tests with the foot switch in
-reach.
-
-**Before you start:**
-- Minerva Check's stopped stages pass (its live sweep items may still be
-  pending while the servo settings are being measured). Its "Live receiver
-  configuration" item has the
-  deployed receiver validate each arm's configuration and the two-arm one (both
-  buses, the two-arm collision bound). "Live start" runs a
-  session's own pre-scan on both arms: within 0.1 rad of the reference pose
-  (a warning otherwise), and clear of the receiver's limits (a failure otherwise).
-- Helm is on **Via Tether**, and the loop runs on Minerva's Jetson (live is not
-  available on this PC or over Wi-Fi). The panel says why if Live is greyed out.
-- The arm to drive hangs straight down in its reference pose with the gripper
-  closed. Every joint must be within 0.1 rad of its reference.
-- Keep your hands off the arm from Start until Idle: until the first enable the
-  receiver keeps auditing the motors' watchdogs, and a motor reading over
-  0.2 rad/s three times in a row fails that audit and faults the session. A
-  single reading over it is drive noise: still motors read up to about
-  0.2 rad/s.
-
-Choose **Receiver: Live · left** (or right). The panel turns red and Start
-asks you to confirm.
-
-**Starting a session**, with the motors still disabled throughout:
-1. The stopped reader scans the arm: identity, firmware, fault-free Reset, and
-   each motor still and within tolerance of its reference. A joint out of pose
-   is named, with how far it is off. So is a joint at or next to a receiver
-   limit, which would fault the receiver at once (it faults on any reading
-   outside its limits, even disarmed).
-2. The arm's CAN link comes up.
-3. The receiver starts in its one-arm teleop mode. It repeats the identity and
-   reference checks and arms each motor's command-loss watchdog before it
-   accepts commands.
-
-**Keys** work as in virtual teleop:
-- **Idle (I)** enables the motors at zero torque, so the arm is limp: support
-  it.
-- **Enable (E)** holds the arm where it is.
-- **Engage (T)** aligns slowly to the leaders, then follows.
-- **Shutdown (X)** returns slowly to the reference pose, then disables.
-
-The receiver's enable is single-use: after Disable (H) or a completed Shutdown
-the arm is limp, and a new session, which checks the reference pose again, is
-needed to enable it. Stopping a session with the arm powered lowers it to its
-reference first, as Shutdown (X) does, then disables it; Helm asks first.
-Disable (H) removes torque at once: the arm goes limp where it is. While the arms are
-under torque (a session past Idle, or a sweep) Helm asks first: H again or the
-dialog's button disables, Esc cancels, and T or X still hold or shut down.
-
-**What happens when something is lost:**
-
-| Lost | Result |
+| Pedal | Does |
 |---|---|
-| Leader samples (unplugged leader, PC or tether gone) | After 80 ms the arm holds where it is until you Engage again. The foot switch cuts power at any time. |
-| Helm's session (closed, crashed) | The loop on the Jetson lowers the arm to its reference, then disables it and stops the receiver. |
-| The loop | The receiver stops the arm when its lease and collision verdict expire (150 ms and 80 ms). |
-| The receiver process | Each motor's own watchdog disables it when commands stop. |
+| **C** | The next stage: Idle, then Enable, then Engage; while following or paused, Shutdown. It cannot skip a transition |
+| **B** | Pause (Hold, motors stay on) while aligning or following; Resume aligns to the leaders again. It does not resume a fault or a lost-leader hold. In Policy mode: take over/hand back |
+| **A** | Start an episode; again to finish. Needs the task set up, a healthy capture and fresh cameras. Shutdown aborts an unfinished recording |
 
-**Trips hold the arm.** A joint past a limit, or too fast toward one, over its
-effort or temperature, past its tracking bound, or out of its collision box
-trips the receiver. It brakes the arm to a hold that keeps its gravity
-feed-forward, rather than cutting torque, and revokes the session's lease. The
-session takes the arm back where it is held, lowers it to its reference and
-disables it; the reason stays on screen. A stop the receiver makes itself (its
-lease or collision verdict lapsing) ends the same way.
+Settings → Pedals has **Test pedals** (counts A, B, C; sends nothing to Minerva; only while no session runs). Keys are ignored
+while typing in a field. Pedals ran on the robot (they are deployed and used with the recording flow).
 
-Two stops end in a hold instead (PAUSED): a joint too fast for three readings
-in a row (the receiver's `sustained_speed` check, such as left J4 lurching
-into its lower end in VR on 2026-11-03), and a late cycle within 10 s of a
-camera dropping off USB. The session takes the arms back where the receiver
-held them and holds them there, with the reason on screen; Engage (T) follows
-again. These count together: a fourth within a minute is lowered and disabled
-as above.
+**How the arms follow.** Each joint's route says which leader channel drives it and its sign; **Flip** reverses a route and
+**Looks right** marks it verified (both need the follower held, not engaged). An arm joint scales from the leader zero, which
+maps onto the robot's reference pose, with one scale for both directions; where the leader has travel to spare the robot stops
+at its limit and the leader goes on past it. A gripper maps end to end. The robot follows no faster than each joint's speed
+cap, so a joint with a small leader range (the wrists, the grippers) lags when you move quickly: hold the leaders still while
+engaging. A leader reading faster than 20 rad/s is treated as a glitch and the arm holds. Each arm joint's operating range is
+its hand-swept range plus 0.02 rad of overtravel before the receiver faults. In the production profile commands are position
+targets with the saved gravity feed-forward for J2-J4 (from a Tune sweep); velocity and friction feed-forward are off unless
+*Velocity feed-forward* is ticked in Settings (it takes effect at the next session start). Grippers have no stopping reserve,
+do not brake on a stop and keep their last target; the effort limit bounds grip force.
 
-**One drive going quiet holds the arm too.** The receiver holds the arm on the
-drives still answering while one stops answering, and refuses to re-arm until it
-answers again; the session then lowers the arm. A drive that drops out of Run
-mode mid-move (it rebooted, or its own watchdog disabled it) reads as quiet for
-the rest of the session and is never re-enabled. The receiver holds the arm on
-the others, and Helm names that drive and asks you to support the arm and press H.
+**Gripper force feedback.** The **Gripper force feedback** card has an **On** switch and force bars. While a gripper holds
+something the leader's trigger meets a wall where the object stopped the jaws; the push grows as you squeeze past it and never
+pulls closed. Settings → Grippers sets *Maximum trigger force* (200 mA is the boards' limit), *Strength*, *Full force at*,
+*Grip threshold* and *Hold time*, saved for every session. It ran with the real leaders; the wall was felt on 2026-10-24.
+Details: [gripper force feedback](../robots/minerva/GRIPPER_FORCE_FEEDBACK.md).
 
-Torque is cut at once only for invalid feedback, every drive going quiet, a
-drive's own fault, an adapter failure, an emergency stop, or the receiver's own
-loop running late; a raised arm then drops. Until 2026-09-29 every trip cut
-torque, and right J2 fell from horizontal. Until 2026-09-30 one quiet drive cut
-torque too, and left J2 fell when its gripper's CAN replies stopped for 46 ms.
+**When something is lost** and **trips**: see [Safety](SAFETY.md) and [Troubleshooting](TROUBLESHOOTING.md). In short: leaders
+lost, the arms hold; the receiver trips, the arms hold then Helm lowers and disables them; a camera drops off USB, the arms
+pause; a drive goes quiet, the arm holds on the others. **Trip hold** (the arms hold instead of lowering after a joint-speed
+trip) is merged but not on the robot yet.
 
-A receiver fault or trip names what its own feedback shows (a joint outside its
-limits, too fast, over its effort or temperature, a drive fault, a failed
-watchdog audit). The receiver's last status is saved as `live-<bus>-last.json`
-in the session's `~/minerva/evidence/live-<time>` folder on the Jetson. The
-session records there too:
-- `samples.f32`: every receiver tick, as float32 rows. `columns.json` names the
-  columns: time, then each joint's position, velocity, effort and command.
-  Recording stops at 512 MB, about 90 minutes of both arms.
-- `events.jsonl`: every key, lifecycle state, fault, message and hold.
+**Live · Both** drives all 14 motors from one receiver. With collision off, nothing keeps the hands apart: keep the leaders'
+paths clear. First powered teleop was 2026-09-27, both arms 2026-10-09, and a 12-minute two-arm session with the head on
+2026-10-31.
 
-**Engage and Shutdown** finish when every arm joint has settled within its
-tolerance of the goal. A gripper is done when its command has reached the goal
-and it has stopped, wherever it stopped: it rests short of a target by its
-friction over its stiffness, or on what it holds. On 2026-10-09 the left one
-rested 0.074 rad from its reference, past the 0.05 rad tolerance, so Shutdown
-never disabled and the motors stayed on.
+**Settings that apply per session.** Settings → Motor tuning ("Manual motor tuning") has, per motor, *Kp*, *Kd*, following
+speed, *Follow* and an optional travel window: **Apply to session**, **Revert edits**, **Save applied**, **Restore saved**,
+**Copy left → right** and **Copy right → left**. Edit while stopped or in Hold, press Apply, wait for the receiver's
+acknowledgement, then T resumes. Editing never engages motion. Unchecked joints hold their position with the motors on. A
+blank travel uses the full usable range; a window stays centered on the first Enable pose. Shutdown keeps its own speed. The
+other Settings categories (session timing and speed ceilings) can only tighten what the profile derives and apply at the next
+session start (**Apply for next session**, **Revert edits**, **Restore profile defaults**).
 
-**Grippers** use their full physical range, closing past the model's closed
-limit. A closed gripper rests on its hand-swept end and its 16-bit feedback can
-read a step (~0.0004 rad) past it, so the receiver's gripper limits extend
-0.05 rad (about 0.5 mm of jaw travel) past each swept end. Gripper targets stay
-within the swept travel. A stalled grasp holds about hold Kp × lead: up to 10 Nm with the current
-gains (2 Nm/rad over a 5.1 rad lead), against the gripper motor's 14 Nm peak.
-Long grasps heat the motor toward the receiver's 70 °C limit. Lower the
-gripper's `hold_kp` if that matters.
+## Head and headset
 
-## Live teleop (both arms)
+The neck is two Feetech servos on their own receiver; **Head** appears in the Teleop panel while a session drives it. A
+teleop session runs the head with the arms and uses the same keys. The head follows the headset while its latest pose is at most
+0.2 s old, holds its last target until that pose is a second old, then returns to its zero; without a headset it holds at zero.
+It follows at most 0.7 rad/s inside its limits and shoulder clearance.
 
-**Live · both** drives all 14 motors from one receiver on Minerva's Jetson,
-and enforces collision checks of one arm against the other. Everything in Live
-teleop (one arm) applies to each arm: the gates and pre-scan, the reference
-pose, the keys, what happens when something is lost, and trips holding the arms.
-Both arms are scanned stopped, both CAN links come up, and one receiver drives
-both buses. Its evidence is saved as `live-canL-canR-last.json`.
+To steer it: on the Quest's browser open `https://<robot-address>:8760/xr` (accept the certificate, log in), look straight
+ahead and level and press Start head tracking. The head follows once the session is engaged (T). A trigger pull, a thumbstick
+click or **Zero headset** (Head card, Settings → Headset) makes where the headset looks the head's straight ahead. The headset
+shows the head camera, optionally as a 3D picture from its depth, the model, and the wrist cameras on the model's wrists;
+A or X opens a ring of controls. Settings → Headset lists the links and *Preview in the 3D view*. One headset steers at a time.
+It needs a login, not control. **X** returns the head to its rest. See [neck](../robots/minerva/NECK_FEETECH.md) and
+[headset 3D](../architecture/HEADSET_3D_PLAN.md) for detail, and [the headset on a slow link](REMOTE_HEADSET.md) for `/xr?remote`.
 
-**Not yet usable** (2026-10-09). Rehearsed on the simulated robot, a joint
-breaking away from stiction as the leaders start moving outruns its
-motion-bound speed bound (1.25 × its command, with a 0.5 rad/s floor) for 3
-readings, and the receiver trips: left J3 read 0.91 rad/s on a 0.80 bound. The
-rehearsal in `tests/contract/test_rehearsal.py` is a known failure for both arms.
-Teleop one arm at a time until it passes. A gripper's speed bound is its cap
-(its commands carry no velocity).
+**Headset as input.** With **Input: Headset** the Quest's controllers drive the arms. Engage (T) raises a hanging arm to a
+ready pose (forearm forward), so keep the space ahead of the hands clear. Hold a controller's grip to drag that arm's gripper as
+the hand moves; let go and the arm holds; the trigger closes the gripper; B or Y holds both arms. Nothing is recorded. The plan
+and its status are in [VR arm teleop](../architecture/VR_ARM_TELEOP_PLAN.md); it has run live (2026-11-03), with a joint-speed
+trip, and is not established as a working mode.
 
-**How the arms are kept apart.** Every move carries a box of joint positions,
-which the receiver checks before it takes the move and holds the arms to every
-tick. The box covers the reference the receiver drives (the command in force,
-then the new command's ramp), widened per joint by:
-- its tracking allowance for its speed: half its tracking bound at rest, growing
-  to the whole bound at its speed cap. The servo sweep sizes the bound at twice
-  the lag at full speed, and the stiffness to hold within half of it;
-- on each side, how far it travels before it stops, at its speed bound toward
-  that side. The speed bound is 1.25 × the speed commanded that way (a servo
-  overshoots what it follows). After a slower command it falls no faster than
-  the joint's stop acceleration, and it is never below 0.5 rad/s (drive noise at
-  rest).
+## Calibrate mode
 
-The receiver trips the arms to a hold when a joint passes its tracking allowance,
-leaves its box, or reads over its speed bound three times in a row.
+**Mode: Calibrate** replaces the task card with the camera calibration card, a guide in three steps: **1 Wrist cameras**,
+**2 Head camera**, **3 Digital twin**. Each step's tab says how far it got and the card opens on the first not done; a box says
+the one thing to do next. Nothing is recorded. To take a still, bring the camera over the table's tags and pause (pedal B, or
+**T** while following): once the session has held for a second Helm takes a still of that camera. Resuming before then takes
+none, and neither does a hold you did not ask for. Once the still is being taken the arms hold until it is saved (about two
+seconds): Resume waits and the card says "Taking a still...". **P** (**Capture still**) captures by hand. H, X and Shutdown are
+never held back. Wrist cameras want 15 stills each with a 4 x 3 map of where in the image tags were seen; the head wants 10
+stills spanning 20 degrees of turn and tilt. **Solve** gives a verdict (about 1 px is good, over 1.5 px checked, over 3 px not
+usable; arm boards more than 10 mm apart are checked, 25 mm not usable); **Save alignment** on a solve that is not usable asks
+again within 4 s. Procedures: [wrist cameras](WRIST_CAMERA_CALIBRATION.md), [head camera](HEAD_CAMERA_ORIENTATION.md) and
+[alignment](CALIBRATION.md). **Digital twin** > **Apply to the model** draws the measured joints through a correction (drawing
+only); **Remove** undoes it. The **Head map** card (**Capture**, 15/30/60 s) records the head camera's pictures and depth for a
+splat map of the room. Stills have been taken live (first on 2026-11-02); no document records a solve on the robot.
 
-Before a move is sent, its box is checked arm against arm in the keep-out model:
-one proximity query at the box's centre, plus a bound on how far each part can
-move anywhere in the box (from each joint axis's distance to the part). The
-outcome:
-- a move whose box could bring the arms within 5 mm of each other is tried again
-  at half, then a fifth, of its step and speed;
-- if none clears, the arms hold their last target, and the panel shows HOLDING
-  with the parts that limit them. They follow again once the leaders part;
-- within 20 mm of that limit, a move passes only if it takes those parts apart,
-  or if the arms could rest at its target with the whole 20 mm.
+## Recording
 
-The arms slow down near each other, stop before their boxes could meet, and
-leave from there.
+**Mode: Direct** shows the task card (**Set up task**, **Record episode**, **Stop recording**, and **Reset simulated scene** in
+simulation). Full procedure: [task workflow](HELM_TASK_WORKFLOW.md). In short: set up the task, start the session, Idle,
+Enable, Engage; **A** or **Record episode** starts, again finishes. Wait for **Complete** before Shutdown. Recording needs
+all three cameras (left wrist, right wrist, head) fresh and the head's pose feed live, and refuses without a live head.
+Episodes are HDF5 files under the receiver session folder (`~/minerva/evidence/live-<time>/episodes/`). Recording is
+[episode format 9](../data/EPISODE_FORMAT.md): 16 axes. **Format 9 has never run on the robot**; the running release recorded
+format 8 (14 axes, no torque), with one real demonstration at the last count.
 
-**What it costs.** At rest each hand's box is about 0.15 m: tracking allowances
-of 0.02–0.05 rad and 0.5 rad/s for 40 ms, on lever arms near a metre. So the
-hands hold about 30 cm apart, farther at speed. In the virtual rehearsal (hands
-driven toward a pose where they overlap) they held at least 29 cm apart. Ways to
-tighten it:
-- measured rest errors per joint (now taken as half the tracking bound);
-- better braking on right J1, whose 4 rad/s² is the weakest;
-- the left arm's wrist sweeps.
+## Replay tab
 
-**Not checked:** the arms against the body. The keep-out scope is arm against
-arm, as for one arm.
+Lists the recorded episodes, newest first (**Refresh**; filter *All*, *To review*, *Kept*, *Discarded*). Choose one to play it
+back with all three cameras, the model posed at the playhead, a scrubber and a joint timeline (click or drag to seek). Keys:
+Space plays or pauses, the arrow keys step a frame (Shift: one second), speeds from the selector. Replay waits while a
+recording runs. **Keep**, **Discard** and **Clear** set the training verdict, with an optional note.
 
-## Servo sweep (Tune)
+**Replay on Minerva** drives the arms from the selected episode: choose 0.25x, 0.5x or 1x and press **Replay on Minerva**, which
+starts a session. Engage (T) aligns to the first frame, then plays the recorded commands; T holds; X lowers. Nothing is
+recorded and faster than 1x is refused. See [live replay](LIVE_REPLAY.md).
 
-The Tune tab measures each joint's servo settings on the real arm, so they are
-not tuned by hand in teleop sessions. It runs one arm at a time, attended, with
-the foot switch in reach. It uses the live receiver with the same gates as live
-teleop: the other arm is never enabled, and the loop runs on Minerva's Jetson
-over the tether. The receiver's stiffness, damping and speed ceilings are raised
-to the sweep's own ceilings (the `sweep` block of the teleop profile).
+## Policy mode
 
-Choose the arm and the joints (all arm joints by default; grippers are not swept,
-Minerva Check opens and closes them instead), check that the arm hangs in its
-reference pose with its path clear, and press **Start LIVE sweep**. The arm is
-enabled at zero torque, then holds, and every joint comes slowly to its
-reference. Then, joint by joint, with the rest of the arm held there:
+**Mode: Policy** runs a trained policy that drives the arms in a session with the leaders connected. Choose it in the policy card
+and press Start. See [policy mode](POLICY_MODE.md); it drives 14 axes and refuses a policy whose joints differ.
 
-1. **Characterise.** Slow ramps out and back at the current gains, widening
-   step by step toward the joint's usable range, with a hold at each end. This
-   maps gravity and friction by angle, weighting torque by displacement so
-   inertia and stuck samples drop out, and fits the joint's gravity slice. The
-   sweep feeds velocity, friction and gravity forward as teleop does, so a heavy
-   joint reaches much further than on position-only commands.
-2. **Stiffness × damping.** Position steps and a short ramp at the reference
-   for each rung of a stiffness ladder (from the ceiling down) and each damping
-   ratio. Damping scales as the square root of stiffness, times a multiplier.
-   A stiffness is held at the worst-gravity point only where the torque map
-   predicts its sag stays within half the tracking bound.
-3. **Speeds and braking** at the chosen gains: trapezoidal moves at increasing
-   speeds, then braking at increasing decelerations.
-4. **Verify** the whole verified range at the chosen settings.
+## Tune
 
-Every planned move is checked against the collision model along its whole
-path, relative to the reference pose: a pair that comes within 20 mm and was
-not that close already stops it.
+The Tune tab measures each joint's servo settings on the real arm, one arm at a time, attended, foot switch in reach. It uses
+the live receiver with the same gates as live teleop; the other arm is never enabled. Choose the **Arm** (**Left arm**,
+**Right arm**, **Head**) and the joints (grippers are not swept; Check opens and closes them), check that the arm hangs in its
+reference pose with its path clear, and press **Start sweep**. The arm is enabled at zero torque, then holds, and every joint
+comes slowly to its reference. Then, joint by joint:
 
-**How the plan moves the joint:**
-- Each cycle, a command's lead over the measured position is capped at 60% of
-  the joint's tracking bound.
-- The plan waits for a joint pinned at that cap rather than running ahead of
-  it. A joint stuck for 3 s ends the task.
-- Stiffness and damping change only once the joint is at rest, ramped over
-  0.3 s.
-- Speed tests stop at 80% of the receiver's cap, and step tests are at most
-  0.03 rad, leaving headroom under the overspeed limit.
-- Moves slow down near the ends, as teleop does.
+1. **Characterise.** Slow ramps out and back at the current gains, widening toward the usable range, with a hold at each end.
+   This maps gravity and friction by angle and fits the joint's gravity slice.
+2. **Stiffness x damping.** Position steps and a short ramp for each rung of a stiffness ladder and each damping ratio. A
+   stiffness is held at the worst-gravity point only where the torque map predicts its sag stays within half the tracking bound.
+3. **Speeds and braking** at the chosen gains: trapezoidal moves at increasing speeds, then increasing decelerations.
+4. **Verify** the whole range at the chosen settings.
 
-**The guards.** A guard abandons a task if any joint of the arm:
-- lags past 75% of its bound;
-- pushes over half its effort limit;
-- passes 55 °C;
-- or the pose's collision check is not clear.
+Every planned move is checked against the collision model along its path relative to the reference pose (a pair within 20 mm
+that was not that close already stops it); this check is the sweep's own, not the production teleop profile's. A joint stuck
+for 3 s ends the task. **The guards** abandon a task if any joint lags past 75 % of its bound, pushes over half its effort
+limit, passes 55 C, or the pose's collision check is not clear; the joint then holds and returns to its reference and the sweep
+continues. If the receiver trips anyway it brakes the arm to a hold; the sweep takes it back there, lowers every joint to its
+reference and disables it. After three trips while lowering the arm is left held: support it, then **H**.
 
-The joint then holds where it is at the current gains and returns to its
-reference, and the sweep continues with what the evidence allows. The
-receiver's own limits stay in force behind all of this. If the receiver trips
-anyway, it brakes the arm to a hold; the sweep takes it back there, lowers every
-joint to its reference at its characterisation speed and disables it. The
-joint under test shows as stopped. After three trips while lowering, the arm is
-left held where it stopped: support it, then press H.
+**Finish (X)** returns the joint under test to its reference, then disables. **Disable (H)** removes torque at once (Helm asks
+first). **Return to reference** brings an arm that rests off its reference (moved while limp) back, slowly and together along
+one straight joint-space line: the 3D view shows the arm as its drives read it; press it, compare the model with the real arm
+and confirm; Helm refuses stale readings or ones outside the swept range, and the arm is disabled at the reference.
 
-**Bound and speed ceilings.** A joint's `bound_ceiling` and `speed_ceiling` in
-the teleop profile's `sweep` block let the session raise its tracking bound and
-speed cap, so the sweep can measure there. Neither costs travel. The bound sets
-the joint's push, through the lead cap. Bound ceilings are set for J4, J5, J6
-and the gripper only; speed ceilings are 1.5 rad/s for J1–J3, 2.5 for J4 and
-4 for the wrists.
+**What it chooses**, per joint, with reasons on its card: the stiffest stiffness that holds quietly (torque ripple at rest at
+most 0.1 Nm), steps with at most 10 % overshoot, within half the tracking bound under load; the damping with the quickest
+settling; the highest speed and deceleration that every direction followed within half the tracking bound; the gravity slice;
+and a tracking bound of twice the worst lag. Review the recommended values next to the current ones and the guard events, check
+the joints you accept and **Save selected**: they go to the servo calibration (`config/devices/<asset>-servo.json`, an
+operator copy on the robot), bound to each motor's UID and firmware. A replaced motor must be swept again. The head's Tune is a
+slow jog to each end, never a sweep, because the head can reach its shoulder; nothing is saved. Evidence stays on the Jetson in
+`~/minerva/evidence/sweep-<time>` (`samples.f32`, `columns.json`, `results.json`, `slow-cycles.jsonl`).
 
-**Finish (X)** returns the joint under test to its reference, then disables
-the arm. **Disable (H)** removes torque at once, and the arm goes limp where it
-is; Helm asks first (H again disables). Stopping the session lowers the arm to the reference first, then disables
-it; Helm asks first.
+## Settings
 
-**Return to reference** brings the chosen arm back to its reference pose after
-it has been moved or left off it while limp. A live start refuses an arm that
-isn't within 0.1 rad of its reference.
-1. With the live view on, the 3D view shows the arm as its drives read it.
-2. Press **Return to reference**. Helm lists each joint's offset from the
-   reference. It refuses readings that aren't fresh, or that fall outside a
-   joint's swept range, since those can't be trusted to move from.
-3. **Compare the 3D view with the real arm, then confirm.** Helm checks the arm
-   hasn't moved more than 0.02 rad since it was shown, disconnects the reader
-   and starts.
-4. The live start scans the arm stopped and requires it within 0.1 rad of the
-   confirmed pose, not the reference. The receiver's start gate checks the same.
-   The arm is enabled at zero torque, then held where it rests.
-5. The whole arm returns together along one straight line in joint space.
-   Every joint arrives at once, and the one farthest out moves at its
-   characterisation speed (0.15 rad/s). The line is checked against the
-   collision model first, from the arm's actual pose. The plan waits for any
-   joint that falls behind its lead cap, and stops if one stays behind for 3 s.
-   A gripper is never waited for: it trails its command, as in teleop. Once
-   there, a gripper is closed at its stiffest gain (kp 5) for 1 s. At its
-   profile's stiffness, its friction stops it about 0.2 rad short, outside a
-   live start's 0.1 rad gate. The arm is then disabled at its reference.
+A rail with search: **Changed from profile**, **Motor tuning**, **Grippers**, **Pedals**, further session categories, read-only
+categories (limits, braking guards, the full profile, bindings), then **Network**, **Headset**, **Cameras**, **Display & touch**.
 
-   The joints move together because they can be coupled. On 2026-09-30 the
-   right arm's wrist rested 0.58 rad off, dragged there by a harness that a
-   1.22 rad shoulder swivel had twisted. Returned first, it stalled against the
-   harness; returned together, the harness unwinds as it was wound.
+- **Grippers:** *Gripper zero* (per gripper: its live reading and **Zero the left gripper...** / **Zero the right gripper...**:
+  close the jaws fully by hand, inner faces together, and zero; arms stay disabled; a power cycle confirms the drive kept it)
+  and the force feedback settings above.
+- **Cameras:** the three camera previews' exposure and gain. **Read camera settings**, adjust, apply; values last until the
+  camera service restarts. A preview drops frames on a slow link rather than closing.
+- **Network:** how Minerva is connected (wired, tether, Wi-Fi) and **Turn the access point on** (the access point `minerva`
+  puts devices on Minerva's own Wi-Fi). Not while a session holds the motors.
+- **Display & touch:** *Look*, *Touchscreen layout*, *Day and night*, and the 3D telemetry options (position, torque,
+  temperature, direction arrows) with **Reset display preferences**.
 
-The same guards and receiver limits apply. A guard, a line that isn't clear, or
-Finish (X) stops it and disables the arm where it is. Part-way through a
-return, that may not be exactly where it rested before.
+## Files on the robot
 
-This trusts readings away from the reference, so it relies on the drives'
-−π…π power-on range, which makes every joint that stays within ±π of zero read
-its true angle, and on your visual check. The drives' power-on range is set
-since 2026-09-30.
+| Where | What |
+|---|---|
+| `~/minerva/helm/logs/helm.log` | What Helm prints |
+| `~/minerva/helm/operator/` | Limits, servo calibration, leader ranges, head files, the arms' reference |
+| `~/minerva/helm/runs/` | Helm's sessions and evidence |
+| `~/minerva/evidence/live-<time>/` | A live session: `samples.f32`, `events.jsonl`, `live-<bus>-last.json`, `episodes/` |
+| `~/minerva/helm/calibration/<run>/` | Camera calibration stills and solves |
+| `~/minerva/releases/`, `~/minerva/current` | Deployed releases |
 
-**What it chooses**, per joint, with the reasons shown on its card:
-- **Stiffness**: the stiffest rung that passes, since it follows and holds
-  best. It must hold still quietly: torque ripple at rest at most 0.1 Nm (std).
-  Damping turns the drive's noisy speed reading into torque: the J2s rippled
-  0.14 to 0.21 Nm at kd 21 to 29 and buzzed. Its steps must not overshoot by
-  more than 10% and must come to rest within half the tolerance, and it must
-  hold the joint's load within half the tracking bound: friction plus gravity,
-  or with gravity fed forward, 20% of it (the model's error).
-- **Damping**: the ratio with the quickest settling at that stiffness, among
-  those that hold quietly.
-- **Speed and braking**: the highest tested speed that every direction
-  followed, and the highest deceleration, with at most half the tracking bound
-  of lag. A short joint runs out of room to test its faster speeds; when every
-  speed it had room for was followed, it gets its cap. A final pass across the
-  whole range at that speed must stay within half the bound too; if it doesn't,
-  the speed steps down.
-- **Gravity slice**: saved with the joint, for the arm's gravity feed-forward.
-- **Tracking bound**: twice the worst lag at that speed (including that final
-  pass), between 0.03 rad and the session's bound.
-
-The results show the recommended values next to the current ones, the
-measurements (gravity, friction, verified range, worst lag) and any guard
-events. Check the joints you accept, whose verification passed, and **Save
-selected**. They go to the servo calibration,
-`config/devices/<asset>-servo.json`, bound to each motor's UID and firmware.
-The receiver takes those joints' gains, speed, braking and tracking bound from
-it, and live teleop uses it from its next session. A replaced motor must be
-swept again. The release carries `config/devices`, so deploy
-(`.venv-dev/Scripts/python.exe -m robot_platform deploy`, which
-`scripts/deploy_minerva_arms.sh` runs) before the next Minerva Check; until
-then its "Release matches this PC" item fails.
-
-Minerva Check's live joint sweep (above) runs this engine in verify mode
-against the saved calibration. Its evidence goes to `check-sweep-<time>`.
-
-Evidence stays on the Jetson in `~/minerva/evidence/sweep-<time>`:
-- `samples.f32`, every receiver tick as float32 rows, described by
-  `columns.json`;
-- `results.json`, the per-joint results and events;
-- `slow-cycles.jsonl`, any loop cycle that started more than 40 ms after the last
-  or ran that long: its gap, the feed, offer and planning marks, the view send
-  and any garbage collection. The receiver brakes the arm when no fresh command
-  reaches it within its 80 ms verdict.
+The [earlier, longer manual](../history/features/HELM_MANUAL_PC_DEPLOYMENT.md) keeps more on the control law, gravity
+feed-forward and timing. It describes Helm running on an operator PC.

@@ -1,63 +1,28 @@
 # Guarded powered commissioning
 
-## Current result — 2026-09-24
+How a motor is qualified before it is trusted with torque: stopped diagnostics, the command-loss watchdog, bounded single-actuator
+trials. This is the procedure for new or replaced hardware; Helm's [Check](HELM_MANUAL.md#check) and [Tune](HELM_MANUAL.md#tune)
+cover the routine path. Safety: [Safety](SAFETY.md).
 
-**All 14 Minerva motors communicate; full arm motion remains blocked.** Physical
-identity, stopped feedback and parameter reads are recorded. Command-loss tests
-have passed on all 14 motors with their currently installed firmware. After the
-user updated left j6/gripper to RS00 0.0.3.32 and left j4/j5 to RS02 0.2.3.34,
-all four passed their tests. The previously observed j4/j6 failures are resolved
-under the tested nominal-zero-gain command-loss condition. No failed or deferred
-watchdog results remain for the current firmware. These were individual trials,
-not a simultaneous loaded test of both arms.
+## Status
 
-The guarded CAN adapter now requires fresh watchdog verification before physical
-enable. On the production Jetson, a wrong UID was rejected before opening the
-command socket; the correct right-gripper UID reached ready and remained disarmed
-through periodic watchdog audits. This hardware check did not request network
-enable. Adapter enable/refusal paths are covered by deterministic tests.
+All 14 Minerva motors communicate and have passed the bounded command-loss test on their installed firmware (RS00 0.0.3.32 and
+RS02 0.2.3.34 on the left j4/j5/j6 and gripper after the manufacturer's update; the earlier j4/j6 failures are resolved under the
+tested nominal-zero-gain condition). The guarded CAN adapter requires fresh watchdog verification before physical enable. Full
+arm motion has since run: first powered teleop on 2026-09-27, both arms on 2026-10-09 (see [Status](../STATUS.md)). What is still
+**not** qualified: loaded stopping, host and CAN loss response under load, and the production settings; powered trials stay
+attended. These were individual-motor trials, not a simultaneous loaded test of both arms. The raw evidence, identities and
+artifact hashes are in the [device log](../devices/MINERVA_PRODUCTION_01.md) and
+[motor evidence](../devices/MINERVA_MOTOR_COMMISSIONING_20260924.json).
 
-The rack-and-pinion right gripper now has measured motor-space motion after two
-earlier ineffective low-gain jogs. A bounded feedforward ramp detected 0.003068 rad
-travel at +0.200375 Nm and -0.206 Nm. The positive-direction trial passed. The
-negative-direction trial **failed its post-stop speed bound**: 0.229114 rad/s
-triggered the failure, and the final cleanup reply reached 0.254292 rad/s against
-a 0.2 rad/s limit. Stop was acknowledged, but Reset does not prove zero velocity.
-No bound was relaxed. That immediate-stop failure remains in the historical record.
+The rack-and-pinion gripper is the hard case. Two earlier low-gain jogs moved nothing; a bounded feedforward ramp then detected
+0.003068 rad of travel at +0.200375 Nm and -0.206 Nm. The negative trial failed its post-stop speed bound (0.254 rad/s against
+0.2 rad/s) and no bound was relaxed; the damped-stop profile below passed all four follow-up trials (peak speed 0.093-0.112 rad/s,
+travel 0.003068-0.003452 rad, effort below 0.215 Nm; [evidence](../devices/MINERVA_DAMPED_GRIPPER_20260924.json)). The 0.20 Nm
+values describe reaching a small encoder-displacement threshold, not calibrated jaw force or exact static friction.
 
-The subsequent **damped-stop follow-up passed all four trials**, two in each
-direction at the same starting region. Peak reported speed was 0.0932-0.1123 rad/s;
-maximum travel was 0.003068-0.003452 motor rad and peak reported effort stayed
-below 0.215 Nm. Each trial passed the watchdog behavior check, a continuous
-settling check with zero gains, post-disable observation and final stop reply.
-See the [four-trial evidence](../devices/MINERVA_DAMPED_GRIPPER_20260924.json).
-
-The encoder reversed briefly after drive removal, consistent with recoil or
-backlash. A subsequent 100-sample stopped capture spanned only 0.000307 rad in
-position, while reported velocity varied up to 0.0971 rad/s. This does not
-separate mechanical dynamics from velocity-estimate noise. The roughly 0.20 Nm
-values describe reaching a small encoder-displacement threshold, not calibrated
-jaw force or exact static friction. The four follow-up trials repeat that small
-motor-space test; independent jaw travel and controlled return remain unverified.
-
-Final diagnostics: 182/182 replies, all 14 motors in Reset with no fault bits.
-Both CAN interfaces were returned down; legacy motor services remain disabled.
-See the [device log](../devices/MINERVA_PRODUCTION_01.md) and
-[motor evidence](../devices/MINERVA_MOTOR_COMMISSIONING_20260924.json) for identities,
-firmware, artifact hashes, measurements and raw-report locations. The
-[RS00 follow-up](../devices/MINERVA_RS00_FIRMWARE_RETEST_20260924.json) and latest
-[RS02 follow-up](../devices/MINERVA_RS02_FIRMWARE_RETEST_20260924.json) preserve both
-retests. The [startup/gripper evidence](../devices/MINERVA_WATCHDOG_GATE_GRIPPER_20260924.json)
-and latest [damped-stop evidence](../devices/MINERVA_DAMPED_GRIPPER_20260924.json)
-contain raw trials, stopped telemetry and artifact hashes. At final inspection,
-left j4/j5 and the right gripper read watchdog 600; the other eleven read zero.
-Historical passes do not mean protection is currently configured.
-
-Target: `ltr@<robot-address>`, asset `minerva-production-01`, module serial
-`1421623029971`. Check the pinned SSH key, module serial, machine ID and adapter
-serials. The user retired the ESP-NOW/serial stop design. No programmatic power
-cutoff exists. The stand tolerates arms falling on torque loss, as confirmed by
-the user. Software stop/fault handling remains; powered trials must be attended.
+Check the pinned SSH key, module serial, machine ID and adapter serials in the device profile before any trial. There is no
+programmatic power cutoff; the stand tolerates the arms falling on torque loss, and software stop and fault handling remain.
 
 ## Tools and boundaries
 
@@ -73,7 +38,7 @@ transmission mapping and interface identities are configuration data.
 | `motor_diagnostics` | MCU UID, firmware, stop feedback and whitelisted typed parameter reads; no enable |
 | `zero_torque_trial` service mode | Stopped watchdog setup before socket readiness; explicit single-actuator nominal zero feedforward/P/D enable, at most 250 ms; no move commands |
 | `motor_watchdog_trial` executable | Pinned single-actuator watchdog write/readback and command-loss experiment; optional separately authorized bounded jog or breakaway ramp |
-| `teleop` service mode | One arm (one CAN bus) under leases, expiring collision envelopes and stops; the same watchdog and reference gates as `zero_torque_trial` before socket readiness; single-use enable; requires `--allow-powered-teleop --confirm-reference-pose`. Started by Helm's live teleop (see [Helm](HELM_MANUAL.md#live-teleop-one-arm)) |
+| `teleop` service mode | One arm (one CAN bus) under leases, expiring collision envelopes and stops; the same watchdog and reference gates as `zero_torque_trial` before socket readiness; single-use enable; requires `--allow-powered-teleop --confirm-reference-pose`. Started by Helm's live teleop (see [Helm](HELM_MANUAL.md#teleop)) |
 
 Physical service trials require `--allow-powered-trial` and a finite duration
 no longer than 30 seconds. Outside the one-arm `teleop` mode, the service
@@ -262,29 +227,18 @@ object into its own JSON file; the standalone tool expects the full wrapper.
 
 ## Remaining gates
 
-The [offline transmission calibration workflow](../history/plans/GRIPPER_TRANSMISSION_CALIBRATION.md)
-pairs stopped diagnostics with manually measured jaw gaps and checks both
-approach directions. It produces an interpolation candidate without installing
+The [offline transmission calibration workflow](../history/plans/GRIPPER_TRANSMISSION_CALIBRATION.md) pairs stopped diagnostics
+with manually measured jaw gaps and checks both approach directions. It produces an interpolation candidate without installing
 live settings or enabling motors.
 
-1. Use the [manual encoder/caliper measurements](../devices/calibration/minerva-right-gripper-20260924/README.md)
-   as an approximate unloaded transmission estimate (18.4104 mm/rad total
-   aperture). The first 1 mm fit failed; a separate coarse candidate uses a
-   provisional 2 mm criterion after the user confirmed finger flex and caliper
-   variation. Powered jaw accuracy and motion-versus-compliance still need
-   confirmation. Current motor position is outside the candidate's shared
-   interpolation interval; do not extrapolate the absolute gap estimate.
-2. Establish useful jaw motion and controlled return in both directions, then map
-   travel and force. Current repeatability evidence is two small encoder tests
-   per direction at one pose, not a calibrated open/close cycle.
-3. Measure motor-to-CAD sign/zero/transmission and physical limits; validate
-   torque interpretation, gains, speeds and stopping bounds under supported load.
-4. Collision verdict expiry and joint-box enforcement are implemented in the
-   receiver and passed 1,000 production-host vcan cycles including real geometry.
-   Qualify physical stopping bounds, real leader transport and same-arm/body
-   policy. Preserve finger exclusions. See [guarded teleop](../architecture/GUARDED_TELEOP.md).
-5. Qualify host/CAN loss response and full 25 Hz operation under collision/camera
-   load before loaded holding, arm motion, application migration or dual-arm use.
+1. The [manual encoder and caliper measurements](../devices/calibration/minerva-right-gripper-20260924/README.md) give an
+   approximate unloaded transmission estimate (18.4104 mm/rad total aperture) under a provisional 2 mm criterion; the first 1 mm
+   fit failed. Powered jaw accuracy and motion versus compliance need confirmation, and the candidate's interpolation interval
+   does not cover the current motor position: do not extrapolate the absolute gap.
+2. Establish useful jaw motion and a controlled return in both directions, then map travel and force.
+3. Validate torque interpretation, gains, speeds and stopping bounds under supported load.
+4. Qualify physical stopping bounds and host and CAN loss response under camera load before relying on them. See
+   [guarded teleop](../architecture/GUARDED_TELEOP.md).
 
 ## Protocol references and codec correction
 
@@ -299,9 +253,9 @@ versions that passed this command-loss trial. Published asset hashes:
 | `rs00-0.0.3.32.bin` | `a889f1b027b53fd7b18bb6db5e7df1f97d4edd62d6ff9c8b5665293c1f9ffa80` |
 | `rs02-0.2.3.34.bin` | `767e427cd1f952fd4e0a30427fb7d9bf8af2d4f2a0d183c03fc0aa04b8be97bd` |
 
-The user installed RS00 0.0.3.32 on left j6/gripper and RS02 0.2.3.34 on left
+The operator installed RS00 0.0.3.32 on left j6/gripper and RS02 0.2.3.34 on left
 j4/j5. Their original UIDs/CAN IDs and new versions were read back; all four
-passed the bounded test. The source assets used by the user were not independently
+passed the bounded test. The source assets used were not independently
 identified. A version match alone is not proof of a repair; the behavior was
 retested. Left j6 position changed from 6.166641 rad
 in the earlier capture to near zero after maintenance; motor-to-CAD calibration
@@ -313,7 +267,7 @@ recalibration after that update. A blanket fleet update is not part of this tria
 
 ### Wire ranges
 
-User-confirmed labels on both arms, IDs 4..10:
+Labels read off both arms, IDs 4..10:
 **RS03, RS04, RS03, RS02, RS02, RS00, RS00**. Guarded commissioning uses current
 manufacturer wire ranges, including RS00 ±14 Nm / ±33 rad/s / Kp 500 and RS03
 ±20 rad/s. Encoding ranges are not approved operating limits. The disabled legacy

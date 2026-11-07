@@ -1,5 +1,7 @@
 # MuJoCo simulation
 
+**Status:** the plant adapter and its tests are done; Minerva's own dynamics are blocked on measured masses (below). Nothing here is proven on the robot.
+
 MuJoCo is the coupled-physics backend. `MujocoPlant` implements the existing
 `PlantReceiver` plant boundary: named motor positions, timed integration and
 feedback. `PlantReceiver` continues to run the real Rust receiver at 400 Hz.
@@ -69,7 +71,7 @@ Do not invent mass properties to obtain a green Minerva demo.
 the export no longer matches the URDF. After a URDF or mesh change, delete the export and regenerate:
 
 ```sh
-.venv-dev/Scripts/python.exe -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml --limits config/devices/minerva-production-01-joint-limits.json --directions calibration_runs/minerva-production-01-directions/session.json
+.venv-dev/Scripts/python.exe -m robot_platform.models.mjcf urdf/minerva/model.json --output urdf/minerva/mujoco/minerva.xml --limits config/devices/minerva-production-01-joint-limits.json --directions <Helm direction session>/session.json
 ```
 
 `--directions` is Helm's direction session in the checkout Helm runs from (it is local state, not in
@@ -95,7 +97,7 @@ View it, kinematics only:
 ```
 
 `--collision` shows the source collision meshes instead of the visuals. The viewer's joint sliders
-recompute kinematics only. See [the task brief](MINERVA_MJCF.md) for results and limits.
+recompute kinematics only. See [MINERVA_MJCF.md](MINERVA_MJCF.md) for results and limits.
 
 ## Import decisions
 

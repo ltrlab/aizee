@@ -51,64 +51,29 @@ The current startup reference gate requires independent pose confirmation and
 fresh encoder agreement before physical enable. Its proof cannot be reused
 after disable, faults or a new process. See [guarded teleoperation](../architecture/GUARDED_TELEOP.md).
 
-## Minerva reference, 2026-09-24
+## Minerva's reference revisions
 
-Use the [live calibration session](JOINT_CALIBRATION.md) to check directions by
-moving disabled joints and watching the CAD model follow. The guided local
-Enter-to-capture mode remains available; chat is not required between joints.
+Use the [live calibration session](JOINT_CALIBRATION.md) (or Helm's Limits tab) to check directions by moving disabled joints and
+watching the CAD model follow. The reference pose is both arms matched to the viewer's six-joint zero pose; **gripper zero means
+the inner jaw faces fully closed**. The records below are the revisions this unit has had; the evidence is in
+[`docs/devices/`](../devices/).
 
-The operator matched both arms to the viewer's six-joint zero pose and confirmed
-that gripper zero means **inner jaw faces fully closed**. All 14 motors received
-exactly one mechanical-zero command and one save attempt, with no enable/control
-frames. Final repeated readback was within 0.000297 rad of zero. This is encoder
-precision at a manually aligned pose, not CAD calibration accuracy.
+| Revision | What was zeroed | Result |
+|---|---|---|
+| `minerva-reference-20260924` ([record](../../config/devices/minerva-reference-20260924.json), [summary](../devices/MINERVA_MECHANICAL_ZERO_20260924.json)) | All 14 motors: one zero command and one save attempt each, no enable or control frames | Readback within 0.000297 rad of zero, which is encoder precision at a manually aligned pose, not CAD calibration accuracy. Save replies were missing for left j3/j4/j5/j6/gripper; the operator's power cycle then passed: all 14 within 0.000297 rad with unchanged identities |
+| `minerva-mechanical-reference-20261009` ([record](../../config/devices/minerva-reference-20261009.json), [summary](../devices/MINERVA_MECHANICAL_ZERO_20261009.json)) | Left J4 and J5 only, after a wrist harness rework | Both read within 0.0003 rad of zero after a power cycle. The other twelve keep the 2026-09-24 zero. The revision names the earlier one in `direction_evidence_from`, because direction checks are signs, which a re-zero does not move; limits and servo calibration were re-bound unchanged |
+| `minerva-mechanical-reference-20261101T192305Z` ([summary](../devices/MINERVA_MECHANICAL_ZERO_20261101.json)) | Right J4 and J5, through Helm's Joint zero, after the right wrist structure was remounted in a different position | Verify read them at +0.00005 and -0.00010 rad after the power cycle |
 
-Save responses were missing for left j3/j4/j5/j6/gripper. The other motors
-returned their pinned UID. All final stops were fault-free Reset; physical CAN
-links returned down. The subsequent operator-reported power cycle passed:
-all 14 raw positions remained within 0.000297 rad of zero, with unchanged
-UID/firmware and fault-free Reset. This verifies one power cycle; future startup
-reference checks remain mandatory. See
-[reference record](../../config/devices/minerva-reference-20260924.json) and
-[full action summary](../devices/MINERVA_MECHANICAL_ZERO_20260924.json).
+Some firmware returns a matching UID after a save and some gives no response; neither form proves persistence, which only the
+power-cycle readback does. Direction evidence is recorded separately in
+[arm direction evidence](../devices/MINERVA_ARM_DIRECTIONS_20260924.json): the sign converts a raw motor-angle change to the CAD
+joint's direction. Left J1 is +1 and right J1 -1 (the right CAD axis points down at the reference pose, so positive CAD J1 turns
+clockwise viewed from above). Those observations establish signs, not transmission ratios or alignment accuracy.
 
-## Left J4 and J5 re-zeroed, 2026-10-09
-
-The left wrist harness rework of 2026-10-08 found oxidation or ash inside an
-XT30 connector, which explains left J5's repeated overcurrent trips under J3
-motion. The operator replaced the connector with wires soldered to the board
-and remounted left J4 and J5. At the zero pose they then read −0.620 and
-−1.654 rad. With the operator confirming both at the zero pose, the stopped
-maintenance session zeroed and saved those two drives only, after checking the
-whole roster stopped (identity, firmware, fault-free Reset). J5 returned its
-UID to the save, and J4 again gave no save response. After an operator power
-cycle both read within 0.0003 rad of zero, with every drive answering with
-its pinned identity and a fault-free Reset.
-
-This is reference revision `minerva-mechanical-reference-20261009`
-([record](../../config/devices/minerva-reference-20261009.json),
-[action summary](../devices/MINERVA_MECHANICAL_ZERO_20261009.json)). The other
-twelve motors keep their 2026-09-24 zero. The revision names the earlier
-reference in `direction_evidence_from`, because direction checks are signs,
-which a re-zero does not move. The saved limits and servo calibration were
-re-bound to it unchanged, on the operator's report that the ranges are
-unchanged. Helm's direction session was migrated with a backup, as on
-2026-09-26.
-
-Manual direction checks are recorded separately in
-[arm direction evidence](../devices/MINERVA_ARM_DIRECTIONS_20260924.json).
-The first two checks established left shoulder swivel J1 sign **+1** and right
-shoulder swivel J1 sign **-1**, where the sign converts a raw motor-angle change
-to the CAD joint's direction. The right CAD axis points down at the reference
-pose, so positive CAD J1 turns clockwise viewed from above. The demonstration
-angles were not measured physical targets: these observations establish signs,
-not transmission ratios or alignment accuracy. The other ten arm-joint signs
-remain pending. No runtime mapping or mechanical zero was changed by these reads.
-
-## Joint zero in Helm, from 2026-11-01
+## Joint zero in Helm
 
 Later re-zeroes of arm joints run through Helm's **Joint zero** (Limits tab;
-[Helm](HELM_MANUAL.md#joint-zero)), so the operator can redo them without a release:
+[Helm](HELM_MANUAL.md#limits)), so the operator can redo them without a release:
 the same stopped maintenance (`ops.probe zero_joints`) at the operator-confirmed
 zero pose, then a power cycle and Helm's Verify, which needs every zeroed joint
 within 0.01 rad of zero. The revision is not committed: Helm on Minerva keeps it
@@ -120,16 +85,7 @@ re-sweep; the direction session and manual tuning presets move to it. A release
 that brings a different committed reference replaces Helm's copy, the replaced
 copy kept aside (helm.operator_files).
 
-Its first use, on 2026-11-01, re-zeroed right J4 and J5 after the operator
-remounted the right wrist structure in a different position: at the zero pose
-they read −0.551 and −1.636 rad. Both drives acknowledged the zero and returned
-their UID to the save. After the power cycle, Verify read them at +0.00005 and
-−0.00010 rad, with all 14 drives answering with their identities and a
-fault-free Reset. That is revision
-`minerva-mechanical-reference-20261101T192305Z` (sha256 `0b3d5a87…`;
-[action summary](../devices/MINERVA_MECHANICAL_ZERO_20261101.json),
-[device log](../devices/MINERVA_PRODUCTION_01.md)). The other twelve motors keep
-their 2026-09-24 or 2026-10-09 zero.
+Its first use, on 2026-11-01, is the third revision in the table above.
 
 ## Why an apparent zero may change
 

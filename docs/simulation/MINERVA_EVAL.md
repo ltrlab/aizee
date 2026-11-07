@@ -2,7 +2,7 @@
 
 Closed-loop task success, not validation loss, is the progress metric. This harness runs N trials of a policy against the contact task scene ([MinervaTaskScene](MINERVA_TASK_SCENE.md): pick up the cube with one gripper, pass it to the other, release it into the bucket) and writes one report. Hand-logged real-robot trials go through the same report code, so a simulated ablation and a robot milestone gate compare field by field.
 
-Code: `src/robot_platform/evaluation/`. Nothing in `task_scene.py` or `task_capture.py` was changed.
+Code: `src/robot_platform/evaluation/`. **Status: done and used in simulation** (the harness and its reference policies); no trained policy has been evaluated on the robot with it, and the hand-logged robot path is untried.
 
 ## Running it
 
@@ -18,7 +18,7 @@ Prerequisites: this checkout's `.venv-dev` (`python scripts/dev.py setup`, MuJoC
 
 ## The policy interface
 
-A policy is a callable `policy(observation) -> chunk`, where `chunk` is an `(H, 14)` array of joint commands in receiver motor coordinates and receiver joint order (`left_arm_j1..6, left_gripper, right_arm_j1..6, right_gripper`): the same space the task capture records as `qpos`, `qcmd` and `actions`. Row `k` is meant for `k * action_dt` seconds after the observation; the runner interpolates linearly between rows and holds the last. Optional attributes: `name`, `action_dt` (default: the 10 ms control period), `execute_steps` (rows executed before the policy is asked again; default the whole chunk), `camera_roles` (rendered into the observation), `start_pose(context)`, `reset(context)` and `describe()`.
+A policy is a callable `policy(observation) -> chunk`, where `chunk` is an `(H, 14)` array of joint commands in receiver motor coordinates and receiver joint order (`left_arm_j1..6, left_gripper, right_arm_j1..6, right_gripper`): the same space the task capture records as `qpos`, `qcmd` and `actions`. The interface is 14 arm axes: a policy whose joints differ, such as one trained on format 9's 16 axes, is refused at `reset` (`data/lerobot_policy.py`), because the plant has no head to drive. Row `k` is meant for `k * action_dt` seconds after the observation; the runner interpolates linearly between rows and holds the last. Optional attributes: `name`, `action_dt` (default: the 10 ms control period), `execute_steps` (rows executed before the policy is asked again; default the whole chunk), `camera_roles` (rendered into the observation), `start_pose(context)`, `reset(context)` and `describe()`.
 
 The observation has `t` (s since the scene reset), `q`, `dq`, `effort` and `qcmd` from the receiver's latest feedback row (the policy sees 16-bit, noisy feedback, as on the robot), `joint_names`, and `images` when requested. The context given to `reset` and `start_pose` also carries the cube's start pose. That is privileged simulation state: scripted baselines may use it, learned policies must not.
 
@@ -101,9 +101,9 @@ A 10-trial robot gate distinguishes only large effects (3/10 vs 7/10 gives p = 0
 
 ## Real-robot trials
 
-1. `python -m robot_platform.evaluation grid --template > build/eval/robot-<date>.csv` gives one row per trial with the cube position (task-scene table coordinates). Use the same `--grid/--seed` as the simulated run you will compare with.
+1. `python -m robot_platform.evaluation grid --template > robot-<date>.csv` gives one row per trial with the cube position (task-scene table coordinates). Use the same `--grid/--seed` as the simulated run you will compare with.
 2. Per trial: place the cube, give the go signal, and log in seconds from the go signal `pickup_s` (both jaws holding it off the table), `handoff_s` (the receiving gripper alone holds it) and `bucket_s` (released and settled in the bucket). Then log `outcome` from the table above and, optionally, `eligible`, `duration_s`, `detail` and `notes`. Leave a stage blank if it was not reached. Unlogged eligibility follows the outcome: only `forbidden_penetration` is ineligible.
-3. `python -m robot_platform.evaluation report build/eval/robot-<date>.csv --policy <name> --grid 3x3 --seed 0 --meta meta.json` writes `report.json`/`.md` beside the sheet. `meta.json` holds provenance: robot release, checkpoint, operator, camera setup.
+3. `python -m robot_platform.evaluation report robot-<date>.csv --policy <name> --grid 3x3 --seed 0 --meta meta.json` writes `report.json`/`.md` beside the sheet. `meta.json` holds provenance: robot release, checkpoint, operator, camera setup.
 
 The simulated stage events have precise definitions (force-bearing opposing contacts for 50 ms above the table, and so on; see [the scene](MINERVA_TASK_SCENE.md#outcomes)). A human logger applies their visible equivalents. Expect this definition gap to be part of any sim-to-real difference.
 
@@ -115,7 +115,7 @@ All three are harness controls, not capable policies.
 - `hold_still`: holds the hanging pose.
 - `penetrating`: starts at the fixture's start and lowers `left_arm_j2` 0.3 rad over 1 s, into the table.
 
-Measured 2026-10-16 with harness commit `4556db0` (base `755085f`), default grid (seed 0, 10 poses), default timeout and plant seed:
+Measured on 2026-10-16, default grid (seed 0, 10 poses), default timeout and plant seed:
 
 | Policy | Plant | Counted (excluded) | Success (Wilson 95%) | Stage score | Outcomes | Eligible |
 |---|---|---|---|---|---|---|
@@ -152,7 +152,7 @@ What this shows:
   - policy errors abort one trial only;
   - every default grid pose is reachable without penetration.
 
-These files are not yet in `scripts/dev.py`'s required list; that is the integrator's call.
+These files are in the gate (`scripts/dev.py`'s required list).
 
 ## Limitations
 

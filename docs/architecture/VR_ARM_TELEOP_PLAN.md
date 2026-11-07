@@ -1,11 +1,22 @@
 # VR arm control: plan
 
 The operator drives Minerva's arms through the GELLO leaders; the Meta Quest Pro steers the head and shows what the
-robot sees. The user asked on 2026-11-01 for the arms to be driven from the Quest's controllers through Helm, as
-AIZEE's `collect_demo.py` once did: a relative grab and drag of the gripper, not constant tracking. The user approved
-the defaults below the same day, and asked that the headset work on the home network and on Minerva's own access
-point, switching easily between them. Branch `claude/vr-arms`, from `58acc08` (`claude/teleop-modes`, what Minerva
-runs).
+robot sees. This plan lets the Quest's controllers drive the arms through Helm, as AIZEE's `collect_demo.py` once did:
+a relative grab and drag of the gripper, not constant tracking. The headset must work on a home network and on
+Minerva's own access point, switching easily between them.
+
+## Status
+
+| Phase | State |
+|---|---|
+| 1: Minerva arm IK (`vision/chain.py`, `teleop/arm_ik.py`) | Built. |
+| 2: VR arms (`teleop/vr_arms.py`, `teleop/vr_worker.py`) | Built. |
+| 3: Headset page and relay (`helm/xr.py`, `static/xr*.js`) | Built. The controller messages, the thumbstick zero and the network links were checked offline and in a local preview, not on a real Quest. |
+| 4: Loop integration (the headset source, `teleop/headset_source.py`) | Built behind a VR profile; **never run with a Quest driving the arms.** |
+| 5: Feedback in the headset | The headset model and control ring exist (`xr_model.js`, `xr_ring.js`); the target ghost, workspace boxes and controller pulse are unconfirmed or not built. |
+| 6: Rehearse, then live | Not done. |
+
+Tests: `tests/unit/test_vr_arms.py`, `test_headset_source.py`, `test_helm_xr.py`, `tests/contract/test_headset_mode.py`.
 
 ## What exists
 
@@ -19,7 +30,7 @@ runs).
   `{name, position, sampled_at, sequence}` each cycle; Engage's alignment, the speed limits, the collision bound and
   the receiver's own limits apply to them as to the leaders'.
 - **Kinematics**: `vision/chain.py` places a link for given joint positions from a URDF. Nothing solved the inverse
-  for Minerva before this branch.
+  for Minerva before phase 1.
 - **AIZEE's version** (`python/teleop/quest_leader.py`, `python/web/`, `python/ik/`, `config/quest_teleop.yaml`; June
   2026, `3dbb95f`), outside the guarded path, one arm:
   - Holding the right grip anchored the controller's pose and the gripper's pose at the last *commanded* joints, so
@@ -36,7 +47,7 @@ runs).
   - The headset drew a ghost of the commanded arm, the workspace box, the anchor and target, and a red line when
     clamped; buttons re-anchored, set forward and resized the box. `fake_quest.py` sent scripted poses.
 
-## Behaviour (the user's defaults, 2026-11-01)
+## Behaviour (the chosen defaults)
 
 - **Controllers**, not hand tracking (later). Each controller drives its own arm.
 - **Grab and drag, per arm.** Holding the grip attaches the hand: the gripper's pose follows the hand's motion since
@@ -218,7 +229,7 @@ What makes switching easy:
   singular value falls to 0 as the hand crosses the shoulder's vertical). From a working pose, forearms forward, the
   same circle moves no joint more than 0.39 rad (J1 0.05). Every session starts at the reference pose, so this is
   an operator's first drag (phase 2's finding).
-- **The ready pose** (the user's choice, 2026-11-02, over the gripper's orientation giving way or slower caps).
+- **The ready pose** (chosen over the gripper's orientation giving way or slower caps).
   Engage raises an arm hanging at the reference (J2, J3 and J4 within 0.25 rad of it) to its ready pose at the
   alignment speed, as a replay's first frame is aligned to; any other arm stays where it is, so Engage after a hold
   mid-task moves nothing. The pose (`headset_source.READY`, CAD joints): left (0, -0.3, -1.6, -0.7, 0, 0), the right
@@ -243,7 +254,7 @@ What makes switching easy:
 ## Phase 6: Rehearse, then live
 
 - Offline on `simulation/arm_plant.py`, then `helm --sim` with the real Quest.
-- One arm live in the cage with the user driving, then both arms under the enforced bound.
+- One arm live in the cage with the operator driving, then both arms under the enforced bound.
 
 ## Open
 

@@ -1,10 +1,15 @@
 # Collision implementation status
 
-Updated 2026-09-20 EDT. The viewer checks CAD contacts or explicit conservative
-keep-out boundaries. The next milestone is a
-[25 Hz supervisor and staged hardware validation](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md);
-the eventual 100 Hz whole-robot target remains open. See [research](../history/plans/COLLISION_RUNTIME_RESEARCH.md) for
-the design rationale and primary sources.
+**Production teleop on Minerva runs with collision checking off.** The direct profile
+(`config/devices/minerva-teleop-direct-tuning.json`, `collision_mode: disabled`, 100 Hz) installed by
+`ops/helm_service.py` has no collision envelope, and the arm-body, environment and payload cases were never covered. This
+page describes the collision machinery as built, which is used by the shared viewer, by simulation and rehearsal, and by
+the guarded profile (`config/devices/minerva-teleop.json`) on the receiver; none of it gates the live production loop.
+
+The viewer checks CAD contacts or explicit conservative keep-out boundaries. Measurements below were taken on
+2026-09-20 on a Jetson Orin Nano development host. The 25 Hz supervisor plan and the 100 Hz target are history; see
+the [plan](../history/plans/COLLISION_25HZ_HARDWARE_PLAN.md) and [research](../history/plans/COLLISION_RUNTIME_RESEARCH.md)
+for the design rationale and primary sources.
 
 ## Geometry and contact decisions
 

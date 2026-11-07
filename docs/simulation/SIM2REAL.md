@@ -1,20 +1,19 @@
-# Feature task: compare the simulator with the real arm, on real responses only
-- Base commit (full SHA): `a52dfd682dce1bf7d3ccba771ead3fb25698ade2`, which is `claude/response-fit` merged with
-  `claude/helm-sim`. Offline only: nothing runs on the robot.
-  never a simulated ground truth.
-- Problem: nothing measured how closely the plant behind `robot-platform helm --sim` reproduces the real arm. The
-  response fit's closed-loop stage had only been checked against a rehearsed sweep, and that check did not hold up
-  (`RESPONSE_FIT.md`).
-- Hypothesis: replaying each real tick's drive command through the simulator's own plant, starting each joint from
-  its measured state, measures the gap between sim and arm. Fitting that plant's parameters on half of the real
-  data then narrows the gap on the other half.
-- Owned files: `src/robot_platform/characterization/sim2real.py`, `tests/unit/test_sim2real.py`, one gate entry,
-  this brief.
-- Shared interfaces held fixed: `simulation.arm_plant.ArmPlant`, `simulation.minerva_sim.joint_specs`,
-  `control.gravity`, and the recorder's command columns (`5852fe2`).
-- Acceptance: the gate. The replay equals `ArmPlant` stepped tick by tick to within 1e-12 rad
-  (`test_the_replay_is_the_simulators_plant`). The gate passed on `956cacb`: 761 tests, with zero failures, skips
-  or xfails (`build/dev-check/20261016T000750Z-937d8d50/report.json`).
+# Simulator against the real arm
+
+**What it is.** A measurement of how closely the plant behind `robot-platform helm --sim` reproduces the real arm, and
+a calibrated simulator-only actuator file built from it. It uses recorded real responses only, never a simulated ground
+truth. **Status: done, offline.** It ran on recordings from one day, one gain set and one joint at a time; nothing
+ran on the robot for this work. The response fit's closed-loop stage had earlier been checked only against a rehearsed
+sweep, which did not hold up ([RESPONSE_FIT.md](../history/features/RESPONSE_FIT.md)).
+
+The idea: replay each real tick's drive command through the simulator's own plant, starting each joint from its
+measured state, to measure the gap between sim and arm. Fitting the plant's parameters on half of the real data then
+narrows the gap on the other half. The replay equals `ArmPlant` stepped tick by tick to within 1e-12 rad
+(`test_the_replay_is_the_simulators_plant`).
+
+Code: `src/robot_platform/characterization/sim2real.py`, `tests/unit/test_sim2real.py`. It holds fixed
+`simulation.arm_plant.ArmPlant`, `simulation.minerva_sim.joint_specs`, `control.gravity` and the recorder's command
+columns.
 
 ## Method
 
@@ -40,10 +39,10 @@
 - **Score:** each window's maximum position error, as median and 95th percentile over the windows. Windows where
   the command moves faster than 0.05 rad/s are scored apart from holding windows.
 
-## Data (2026-10-15, release `20261015T034019Z-5852fe2`)
+## Data (2026-10-15)
 
-The sessions are `live-20261015T223503Z`, `223714Z`, `223850Z` and `230538Z`, mirrored and sha256-verified in
-`<workspace>/minerva-evidence/jetson/evidence`.
+Four live sessions from 2026-10-15 (`live-20261015T223503Z`, `223714Z`, `223850Z`, `230538Z`) were copied off the robot
+and sha256-verified. The recordings are not in the repository.
 
 - `223503Z` is dropped. Its fault (right J4 moving at an audit stop) could not be placed on the receiver clock.
 - `223714Z` had its drives commanded for only 1.9% of its 26 s.
@@ -65,7 +64,7 @@ The sessions are `live-20261015T223503Z`, `223714Z`, `223850Z` and `230538Z`, mi
 Source identity:
 - Servo file `config/devices/minerva-production-01-servo.json`, sha256 `9b0003c5…dbed881`.
 - Report sha256 `44364a2e…19746229`.
-- The report, its log and the J2 inertia check are in `<workspace>/minerva-evidence/analysis/sim2real-20261015/`.
+- The report and the J2 inertia check are not in the repository; their fitted values are the actuator file's.
 
 ## Results: held-out moving windows, max error per 1 s window, median / p95 (mrad)
 
@@ -110,8 +109,8 @@ Left J1's values and right J1, J3 and J4–J6's inertias were nominal in the sim
 
 ### How well the real responses pin J2's inertia
 
-The check holds J2's inertia fixed at each value and refits the other five parameters on the same fit windows
-(`inertia_profile.py`). Held-out moving max error, median / p95 (mrad):
+The check held J2's inertia fixed at each value and refit the other five parameters on the same fit windows (a
+one-off script, not kept in the repository). Held-out moving max error, median / p95 (mrad):
 
 | Inertia | 0.15 | 0.30 | 0.50 | 0.80 | Servo file |
 |---|---|---|---|---|---|
@@ -122,7 +121,7 @@ The check holds J2's inertia fixed at each value and refits the other five param
   1.4–2× worse. Most of the calibrated sim's J2 gain is the inertia.
 - **The true value is pinned only loosely.** Left J2 lies in 0.15–0.5 and right J2 in 0.15–0.8, because the delay
   and damping trade against the inertia.
-- **An independent method agrees.** The effort fits on the 09-27..10-10 sweeps (`RESPONSE_FIT.md`) found
+- **An independent method agrees.** The effort fits on the 09-27..10-10 sweeps (the response fit) found
   J2 0.36–0.69 and J3 0.09–0.16.
 
 ## Remaining uncertainty
@@ -144,29 +143,19 @@ The check holds J2's inertia fixed at each value and refits the other five param
 - **Into the simulator.** Done: `helm --sim` runs on these values from a sim-only file (next section).
 
 ## Into the simulator: sim-only actuator file
-  `<workspace>/aizee/.claude/worktrees/loving-austin-9e828d`.
-- Base commit (full SHA): `8a84b0ee1dec906b285f9c61af81f30807cc0079` (`claude/sim2real`). Offline only: Helm was not
-  started, the Jetson was not touched and no motor was commanded.
-- Hypothesis: the simulator built with the 10-15 fits reproduces the report's held-out scores exactly. The fits are
-  kept in a sim-only file and bound to the motors they were fitted on. A missing or mismatched file leaves the
-  simulator unchanged.
-- Owned files:
-  - `config/devices/simulation/minerva-production-01-actuators.json`;
-  - the reader in `simulation/minerva_sim.py`;
-  - the optional drive delay in `simulation/arm_plant.py`;
-  - the writer and `--sim-params` in `characterization/sim2real.py`;
-  - small hooks in `helm/cli.py` and `helm/teleop.py`;
-  - their tests: `tests/contract/test_helm_sim.py`, `tests/unit/test_sim2real.py` and
-    `tests/evidence/test_sim2real_20261015.py`;
-  - this section and `HELM_SIM.md`.
-- Untouched: the servo file, the guarded controller's configuration, the receiver, and PlantReceiver's timing.
+
+The fits are kept in a sim-only file bound to the motors they were fitted on. A missing or mismatched file leaves the
+simulator unchanged. Code: `config/devices/simulation/minerva-production-01-actuators.json`, the reader in
+`simulation/minerva_sim.py`, the optional drive delay in `simulation/arm_plant.py`, the writer and `--sim-params` in
+`characterization/sim2real.py`, and hooks in `helm/cli.py` and `helm/teleop.py`. The servo file, the guarded
+controller's configuration, the receiver and PlantReceiver's timing are untouched. See also [SIMULATE.md](../getting-started/SIMULATE.md).
 
 ### The file
 
 Written from the report by:
 
 ```powershell
-.venv-dev/Scripts/python.exe -m robot_platform.characterization.sim2real --report <workspace>/minerva-evidence/analysis/sim2real-20261015/report.json --runs <worktree> --write-sim-params config/devices/simulation/minerva-production-01-actuators.json
+.venv-dev/Scripts/python.exe -m robot_platform.characterization.sim2real --report <report.json> --runs <Helm runs folder> --write-sim-params config/devices/simulation/minerva-production-01-actuators.json
 ```
 
 - **Location and name.** Device files are named `<asset id>-<kind>.json` and sit beside the calibration profile;
@@ -199,7 +188,7 @@ Written from the report by:
 - **Gravity scale** multiplies the joint's holding torque, default 1. It applies only where the simulator's gravity
   terms equal those it was fitted against; a new gravity sweep or other directions drop it to 1.
   - With Helm's operator runs folder (the verified directions the fit used) every scale applies.
-  - A runs folder seeded from `MINERVA_ARM_DIRECTIONS_20260924.json` mirrors right J3/J4, so right J2–J4 run
+  - A runs folder seeded from `docs/devices/MINERVA_ARM_DIRECTIONS_20260924.json` mirrors right J3/J4, so right J2–J4 run
     unscaled there. The gate's tests use such a folder.
 - **Command delay: modelled.** The fit takes the command that fraction of a tick older, linearly between the last
   tick's command and this one's.
@@ -236,18 +225,12 @@ Written from the report by:
   ```
 
 - **No file, no change.** The same scripted Helm session (direct profile, 2 s of both-arm following, X shutdown)
-  recorded byte-identical `samples.f32` (3,616,904 bytes, sha256 `18ef9e3d…`) on the base's source (`956cacb`; the
-  base commit changed only this brief), and on this branch both with no file named and with a missing file. The gate keeps the last two equal
+  recorded byte-identical `samples.f32` (3,616,904 bytes) before the change, with no file named, and with a missing file. The gate keeps the last two equal
   (`test_without_an_actuator_file_the_simulated_arms_record_the_same_ticks`).
 - **Through the real receiver.** Scripted leaders engage, follow and shut down both calibrated arms with no fault:
   shoulders and elbows moved, wrists held.
 - **The plant's delay is the fit's.** ArmPlant with a 0.37 or 0.9 tick delay equals sim2real's delayed replay to
   1e-15 rad (asserted to 1e-12).
-- **Gate:** passed on `6138988`, a clean tree: 772 Python tests and 125 Rust tests, with zero failures, skips or
-  xfails (`build/dev-check/20261016T004727Z-15dc3db9/report.json`).
-  - The release test's ARM64 binaries were copied from `aizee-actuator-response`, built from the same Rust sources.
-    Nothing was deployed.
-  - Only documentation changed after the gate.
 
 ### Unverified
 

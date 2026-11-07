@@ -1,5 +1,7 @@
 # Scripted handoff demonstrator
 
+**Status: done and in use.** It generates the simulated demonstrations ([SIM_GENERATION.md](SIM_GENERATION.md)) and shows the task can be done in simulation. Nothing here is proven on the robot. The follow-ups at the end are open planner gaps.
+
 `robot_platform.evaluation.demonstrator.HandoffDemonstrator` does the whole cube task in simulation: the left gripper picks the cube up, hands it to the right, and the right drops it in the bucket. It runs on the measured bench ([SIM_WORKCELL.md](SIM_WORKCELL.md)), through the actual receiver, with driven grippers ([SIM_GRIPPERS.md](SIM_GRIPPERS.md)). It plans from privileged simulation state (the cube's start pose and the workcell), then holds each grasp pose on the receiver's feedback. It exists to generate demonstrations and to show the task can be done; it is not a learned policy.
 
 ```powershell
@@ -8,7 +10,7 @@
 
 ## What the arms can do on this bench
 
-Every pose below came out of a reach or clearance check, not a guess. The scripts that found them are in this branch's history; `tests/unit/test_demonstrator.py` checks the resulting plan.
+Every pose below came out of a reach or clearance check, not a guess. The checks are in `scripts/sim/` (`demonstrator_reach_map.py`, `workcell_reach.py`); `tests/unit/test_demonstrator.py` checks the resulting plan.
 
 **Reach**
 - **Straight down is out of reach.** At the 0.512 m table, the fingers cannot point straight down at the cube. On the table they tilt at most about 20 degrees down, and less higher up: 15 degrees 3 cm above the pre-grasp, 10 degrees at 6 cm, level at the lift.
@@ -103,7 +105,7 @@ The training layouts' bucket region stays where the release was mapped; a draw i
 
 A block may be a cuboid (SIM_WORKCELL.md, `cube.size`). The left takes it across a pair of its side faces, the pair facing nearest straight ahead first as for a cube, but passes over a pair its jaws cannot open across with 5 mm to spare each side (they open to about 97 mm, so every block of the training ranges fits either way). Its jaws stop at that pair's width and the right's at the block's height, and each opens 2 cm past the widest it may close on. The plan records the pair, its width and the block's height (`grasp`, and `planned_grasp` in `describe()`), and the episodes' metadata carries it.
 
-**Short blocks are refused.** The right closes on the block's top and bottom, so a short block brings its jaws close to the left's fingers, and the left backing out of the handoff passes them more closely. At the nominal start (planning only, the block 38.1 mm across): 55 mm tall, the left's retreat clears the right's fingers by 10.9 mm; 48 mm, 7.6 mm; 42 mm, 4.7 mm; 38.1 mm, 2.8 mm; 36 mm, 1.7 mm; 33 mm, 0.3 mm (refused); 30 mm, 1.2 mm into them (refused). Opening the left as wide as it goes before backing out made it worse (0.7 and 2.2 mm into the right's fingers further along), and was not kept. So blocks under about 35 mm tall are refused and drawn again: in the layout trials (SIM_GENERATION.md) every draw refused at the left's retreat had a block 31-36 mm tall, and every block that ran was at least 37 mm tall. The real blocks' tops are 37-39 mm up. The training layouts now draw block heights from 35 mm (the coordinator, accepted by the user, 2026-10-18); the retreat itself is a follow-up ("Follow-ups").
+**Short blocks are refused.** The right closes on the block's top and bottom, so a short block brings its jaws close to the left's fingers, and the left backing out of the handoff passes them more closely. At the nominal start (planning only, the block 38.1 mm across): 55 mm tall, the left's retreat clears the right's fingers by 10.9 mm; 48 mm, 7.6 mm; 42 mm, 4.7 mm; 38.1 mm, 2.8 mm; 36 mm, 1.7 mm; 33 mm, 0.3 mm (refused); 30 mm, 1.2 mm into them (refused). Opening the left as wide as it goes before backing out made it worse (0.7 and 2.2 mm into the right's fingers further along), and was not kept. So blocks under about 35 mm tall are refused and drawn again: in the layout trials (SIM_GENERATION.md) every draw refused at the left's retreat had a block 31-36 mm tall, and every block that ran was at least 37 mm tall. The real blocks' tops are 37-39 mm up. The training layouts now draw block heights from 35 mm; the retreat itself is a follow-up ("Follow-ups").
 
 ## Why a plan fails
 
@@ -115,8 +117,8 @@ Planning the same trial again (the same workcell, start and limits) reuses the p
 
 Through the receiver with driven grippers on the measured bench:
 
-- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 23.7 s, bucket settled at 49.2 s, with no clipped commands. Before the quarter-turn take the handoff came at 19.5 s and the bucket at 39.4 s. Until 2026-10-18 `tests/contract/test_demonstrator.py` ran this trial.
-- **On the interim layout (2026-10-18), the nominal start at the near real block, turned -37 degrees:** success through the receiver with driven grippers (`tests/contract/test_demonstrator.py`), dropping "lower, from closer in front" into the depth-measured box. The far-corner and turned-cube tests keep the 2026-10-17 placeholder layout they were planned on (`tests/fixtures/minerva_workcell_placeholder_20261017.json`).
+- **Nominal cube start (0.15, -0.35):** success. Pickup at 6.3 s, handoff at 23.7 s, bucket settled at 49.2 s, with no clipped commands. Before the quarter-turn take the handoff came at 19.5 s and the bucket at 39.4 s.
+- **On the interim layout, the nominal start at the near real block, turned -37 degrees:** success through the receiver with driven grippers (`tests/contract/test_demonstrator.py`), dropping "lower, from closer in front" into the depth-measured box. The far-corner and turned-cube tests keep the earlier placeholder layout they were planned on (`tests/fixtures/minerva_workcell_placeholder_20261017.json`).
 - **Default 3x3 grid, first placeholder region:** 5/10 succeeded (Wilson 95% 0.24-0.76).
   - Every trial that planned succeeded.
   - The other five could not plan their pick, at the region's far edge (y -0.41 to -0.42) and near edge (y -0.28), at x 0.08-0.22.
@@ -124,14 +126,14 @@ Through the receiver with driven grippers on the measured bench:
 - **The same grid with the gripper settle test:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 46.1 s (p90 46.8 s). With the right's lift at transit speed, also 10/10, median 32.0 s (p90 32.7 s).
 - **The same grid with paced moves:** 10/10 succeeded (Wilson 95% 0.72-1.00), median time to complete 40.8 s (p90 41.8 s). No arm joint trailed its command by more than 0.89 of its lead. Unpaced, five did somewhere on the grid, right J1 by 0.52 rad (21 times its lead).
 - **Turned cubes, yaw drawn from +/-45 degrees, 4x4 grid plus the nominal start:** 17/17 succeeded (Wilson 95% 0.82-1.00), median time to complete 40.6 s (p90 43.5 s). The yaws ran from -44.8 to +44.7 degrees, and no joint trailed by more than 0.88 of its lead. `run ... --grid 4x4 --yaw 0.785398`.
-- **With the fingers' paddles colliding, the arm-against-arm audit and the quarter-turn take** (`claude/sim-finger-collision`, 2026-10-17): the default grid 10/10 (Wilson 95% 0.72-1.00), median time to complete 48.3 s (p90 49.4 s); the turned cubes 17/17 (Wilson 95% 0.82-1.00), median 49.0 s (p90 51.2 s), yaws -44.8 to +44.7 degrees. No commands were clipped, and no arm joint trailed its command by more than 0.89 of its lead. The right's turn and the left's return to its start add about 8 s.
+- **With the fingers' paddles colliding, the arm-against-arm audit and the quarter-turn take**: the default grid 10/10 (Wilson 95% 0.72-1.00), median time to complete 48.3 s (p90 49.4 s); the turned cubes 17/17 (Wilson 95% 0.82-1.00), median 49.0 s (p90 51.2 s), yaws -44.8 to +44.7 degrees. No commands were clipped, and no arm joint trailed its command by more than 0.89 of its lead. The right's turn and the left's return to its start add about 8 s.
 
 ## Follow-ups
 
-Two planner gaps the training layouts work around (2026-10-18, the coordinator's decisions, accepted by the user):
+Two planner gaps the training layouts work around:
 
 - **The left's retreat past short blocks.** Backing out of the handoff, the left passes within 1 mm of the right's fingers for blocks under about 35 mm tall ("Blocks that are not cubes"), so the training layouts draw heights from 35 mm. Candidates: back the left out along the right's jaws, or open it less before it leaves.
-- **The right's turn meets a large held block.** In one layout trial of 30 at `0789f74` (attempt 23, seed [2000, 23, 3]), 0.64 s into `right turns` (the right turning its open jaws upright where it waits, before it comes in) a right finger met the 50 x 47 x 48 mm block in the left's grip, and the block forced its jaws open past the gripper's range: the receiver stopped on `right_gripper` `position_above_upper`, 5.2823 rad against 5.2791 (`limit_violation`, 25.15 s). Nothing touched the bucket or the table. The plan's clearance check leaves the held block out, and the right waits 6 cm back along its fingers (`APPROACH`) whatever the block's size. The layout is saved as `tests/fixtures/minerva_layout_take_abort_20261018.json`; `scripts/sim/repro_take_abort.py` runs it through the receiver with driven grippers and says whether it still aborts. Candidates: check the right's turn and approach against the held block, or back the right off by the block's size. Until then a generator drops such an attempt: it ends `source_gap_or_abort` and records no episode.
+- **The right's turn meets a large held block.** In one layout trial of 30 (attempt 23, seed [2000, 23, 3]), 0.64 s into `right turns` (the right turning its open jaws upright where it waits, before it comes in) a right finger met the 50 x 47 x 48 mm block in the left's grip, and the block forced its jaws open past the gripper's range: the receiver stopped on `right_gripper` `position_above_upper`, 5.2823 rad against 5.2791 (`limit_violation`, 25.15 s). Nothing touched the bucket or the table. The plan's clearance check leaves the held block out, and the right waits 6 cm back along its fingers (`APPROACH`) whatever the block's size. The layout is saved as `tests/fixtures/minerva_layout_take_abort_20261018.json`; `scripts/sim/repro_take_abort.py` runs it through the receiver with driven grippers and says whether it still aborts. Candidates: check the right's turn and approach against the held block, or back the right off by the block's size. Until then a generator drops such an attempt: it ends `source_gap_or_abort` and records no episode.
 
 ## Limits
 

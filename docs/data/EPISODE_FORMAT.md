@@ -7,6 +7,17 @@ Task capture episodes are HDF5 files named `task_episode_<uuid>.hdf5`, written b
 [MINERVA_TASK_SCENE.md](../simulation/MINERVA_TASK_SCENE.md). LeRobot export is in
 [DATASET_PIPELINE.md](DATASET_PIPELINE.md).
 
+## Which formats exist
+
+| `format_version` | Written by | Axes | Read by |
+| --- | --- | --- | --- |
+| 4, 5 | AIZEE's collector (`data/formats/aizee.py`; 5 when a scene camera is recorded) | AIZEE's own | AIZEE's trainer ([LEARNING_PIPELINE.md](../robots/aizee/LEARNING_PIPELINE.md)) |
+| 6, 7 | The older Minerva collector (`data/formats/minerva.py`; 7 when it records segments) | 17 slots | `python/training/minerva_dataset.py` (any joint count; format 6 or later) |
+| 8 | Helm's task capture before the head was recorded | 14 (arms, grippers) | The exporter, Replay, `minerva_dataset.py` |
+| **9** | **Helm's task capture now, and the simulator's generator** | **16 (adds the head)** | The exporter, Replay, `minerva_dataset.py` |
+
+Format 9 is current. The robot's running release still recorded format 8; format 9 has never run on the robot.
+
 Format 9 records the **whole robot**: 16 axes, the arms' measured effort and velocity, and the head's pose. Format 8
 recorded the two arms and grippers alone (14 axes) and is still read by the exporter, Replay and the episode source.
 
@@ -56,8 +67,10 @@ motor's sign, scale and offset onto its URDF joint. `head_pan` drives `neck_z` a
 - **Neck.** The STS3250's `Present_Load` register (‰ of full load) × `full_load_nm` (4.9 N m) from
   `config/devices/minerva-head.json`. That is a rated figure, not a calibration, so the neck's effort is an estimate and
   coarser than the arms'.
-- **Simulation.** There is no effort, velocity or head sample. All are NaN with their masks false. The neck's
-  `qpos`/`qcmd` columns are 0 (`metadata.head` says so).
+- **Simulation.** Generated episodes carry the arms' effort from the simulated receiver (masks true for columns 0-13).
+  The head has no effort, velocity or pose sample: those are NaN with their masks false, and the neck's `qpos`/`qcmd`
+  columns are 0 (`metadata.head` says so). Because the head columns are masked, the exporter leaves out all three
+  format 9 extras for a dataset made of them.
 
 ### The head sample
 
@@ -102,4 +115,32 @@ mount. The arms are not moved by this; recording the head adds no work to the ar
   only when every exported row has them. Episodes that differ in axes, cameras, image size or those extras are never
   mixed in one dataset.
 - A policy trained on 16 axes cannot yet run on the robot: Helm's policy mode drives the 14 arm axes and refuses a policy
-  whose joints differ. Driving the head from a policy is future work.
+  whose joints differ (`data/lerobot_policy.py`). Driving the head from a policy is future work.
+- Training from these files is in [TRAINING.md](TRAINING.md).
+
+## First live check of format 9
+
+Format 9 has passed offline tests only. Before relying on it, record once on the robot and check the following.
+
+1. Start a session with both arms and the head live. The head's teleop publishes the pose feed that capture needs.
+2. In Helm's task panel, wait for the three cameras and the head to be fresh. The phase reads "ready for recording".
+   With the head stopped it reads "waiting for the head pose (a live head)" and Record stays disabled.
+3. Record about 30 s, moving the head with the Quest and moving both arms. Stop.
+4. In Replay, open the episode. The **Neck** lane moves with the head.
+5. In the file (`h5py` or any HDF5 viewer):
+   - `format_version` is 9 and `minerva_joints` lists 16 names.
+   - `observations/torque_valid` is true for the 12 arm columns and 2 gripper columns on every row, and the neck's
+     effort is finite and plausible for the head's pose (well under the 4.9 N m full-load figure).
+   - `timestamps/head_valid` is true everywhere.
+   - `task_state` for every row has `head.age_at_cutoff_s` under 0.1 s.
+   - `observations/head_camera_pose` changes as the head moved.
+   - The recorded rate is about 15 Hz (`frame_count` over the span of `timestamps/telem`).
+6. Record again and stop the head's service partway through. The episode is aborted: it stays a `.partial.hdf5`, is
+   never published as complete, and the exporter skips it.
+7. Export the good episode and check it on the training server ([TRAINING.md](TRAINING.md)):
+   ```bash
+   python -m robot_platform.data.lerobot_export --evidence <copy of ~/minerva/evidence> --out datasets/check        --include-unreviewed
+   python scripts/training_server/check_lerobot_dataset.py datasets/check <source episode.hdf5>
+   ```
+   The checker's first line lists the extras; `observation.effort`, `observation.velocity` and
+   `observation.head_camera_pose` should all be present.

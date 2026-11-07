@@ -1,5 +1,7 @@
 # Driven grippers in the task scene
 
+**Status: done and in use** by the evaluation harness and by generation (`--grippers driven`). Live `helm --sim` still uses kinematic grippers. Simulation only; the squeeze force is not calibrated against the real gripper.
+
 In the task scene ([MINERVA_TASK_SCENE.md](MINERVA_TASK_SCENE.md)) every robot body is posed kinematically, the jaws included. Squeezing the cube therefore comes from how far the posed jaws sink into it, and the gripper reading ignores the cube. The real gripper is different: it stops at the cube's width and squeezes with its drive's torque, so its reading stays open while it holds the cube. A policy trained on kinematic jaws would see "fully closed" while holding, and on the robot "stopped at the cube".
 
 Driven grippers close that gap. The arms stay kinematic. Each gripper becomes a motor hinge, and its two jaws slide on the wrist through the model's transmission, so contact pushes back on the motor.

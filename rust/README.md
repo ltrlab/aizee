@@ -1,15 +1,17 @@
 # Shared Rust backend
 
-The repository root owns the only Cargo workspace. Aizee and Minerva use the
-same backend binaries with different hardware configuration files.
+The repository root owns the only Cargo workspace. Minerva runs on `control_core`
+(`robot_control`): `guarded_controller` for both arms and `head_controller` for the neck.
+`motor_control` is the older ROBSTRIDE service, AIZEE's path and Minerva's first bring-up,
+selected by hardware YAML files; it does not use the guarded core.
 
 | Crate | Responsibility |
 | --- | --- |
 | `comms` | Shared command/telemetry types, MessagePack, and ZeroMQ transport |
-| `motor_control` | ROBSTRIDE CAN control; configuration selects an arm or rover |
+| `motor_control` | Older ROBSTRIDE CAN service (AIZEE, and Minerva's first bring-up with two instances); configuration selects an arm or rover |
 | `lidar_control` | RPLiDAR acquisition and telemetry |
 | `robot_collision` (`rust/collision`) | Persistent collision bounds and a shared-library interface for CAD-confirmed checks |
-| `robot_control` (`rust/control_core`) | Portable guarded core, native harness, RobStride adapter with mandatory watchdog startup, Linux SocketCAN/ZMQ service and finite watchdog/jog/breakaway trials |
+| `robot_control` (`rust/control_core`) | Portable guarded core, native harness, RobStride adapter with mandatory watchdog startup, Linux SocketCAN/ZMQ service and finite watchdog/jog/breakaway trials. Binaries: `guarded_controller` (both arms; `src/bin/guarded_controller.rs`), `head_controller` (Feetech neck; `src/bin/head_controller.rs`), `control_harness`, `motor_watchdog_trial` |
 
 ## Build from the repository root
 

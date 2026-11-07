@@ -1,8 +1,10 @@
 # Minerva physical model: measurement and validation checklist
 
-Status: measurements not yet available, confirmed 2026-10-10. The current URDF is
-a kinematic/CAD view with 17 placeholder masses. This checklist defines the inputs
-for `codex/minerva-physical-model`; it does not authorize powered robot trials.
+Status: no measured masses, centres of mass or inertias are in the repository. The active URDF is a kinematic and CAD
+view whose 17 link masses are exporter placeholders, so `MujocoPlant` refuses the MJCF model
+([MINERVA_MJCF.md](../../simulation/MINERVA_MJCF.md)). The simulator's joint dynamics come from values fitted on real
+teleop instead ([SIM2REAL.md](../../simulation/SIM2REAL.md)). This checklist defines the inputs a physical model needs;
+it does not authorize powered robot trials.
 
 ## Prepare the record
 

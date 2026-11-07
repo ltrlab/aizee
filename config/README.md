@@ -1,127 +1,76 @@
 # Configuration ownership
 
-`devices/gello-dual-viewer.json` configures the generic read-only leader viewer:
-pinned USB identities, illustrative link geometry and display axes. Saved display
-offsets/signs live separately in `calibration_runs/gello-dual/display.json`.
-`devices/minerva-gello-shadow.json` contains simulation-only channel-to-CAD routes
-for the virtual teleop test; it is not a physical motor profile.
-See [dual GELLO setup](../docs/architecture/GELLO_TELEOP.md).
+What each file in `config/` is, who reads it, and which robot it belongs to. The files are inputs to active applications
+and deployed services; they are not interchangeable schemas, so do not delete one because the shared settings also
+describe the robot. Robot definitions and defaults live in the package, not here:
+`src/robot_platform/robots/definitions/*.json` (joint order, groups, cameras, capabilities),
+`src/robot_platform/settings/defaults/*.json` (endpoints, freshness, application choices) and `settings/examples/*.json`
+(operator overlays). See [the architecture overview](../docs/architecture/OVERVIEW.md).
 
-`devices/simulation/minerva-production-01-actuators.json` holds the actuator values the
-simulated Minerva (`robot-platform helm --sim`) runs on. They were fitted on real teleop
-and written by `characterization.sim2real --write-sim-params`, and each is bound to its
-motor's UID and firmware. It is simulation-only: robot releases leave `devices/simulation/`
-out, and nothing on the robot reads it. See
-[sim-to-real](../docs/simulation/SIM2REAL.md#into-the-simulator-sim-only-actuator-file).
+`src/robot_platform/settings/defaults/minerva.json` still carries AIZEE's old default host `192.168.0.27`. Only the older launcher
+(`robot-platform run ...`) reads it; override it with `--host` or an overlay. Helm and the Jetson-hosted loop take their
+addresses from the device profile and the tether (`10.42.0.1`).
 
-`devices/minerva-leaders-01.json` pins the dual GELLO/OpenRB USB serials and input
-age/skew limits. It contains no motor-to-CAD calibration or enable permission.
-The guarded physical zero-torque service now requires ordered
-`reference_positions` (name, raw_position_rad, tolerance_rad) and explicit
-operator pose confirmation; old profiles without this gate are rejected. See
-[mechanical reference](../docs/operator/MECHANICAL_REFERENCE.md).
+## Minerva
 
-`devices/minerva-reference-20260924.json` records the manually aligned arm pose,
-fully closed jaw reference, pinned motor identities and post-zero readings.
-All 14 motors passed one power-cycle persistence check; runtime approval remains
-false. It is evidence, not
-an automatically installed motor-to-CAD map. Its reference change invalidates
-the old gripper fit's absolute encoder offset; preserve that fit as historical.
+### Device profiles (`devices/`)
 
-`devices/minerva-reference-20261009.json` is its current revision, which the
-calibration profile names: left J4 and J5 were remounted in the left wrist
-harness rework and re-zeroed at the operator-confirmed zero pose (one power
-cycle verified). Every other motor keeps its 2026-09-24 zero. It carries the
-2026-09-24 direction checks over (`direction_evidence_from`: a re-zero moves
-no sign), and the saved limits and servo calibration are bound to it.
+Which are used by Helm on the Jetson, which by tools, and which are evidence rather than settings.
 
-Select the robot and operator endpoints through the shared package. The files
-here remain inputs to active applications and deployed services; they are not
-all interchangeable schemas.
-
-| Source | Owner / consumer |
+| File | Owner / consumer |
 |---|---|
-| `src/robot_platform/robots/definitions/*.json` | Canonical joint order, active groups, cameras and capabilities |
-| `src/robot_platform/settings/defaults/*.json` | Shared-session endpoints, freshness/lease settings, application paths |
-| `settings/examples/*.json` | Operator/machine overlays; bench template is a separate characterization schema |
-| `hardware_jetson_rover.yaml` | Aizee Rust controller, LiDAR, UPS and display service configuration |
-| `hardware_minerva_left.yaml`, `hardware_minerva_right.yaml` | Per-arm Rust motor rosters, buses, limits and endpoints |
-| `hardware_jetson_gripper_cam.yaml`, `hardware_jetson_scene_cam.yaml` | Aizee UVC and shared RealSense publishers |
-| `hardware_minerva_left_wrist.yaml`, `hardware_minerva_right_wrist.yaml` | Minerva wrist UVC publishers |
-| `minerva.yaml` | Minerva inference controls, camera sizing and direct-launch camera endpoints |
-| `teleop.yaml`, `quest_teleop.yaml` | Active standalone Aizee teleop, tracking gains and Quest/IK options |
-| `joint_limits.yaml` | Configured Aizee IK/workspace bounds; raw sweep reports are separate |
-| `*_calibration.json`, `openrb_left.json`, `openrb_right.json` | Active leader/follower calibration inputs; reader audit below |
-| `joint_align.json` | Aizee collector coordinate alignment and WebXR preview editing |
-| `minerva_gravity.json` | Existing empirical gravity model; not a validated simulator profile |
-| `systemd/`, `udev/` | Deployment templates and device identities |
-| `devices/minerva-production-01.json` | Verified host/adapter identity and model labels, legacy-service conflicts and unresolved motion gates; generates observation/diagnostic profiles |
+| `minerva-teleop-direct-tuning.json` | **Production teleop profile**: 100 Hz, collision off, `interpolation_ms` 0, operator-tunable gains. `ops/helm_service.py` runs Helm with it. |
+| `minerva-teleop-direct.json`, `minerva-teleop-direct-trial.json` | The collision-free direct profile it derives from, and the attended left-J1 baseline trial (0.05 rad/s, small travel). |
+| `minerva-teleop.json` | Guarded profile with the collision gate; virtual receiver, rehearsal values only. Used by rehearsal and the viewer, not the production loop. |
+| `minerva-joint-calibration.json` | Per-unit calibration profile: device, reference, model, connection, reference positions, steps. Helm's `--profile`. Carries the unit's SSH host key. |
+| `minerva-reference-20260924.json`, `minerva-reference-20261009.json` | The mechanical reference (zero pose, motor identities, post-zero readings). The 2026-10-09 revision is current: left J4 and J5 were remounted and re-zeroed there; the saved limits and servo calibration are bound to it. Evidence, not an installed motor-to-CAD map. |
+| `minerva-production-01.json`, `minerva-production-01-joint-limits.json`, `minerva-production-01-servo.json` | One unit's identity (host, adapters, motor models, legacy-service conflicts), saved joint limits and servo calibration. Per unit; see [a new unit's profile](../docs/getting-started/NEW_UNIT_PROFILE.md). |
+| `minerva-head.json` | Head profile: two Feetech STS3250 servos on the head receiver (`head_controller`, `tcp://127.0.0.1:5591`) and the head camera. |
+| `minerva-head-alignment.json`, `minerva-wrist-cameras.json`, `minerva-table-board.json` | Camera alignment inputs: head and wrist stills against the table's fiducial board, and the board's tags. |
+| `minerva-task-capture.json` | Task capture: 15 Hz, camera and receiver age limits, camera sockets (5563, 5565, 5564) and the head pose socket (5596), all on Jetson loopback. |
+| `minerva-ups.json` | The UPS reader: INA219 on I2C bus 7 at 0x41, pack cells, shutdown thresholds. Read by `minerva-ups`. |
+| `minerva-leaders-01.json`, `gello-dual-viewer.json`, `gello-dual-leader-ranges.json` | The two GELLO/OpenRB leaders: pinned USB serials and age limits, viewer geometry and force-feedback trigger channel, hand-swept channel ranges. No motor calibration or enable permission. |
+| `minerva-gello-shadow.json` | Simulation-only channel-to-CAD routes for the virtual teleop test; not a physical profile. |
+| `simulation/` | Actuator values, randomization and workcell for the simulated Minerva (`helm --sim`). Fitted on real teleop by `characterization.sim2real`, bound to each motor's UID. Releases leave this folder out. |
 
-The ESP-NOW/serial stop bridge was retired on 2026-09-24. Its service, receiver
-rule and deployment helper are removed. See [guarded commissioning](../docs/operator/POWERED_COMMISSIONING.md)
-for physical diagnostic results and the remaining powered-motion gates.
+### Hardware, camera and service files
 
-## Launch selection
-
-```sh
-robot-platform run collect --robot minerva --settings settings/examples/usb-tether.json --plan
-robot-platform run collect --robot aizee --settings settings/examples/usb-tether.json --plan
-```
-
-Manual Rust launches require `AIZEE_CONFIG` set to the chosen hardware YAML.
-The obsolete generic three-joint profile and unreferenced rover-only teleop
-profile have been removed. Existing service units already select explicit
-hardware profiles.
-
-Shared settings override compatibility endpoint values at application launch.
-Model architecture comes from training arguments/checkpoints. GUI preferences
-and measured calibration are not yet fully unified into the shared schema. Do not remove these files merely because the
-shared settings also describe the robot.
-
-## Calibration status
-
-For stopped motor-to-CAD direction and alignment work, use
-[`scripts/calibrate_minerva.ps1`](../scripts/calibrate_minerva.ps1) and
-[`devices/minerva-joint-calibration.json`](devices/minerva-joint-calibration.json).
-The shared [live calibration workflow](../docs/operator/JOINT_CALIBRATION.md) stores
-candidate mappings in ignored `calibration_runs/`, independently of legacy limits.
-
-The following files have runtime readers, beyond tools that merely write them:
-
-| File | Runtime reader |
+| File | Owner / consumer |
 |---|---|
-| `openrb_calibration.json` | Default calibration in `python/teleop/openrb_leader.py` for the Aizee leader |
-| `openrb_left.json`, `openrb_right.json` | Per-arm leader selection in `collect_minerva.py` and `minerva_teleop.py` |
-| `so101_calibration.json` | Default calibration in `python/teleop/so101_leader.py` |
-| `robstride_calibration.json` | Aizee follower limits in `python/common/arm_constants.py` and standalone teleop/replay |
-| `minerva_calibration.json` | Follower limits in `collect_minerva.py`, standalone teleop and the hardware audit |
-| `minerva_gravity.json` | Gravity feedforward model loaded by `collect_minerva.py` |
-| `joint_align.json` | `collect_demo_app/alignment.py` loads and hot-reloads offsets/signs; `python/web/server.py` reads and edits them |
-| `joint_limits.yaml` | `python/teleop/quest_leader.py`, `python/ik/workspace.py` and the web preview load configured bounds |
+| `hardware_minerva_left.yaml`, `hardware_minerva_right.yaml` | Per-arm motor rosters, buses, limits and endpoints. Read by the older `motor_control` services and by the direct tuning; releases carry them. |
+| `hardware_minerva_left_wrist.yaml`, `hardware_minerva_right_wrist.yaml` | Wrist UVC camera publishers (`minerva-left-wrist`, `minerva-right-wrist`). |
+| `hardware_jetson_scene_cam.yaml` | The RealSense publisher. Minerva's head D435 runs it as `aizee-scene-cam`. |
+| `minerva.yaml` | Minerva inference controls, camera sizing and direct-launch camera endpoints (`minerva_policy_node.py`). |
+| `minerva_calibration.json`, `openrb_left.json`, `openrb_right.json` | Older collector inputs: follower limits (collector, standalone teleop, hardware audit) and per-arm leader calibration. |
+| `minerva_gravity.json` | Empirical gravity model for the older collector; not a validated simulator profile. |
+| `systemd/minerva-*-wrist.service`, `udev/80-minerva-can.rules` | Wrist camera units and CAN adapter naming. `aizee-minerva-left/right.service` are the older motor-service units. |
 
-These inputs do not establish approved limits for new hardware. The simulation
-audit identifies unresolved actuator scales and reversed directional bounds;
-see [measurement requirements](../docs/simulation/SIMULATION_IMPLEMENTATION.md).
-Head/lift slots are inactive in Minerva's shared definition.
+The units `minerva-helm`, `minerva-net`, `minerva-ups` and `minerva-control-cpus` are generated by `ops/helm_service.py`,
+`ops/network.py`, `ops/ups.py` and `ops/cpu_partition.py`; they are not in `systemd/`.
 
-Use `config/local_hardware.yaml` for a local hardware override (Git-ignored).
+## AIZEE
 
-## Generated output
+| File | Owner / consumer |
+|---|---|
+| `hardware_jetson_rover.yaml` | Rust controller, LiDAR, UPS and display service configuration. Wheels removed; the swivel and gantry remain. |
+| `hardware_jetson_gripper_cam.yaml`, `hardware_jetson_scene_cam.yaml` | The gripper UVC and RealSense publishers. |
+| `teleop.yaml`, `quest_teleop.yaml` | Standalone teleop, tracking gains and Quest/IK options. |
+| `joint_limits.yaml` | IK and workspace bounds; read by `python/teleop/quest_leader.py`, `python/ik/workspace.py` and the web preview. Raw sweep reports are separate. |
+| `joint_align.json` | Collector coordinate alignment (`collect_demo_app/alignment.py`, hot-reloaded) and the WebXR preview. |
+| `openrb_calibration.json`, `so101_calibration.json` | Default leader calibration for `python/teleop/openrb_leader.py` and `so101_leader.py`. |
+| `robstride_calibration.json` | Follower limits for `python/common/arm_constants.py` and standalone teleop/replay. |
+| `systemd/aizee-*.service`, `udev/99-*`, `udev/99-rplidar.rules` | Service units and device identities for the rover Jetson. |
 
-`gravity_calibrate.py --record-poses` writes raw captures to
-`calibration_runs/aizee/calibration_poses.json`; pass that path to `--poses`
-when using a capture. The checked-in old capture was removed.
+Manual Rust launches of `motor_control` need `AIZEE_CONFIG` set to the chosen hardware YAML. These files do not establish
+approved limits for new hardware.
 
-`python -m python.ik.collision_sweep` writes its full report to
-`calibration_runs/aizee/joint_limit_sweep.yaml`. Review the report and promote
-accepted bounds into `joint_limits.yaml` explicitly. Sweep counts, collision
-statistics, timings and workstation paths are not active configuration.
-Existing effective/URDF bounds and manual-edit provenance remain unchanged.
+## Calibration and generated output
 
-The obsolete `ready_pose.json` and its save controls were removed: no runtime
-loaded the file. Minerva's equivalent save controls also had no reader.
-Policy ready/start poses still come from recorded episodes and checkpoint
-statistics; those are active inputs.
+Stopped motor-to-CAD direction work uses Helm's own flows, or `scripts/calibrate_minerva.ps1` with
+`devices/minerva-joint-calibration.json`; see [joint calibration](../docs/operator/JOINT_CALIBRATION.md). Candidate
+mappings land in the git-ignored `calibration_runs/`, as do raw captures such as `gravity_calibrate.py --record-poses`
+and `python -m python.ik.collision_sweep` reports (review them, then promote accepted bounds into `joint_limits.yaml`
+by hand). Large data, trained weights and plots belong in ignored output directories, not in `config/`.
 
-`calibration_runs/` is ignored. Large data, trained weights and generated plots
-also belong in ignored output directories, not in `config/`.
+The e-stop bridge (an ESP-NOW stop) was retired in 2026-09; its service, receiver rule and deployment helper are gone.
+See [safety](../docs/operator/SAFETY.md) for what stops what.

@@ -29,6 +29,6 @@ assert.deepEqual(lines.map(line => line.title), ['Map 20261101T020000Z (newest)'
   'Capture 20261101T030000Z']);
 assert.equal(lines[0].text, "109 k splats, 3.5 MB · 32.7 dB held out · in the table's frame");
 assert.equal(lines[1].text, "40 frames in the table's frame · trained");
-assert.equal(lines[2].text, "25 frames in Minerva's frame · train it on soliloquy (scripts/splat/train_on_station.py)");
+assert.equal(lines[2].text, "25 frames in Minerva's frame · train it on the operator station (scripts/splat/train_on_station.py)");
 assert.deepEqual(mapLines(null), []);
 console.log('map card ok');
