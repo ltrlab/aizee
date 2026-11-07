@@ -1,11 +1,15 @@
 [Unit]
 Description=AIZEE Scene Camera (Intel RealSense, RGB-D fixed external)
-# Start when the RealSense USB device appears; stop on unplug.
-# The matching udev rule (config/udev/99-aizee-scene-cam.rules) tags
-# the device with SYSTEMD_ALIAS=/dev/aizee_scene_cam so this unit can
-# bind to the synthetic device unit.
-BindsTo=dev-aizee_scene_cam.device
+# Start when the RealSense USB device appears: the matching udev rule
+# (config/udev/99-aizee-scene-cam.rules) tags the device with
+# SYSTEMD_ALIAS=/dev/aizee_scene_cam. Not bound to that device unit: the
+# D435's USB 3 link can drop and the camera re-attach at USB 2 within a
+# second, and the bound unit, stopped by the drop, missed that and stayed
+# failed (2026-10-24/25). camera_node.py leaves on its own when frames
+# stop, resets a camera found at USB 2 back to USB 3, and systemd starts
+# it again however often that takes (no start limit).
 After=dev-aizee_scene_cam.device
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -17,16 +21,16 @@ Nice=5
 ExecStart=/usr/bin/python3 /home/ltr/aizee/python/nodes/camera_node.py \
     --config /home/ltr/aizee/config/hardware_jetson_scene_cam.yaml
 # librealsense's RSUSB backend leaks libusb worker threads on every
-# in-process reinit, so camera_node.py exits 1 on frame timeout and lets
-# systemd start a fresh process. RestartSec=1 keeps the recovery window
-# short enough that the GUI's "(waiting for camera...)" tile barely
-# blinks. KillMode=mixed sends SIGTERM to the main proc + SIGKILL to
-# any leaked workers so they don't survive into the next start.
-Restart=on-failure
-RestartSec=1
+# in-process reinit, so camera_node.py exits on frame timeout (and after
+# resetting the camera from USB 2) and lets systemd start a fresh process,
+# whatever its exit code. KillMode=mixed sends SIGTERM to the main proc +
+# SIGKILL to any leaked workers so they don't survive into the next start.
+# A stop waits out the node's 5 s frame wait and its 2 s pipeline stop.
+Restart=always
+RestartSec=2
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=5
+TimeoutStopSec=10
 StandardOutput=journal
 StandardError=journal
 
