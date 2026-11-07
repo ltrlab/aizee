@@ -60,12 +60,21 @@ class NativeControlHarness:
         self.now_ms = 0
         self.last = None
 
+    def _ended(self):
+        """Why the harness stopped replying: its exit code and the end of what it printed."""
+        try:
+            code = self.process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            return "still running, its reply stream closed"
+        said = self.process.stderr.read()[-400:].decode("utf-8", "replace").strip()
+        return f"exit code {code:#x}" + (f": {said}" if said else "")
+
     def _read_replies(self):
         try:
             while True:
                 header = self.process.stdout.read(4)
                 if len(header) != 4:
-                    raise RuntimeError("Native controller harness ended before replying")
+                    raise RuntimeError(f"Native controller harness ended before replying ({self._ended()})")
                 length, = struct.unpack("<I", header)
                 if not 0 < length <= 256 * 1024:
                     raise RuntimeError("Invalid native harness response size")
