@@ -7,7 +7,7 @@ without a handoff is not a bucket placement. A trial ends at the first of:
 
 - success          every stage reached, eligible, no failure;
 - dropped_cube     the cube returned to the table or floor after pickup;
-- forbidden_penetration  the robot went into the table or bucket (ineligible);
+- forbidden_penetration  the robot went into the table or bucket, or one arm into the other (ineligible);
 - incomplete_sequence    the cube settled in the bucket without the stages before it;
 - timeout          the trial ran out of time;
 - source_gap_or_abort    the run stopped: receiver fault, command source gap, policy error,
@@ -28,6 +28,8 @@ from pathlib import Path
 SCHEMA = 'minerva_eval_trial/1'
 STAGES = ('pickup', 'handoff', 'bucket')
 FAILURES = ('dropped_cube', 'forbidden_penetration', 'incomplete_sequence', 'timeout', 'source_gap_or_abort')
+# The scene's events that make a trial ineligible: the robot into the table or bucket, or one arm into the other.
+FORBIDDEN_EVENTS = ('forbidden_robot_environment_penetration', 'forbidden_robot_robot_penetration')
 EXCLUDED = ('invalid_start',)
 CATEGORIES = ('success',) + FAILURES + EXCLUDED
 SOURCES = ('simulation', 'real')
@@ -118,7 +120,7 @@ def outcome_from_events(events, *, timed_out=False, aborted=None):
                 outcome = 'success' if event.get('task_success') else 'incomplete_sequence'
         elif kind == 'dropped_outside_bucket' and outcome is None:
             outcome, detail = 'dropped_cube', f'dropped at {at:.3f} s'
-        elif kind == 'forbidden_robot_environment_penetration' and eligible:
+        elif kind in FORBIDDEN_EVENTS and eligible:
             # Ineligibility outranks every other outcome, a latched success included (the scene revokes it).
             eligible, outcome = False, 'forbidden_penetration'
             detail = f"{' / '.join(event.get('geoms') or ())} {event.get('depth_m', 0) * 1000:.1f} mm at {at:.3f} s"

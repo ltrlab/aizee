@@ -65,7 +65,8 @@ class SceneRenderer:
         self._pixels = np.ndarray(self.shape, np.uint8, buffer=self._memory.buf)
         self._config = dict(scene=str(scene.source), joint_map=scene.capabilities['motor_to_model_joint_map'],
             names=list(scene.names), width=scene.width, height=scene.height,
-            visual_mode=scene.visual_mode, camera_roles=list(camera_roles), memory=self._memory.name,
+            visual_mode=scene.visual_mode, workcell=scene.workcell.describe(),
+            camera_roles=list(camera_roles), memory=self._memory.name,
             scene_sha256=scene.capabilities['scene_sha256'], viewer=bool(viewer), parent_pid=os.getpid())
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         directory = Path(directory); directory.mkdir(parents=True, exist_ok=True)
@@ -211,8 +212,9 @@ def _worker():
             from mujoco import viewer
             window = viewer.launch_passive(scene.model, scene.data, show_left_ui=False, show_right_ui=False)
             window.opt.geomgroup[:] = scene.visual_groups
-            for flag in (scene.mj.mjtRndFlag.mjRND_SHADOW, scene.mj.mjtRndFlag.mjRND_REFLECTION, scene.mj.mjtRndFlag.mjRND_FOG):
-                window.user_scn.flags[flag] = False
+            from .task_scene import RENDER_FLAGS
+            for flag, value in RENDER_FLAGS.items():
+                window.user_scn.flags[getattr(scene.mj.mjtRndFlag, flag)] = value
             window.sync()
         _write(sys.stdout.buffer, {'ready': True})
         while True:

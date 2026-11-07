@@ -257,12 +257,13 @@ def _holding(terms, scale):
 
 
 def open_simulation(derived, *, model, directions, motors, servo, directory, clock, scene=SCENE, viewer=True,
-                    seed=1, actuators=None, task_scene=False, visual_mode='collision_proxy'):
+                    seed=1, actuators=None, task_scene=False, visual_mode='collision_proxy', workcell=None):
     """A SimulatedReceiver for a derived receiver (guarded_config.derive_receiver), resting at its initial pose.
 
     `model` is the URDF model the receiver was derived against, `directions` Helm's confirmed mapping and
     `motors` the reference roster, for the gravity each joint's sweep fitted (control.gravity). `actuators` names
-    the simulator's actuator file (actuators_path), if any: the motors it matches take its fitted values."""
+    the simulator's actuator file (actuators_path), if any: the motors it matches take its fitted values.
+    `workcell` (simulation.workcell) lays out the task scene's table, bucket and cube; None is the synthetic one."""
     config = derived['config']
     names = [joint['name'] for joint in config['joints']]
     terms = gravity_model(model, directions, [m for m in motors if m['name'] in names], (servo or {}).get('gravity'))
@@ -278,7 +279,7 @@ def open_simulation(derived, *, model, directions, motors, servo, directory, clo
         view = TaskSceneView(scene, derived['joint_map'], names, directory=Path(directory) / 'episodes',
                              metadata={'actuators': record, 'nominal': nominal,
                                        'receiver_identity': config['identity']},
-                             seed=seed, viewer=viewer, visual_mode=visual_mode)
+                             seed=seed, viewer=viewer, visual_mode=visual_mode, workcell=workcell)
     else:
         view = ModelView(scene, derived['joint_map'], names) if viewer else None
     return SimulatedReceiver(config, plant, clock=clock, directory=directory, view=view, nominal=nominal,

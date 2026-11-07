@@ -345,7 +345,13 @@ class MinervaCheckpointPolicy:
         }
 
 
-REFERENCE = {'fixture_replay': FixtureReplayPolicy, 'hold_still': HoldStillPolicy, 'penetrating': PenetratingPolicy}
+def _handoff_demonstrator():
+    from .demonstrator import HandoffDemonstrator
+    return HandoffDemonstrator()
+
+
+REFERENCE = {'fixture_replay': FixtureReplayPolicy, 'hold_still': HoldStillPolicy, 'penetrating': PenetratingPolicy,
+             'handoff_demonstrator': _handoff_demonstrator}
 
 
 def load_policy(spec):

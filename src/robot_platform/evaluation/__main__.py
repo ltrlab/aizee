@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import time
 
+from .generate import APPEARANCE
 from .grid import GridSpec, cube_poses, parse_counts
 from . import stats
 
@@ -20,11 +21,21 @@ def _grid_arguments(parser, default='3x3'):
     parser.add_argument('--jitter', type=float, default=.5, help='offset within a cell, fraction of half a cell')
     parser.add_argument('--yaw', type=float, default=0., help='cube yaw drawn from [-yaw, yaw] rad (default 0)')
     parser.add_argument('--no-nominal', action='store_true', help="leave out trial 0 at the scene's own cube start")
+    parser.add_argument('--workcell', help="a workcell file (simulation.workcell), or 'synthetic' (default): the "
+                                           "table, bucket and cube, and the grid's cube region")
+
+
+def _workcell(args):
+    from robot_platform.simulation.workcell import resolve
+    return resolve(getattr(args, 'workcell', None))
 
 
 def _grid(args):
     nx, ny = parse_counts(args.grid)
-    return GridSpec(nx=nx, ny=ny, seed=args.seed, jitter=args.jitter, yaw=args.yaw, nominal=not args.no_nominal)
+    options = dict(nx=nx, ny=ny, seed=args.seed, jitter=args.jitter, yaw=args.yaw, nominal=not args.no_nominal)
+    if getattr(args, 'workcell', None) in (None, 'synthetic'):
+        return GridSpec(**options)
+    return GridSpec.for_workcell(_workcell(args), **options)
 
 
 def _fraction(text):
@@ -52,9 +63,13 @@ def run(args):
     from .plants import derive_stack
     from .runner import RunConfig, evaluate
     policy = load_policy(args.policy)
+    width, height = parse_counts(args.camera_size)
     config = RunConfig(plant=args.plant, timeout_s=args.timeout, grid=_grid(args),
                        trials=None if args.trials is None else tuple(int(i) for i in args.trials.split(',')),
-                       plant_seed=args.plant_seed, scene_pose=args.scene_pose)
+                       camera_size=(width, height), visual_mode=args.visual_mode,
+                       plant_seed=args.plant_seed, scene_pose=args.scene_pose, workcell=args.workcell,
+                       grippers=args.grippers, latency_s=args.latency, actuator_spread=args.actuator_spread,
+                       appearance=APPEARANCE if args.vary_look else None, disturbance_seed=args.disturbance_seed)
     stack = derive_stack(profile=args.profile, directions=args.directions)
     out = Path(args.out) if args.out else ROOT / 'build/eval' / (
         f"{getattr(policy, 'name', 'policy')}-{args.plant}-" + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))
@@ -62,6 +77,35 @@ def run(args):
     print(_summary(report))
     print(f'report: {out / "report.md"}')
     return 0
+
+
+def generate(args):
+    from .generate import generate as run_generation
+    from .policies import load_policy
+    from .plants import derive_stack
+    from .runner import RunConfig
+    width, height = parse_counts(args.camera_size)
+    grid = _grid(args)
+    from dataclasses import replace
+    grid = replace(grid, nominal=False)  # The evaluation's own trial 0 is never generated.
+    config = RunConfig(plant='armplant', timeout_s=args.timeout, grid=grid, plant_seed=args.plant_seed,
+                       camera_size=(width, height), visual_mode=args.visual_mode, workcell=args.workcell,
+                       grippers='driven')
+    out = Path(args.out) if args.out else ROOT / 'build/generated' / time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    appearance = None if args.same_look else {'light': args.light, 'color': args.color,
+                                                'camera_shift': args.camera_shift, 'camera_turn_deg': args.camera_turn}
+    layouts = None
+    if args.randomize:
+        from robot_platform.simulation.layouts import LayoutSampler
+        if args.workcell in (None, 'synthetic'):
+            raise SystemExit('--randomize draws layouts around a workcell file: give --workcell <file>')
+        layouts = LayoutSampler(args.workcell, args.randomize)
+    made, attempts = run_generation(load_policy(args.policy), config, out, episodes=args.episodes,
+                                    stack=derive_stack(profile=args.profile, directions=args.directions), hz=args.hz,
+                                    appearance=appearance, progress=lambda line: print(line, flush=True),
+                                    layouts=layouts)
+    print(f'{len(made)} episodes from {attempts} attempts: {out / "episodes"} (manifest {out / "manifest.jsonl"})')
+    return 0 if made else 1
 
 
 def report(args):
@@ -124,7 +168,8 @@ def parser():
                                 description='Closed-loop Minerva task evaluation (simulation and hand-logged robot trials)')
     sub = p.add_subparsers(dest='command', required=True)
     r = sub.add_parser('run', help='run a policy against the simulated task scene')
-    r.add_argument('--policy', required=True, help="fixture_replay, hold_still, penetrating, or 'module:factory'")
+    r.add_argument('--policy', required=True,
+                   help="fixture_replay, hold_still, penetrating, handoff_demonstrator, 'checkpoint:<path>' or 'module:factory'")
     r.add_argument('--plant', choices=('armplant', 'ideal'), default='armplant',
                    help='armplant: the helm --sim receiver and simulated joints (default); ideal: exact tracking')
     r.add_argument('--timeout', type=float, default=30., help='seconds per trial (default 30)')
@@ -135,8 +180,43 @@ def parser():
     r.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')
     r.add_argument('--scene-pose', choices=('plant', 'measured'), default='plant',
                    help='what moves the object scene: the simulated joints (default) or receiver feedback')
+    r.add_argument('--latency', type=float, default=0., help='seconds before a chunk takes effect (default 0)')
+    r.add_argument('--actuator-spread', type=float, default=0.,
+                   help="each joint's inertia, friction and damping x U[1-s, 1+s] per trial, unknown to the receiver")
+    r.add_argument('--vary-look', action='store_true', help="vary each trial's lights, colours and camera places")
+    r.add_argument('--disturbance-seed', type=int, default=0, help='seed for the per-trial disturbances (default 0)')
+    r.add_argument('--grippers', choices=('kinematic', 'driven'), default='kinematic',
+                   help='kinematic: posed like the arms (default); driven: the grippers move under their drives in '
+                        'the scene and stall on the cube, and the receiver reads that back (armplant only)')
+    r.add_argument('--camera-size', default='160x120',
+                   help="the policy's rendered camera size WxH (default 160x120; generated episodes record 320x240)")
+    r.add_argument('--visual-mode', choices=('cad', 'collision_proxy'), default='collision_proxy',
+                   help="what the policy's cameras see (default collision_proxy; generated episodes record cad)")
     _grid_arguments(r)
     r.set_defaults(handler=run)
+    n = sub.add_parser('generate', help='record synthetic demonstrations: the episodes a demonstrator completes')
+    n.add_argument('--policy', default='handoff_demonstrator', help='the demonstrator (default handoff_demonstrator)')
+    n.add_argument('--episodes', type=int, required=True, help='successful episodes to record')
+    n.add_argument('--out', help='output directory (default build/generated/<time>)')
+    n.add_argument('--hz', type=float, default=15., help='record rate in scene time (default 15, near real capture)')
+    n.add_argument('--camera-size', default='320x240', help='rendered camera size WxH (default 320x240, as recorded)')
+    n.add_argument('--visual-mode', choices=('cad', 'collision_proxy'), default='cad',
+                   help='camera appearance (default cad: the full CAD visuals)')
+    n.add_argument('--timeout', type=float, default=70., help='seconds per attempt (default 70)')
+    n.add_argument('--light', type=float, default=.3, help='light strength varies by up to this fraction (default .3)')
+    n.add_argument('--color', type=float, default=.1, help='workcell and cube colours vary by this fraction (default .1)')
+    n.add_argument('--camera-shift', type=float, default=.01, help='cameras move up to this far per axis, m (default .01)')
+    n.add_argument('--camera-turn', type=float, default=2., help='cameras turn up to this far, degrees (default 2)')
+    n.add_argument('--same-look', action='store_true', help="keep the scene's own lights, colours and camera places")
+    n.add_argument('--randomize', metavar='FILE',
+                   help='a layout randomization file (config/devices/simulation/<asset>-randomization.json): each '
+                        "attempt draws its own cube, bucket, table placement and head camera pose around --workcell's, "
+                        "redrawing a layout the demonstrator cannot plan; without it, the workcell's fixed layout")
+    n.add_argument('--profile', default='minerva-teleop-direct.json', help='collision-disabled teleop profile')
+    n.add_argument('--directions', help="a Helm direction session's session.json (default: documented directions)")
+    n.add_argument('--plant-seed', type=int, default=1, help='simulated feedback noise seed (default 1)')
+    _grid_arguments(n)
+    n.set_defaults(handler=generate, seed=1000)
     m = sub.add_parser('report', help='report trials from a .jsonl or hand-logged .csv file')
     m.add_argument('trials')
     m.add_argument('--source', choices=('real', 'simulation'), default='real')

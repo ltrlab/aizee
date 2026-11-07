@@ -25,6 +25,7 @@ import tempfile
 
 import numpy as np
 
+from robot_platform.control.approach import end_margin
 from robot_platform.simulation.arm_plant import TICK_S
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -112,9 +113,18 @@ class _Stack:
         self.names = stack['names']
         self.joint_map = deepcopy(derived['joint_map'])
         rows = {row['name']: row for row in derived['lifecycle']}
-        # The lifecycle refuses a target outside [lower, upper]; commands are clipped into it first.
-        self.lower = np.array([rows[n]['lower'] for n in self.names])
-        self.upper = np.array([rows[n]['upper'] for n in self.names])
+        # The lifecycle refuses a target outside [lower, upper], and the direct receiver refuses an arm joint's
+        # command within the stopping margin of its approach floor at either end (control_core Move validation;
+        # approach.end_margin). Commands are clipped into that usable range first.
+        config = {joint['name']: joint for joint in derived['config']['joints']}
+        direct = derived['config'].get('direct') or {}
+        reaction = (derived['config']['feedback_timeout_ms'] + direct.get('limit_reaction_ms', 0)) / 1000
+        margin = np.array([0. if config[n].get('gripper') else end_margin(config[n], reaction) for n in self.names])
+        self.lower = np.array([rows[n]['lower'] for n in self.names]) + margin
+        self.upper = np.array([rows[n]['upper'] for n in self.names]) - margin
+        # How far following lets a command lead its joint (the lifecycle's max_lead): with position-only commands
+        # it bounds how fast each joint can follow.
+        self.lead = np.array([rows[n]['max_lead'] for n in self.names], dtype=float)
         self.home = np.array(derived['initial'], dtype=float)
         self.period_s = loop_period_s(stack['profile'])
         self.time_s = 0.
@@ -194,10 +204,20 @@ class ArmPlant(_Stack):
         # The joints' true positions after each 2.5 ms receiver tick: what the arm physically does. The policy
         # sees the receiver's feedback (16-bit steps and reading noise) instead, as on the robot.
         self._ticks = []
+        self._coupled = None
+        self._grippers = {name: i for i, name in enumerate(self.names) if name.endswith('_gripper')}
         step = self.plant.step
 
         def recorded(commands, dt):
+            start = list(self.plant.q)
             step(commands, dt)
+            if self._coupled is not None:
+                # Coupled: the scene's driven grippers, not ArmPlant, decide where the gripper joints went.
+                held = {name: None if commands is None or name in self.plant.dropped else commands[i]
+                        for name, i in self._grippers.items()}
+                for name, (q, v, torque) in self._coupled.step_driven(start, self.plant.q, held, dt).items():
+                    i = self._grippers[name]
+                    self.plant.q[i], self.plant.v[i], self.plant.torque[i] = q, v, torque
             self._ticks.append(tuple(self.plant.q))
         self.plant.step = recorded
         config = derived['config']
@@ -273,6 +293,42 @@ class ArmPlant(_Stack):
 
     def scene_pose(self):
         return self._pose.copy()
+
+    def gripper_drives(self):
+        """What a scene's driven grippers need (MinervaTaskScene(grippers=...)): each gripper joint's ArmPlant values
+        and the receiver's torque limit for it."""
+        rows = {row['name']: row for row in self.stack['derived']['config']['joints']}
+        nominal = self.receiver.nominal or {}
+        drives = {}
+        for name in self._grippers:
+            spec = next(s for s in self.plant.specs if s['name'] == name)
+            guessed = nominal.get(name) or []
+            drives[name] = dict(inertia=spec['inertia'], friction=spec['friction'], viscous=spec.get('viscous', 0.),
+                                max_effort=float(rows[name]['max_effort']),
+                                source=('ArmPlant joint values' + (f" (nominal, unmeasured: {', '.join(guessed)})"
+                                                                   if guessed else '')
+                                        + '; torque limit: the receiver configuration\'s max_effort'))
+        return drives
+
+    def couple(self, scene):
+        """From the next tick on, the scene's driven grippers move the gripper joints: the receiver reads them
+        stalled on whatever the jaws hold. The scene's drives must already sit where the plant's grippers are."""
+        if not getattr(scene, 'driven', False):
+            raise ValueError('coupling needs a scene with driven grippers')
+        state = scene.gripper_state()
+        for name, i in self._grippers.items():
+            q, v, _ = state[name]
+            if abs(q - self.plant.q[i]) > 1e-9:
+                raise ValueError(f'{name}: the scene drive is at {q:.6f}, the plant at {self.plant.q[i]:.6f}')
+            self.plant.v[i] = v
+        self._coupled = scene
+
+    def decouple(self):
+        self._coupled = None
+
+    @property
+    def coupled(self):
+        return self._coupled is not None
 
     def step(self, command):
         if self.lifecycle.state != 'TELEOP':

@@ -10,7 +10,7 @@ class TaskSceneView(ProcessCapture):
     """Scene-specific constructor over the shared bounded capture process mailbox."""
     def __init__(self, scene, joint_map, names, *, directory, metadata=None, seed=1,
                  viewer=True, rate_hz=30., record_hz=20., width=320, height=240,
-                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy"):
+                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy", workcell=None):
         if rate_hz <= 0 or record_hz <= 0 or record_hz > rate_hz:
             raise ValueError("rates must satisfy 0 < record_hz <= rate_hz")
         if visual_mode not in {"collision_proxy", "cad"}:
@@ -19,10 +19,13 @@ class TaskSceneView(ProcessCapture):
         if isinstance(camera_roles, str) or not camera_roles or len(set(camera_roles)) != len(camera_roles) or not set(camera_roles).issubset(roles):
             raise ValueError("capture camera roles must be a distinct supported nonempty subset")
         self.directory, self.camera_roles = Path(directory), tuple(camera_roles)
+        from .workcell import resolve as resolve_workcell
+        # Resolved here, so a bad workcell file fails in the caller and the worker gets plain data.
         config = dict(scene=str(scene), joint_map=joint_map, names=list(names), directory=str(directory),
                       metadata=metadata or {}, seed=seed, viewer=viewer, rate_hz=rate_hz,
                       record_hz=record_hz, width=width, height=height,
-                      camera_roles=list(camera_roles), visual_mode=visual_mode)
+                      camera_roles=list(camera_roles), visual_mode=visual_mode,
+                      workcell=resolve_workcell(workcell).describe())
         self.camera_roles = tuple(camera_roles)
         self._record_intent = False
         super().__init__(config, worker_module=__name__)

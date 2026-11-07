@@ -37,7 +37,10 @@ def test_scene_has_one_free_object_and_truthful_contact_manifest(scene):
     assert not scene.capabilities["attachment_assistance"]
     assert not scene.capabilities["coupled_robot_dynamics"]
     assert "terminal" in scene.capabilities["finger_collision"]
-    assert len([n for n in scene.capabilities["collision_geometries"] if n.endswith("terminal_pad")]) == 4
+    # Each finger collides as convex pieces of its CAD surface; its terminal pad box only marks the grasp frame.
+    collision = scene.capabilities["collision_geometries"]
+    assert len({n.split("/finger/")[0] for n in collision if "/finger/" in n}) == 4
+    assert not [n for n in collision if n.endswith("terminal_pad")]
     assert scene.model.ncam == 3
     before = state["run_id"]
     for _ in range(10): state = scene.update(np.zeros(14), .05)
@@ -57,12 +60,17 @@ def test_real_contact_pickup_handoff_and_bucket_outcome(scene):
         for k in range(point["steps"]):
             state = scene.update(q+(target-q)*(k+1)/point["steps"], FIXTURE["step_s"])
         q = target
+    # Contact still finds every stage of the replay ...
+    kinds = [e["kind"] for e in state["events"]]
     assert state["first_gripper"] == "left" and state["handoff"]
-    assert state["bucket_settled"] and state["success"] and not state["dropped"]
-    assert state["training_eligible"] and not state["forbidden_contacts"]
-    assert not state["sim2real_validated"]
-    assert [e["kind"] for e in state["events"]] == ["reset", "pickup", "handoff", "bucket_settled"]
+    assert state["bucket_settled"] and not state["dropped"]
+    assert [k for k in kinds if not k.startswith("forbidden")] == ["reset", "pickup", "handoff", "bucket_settled"]
     assert "task/bucket/bottom" in state["cube_contacts"]
+    assert not state["sim2real_validated"]
+    # ... but the fixture predates the arm-to-arm audit, and its handoff passes the two arms through each other
+    # (wrists, forearms and fingers, from 2.9 s): the scene revokes its success and its eligibility.
+    assert not state["success"] and not state["training_eligible"] and state["forbidden_contacts"]
+    assert {k for k in kinds if k.startswith("forbidden")} == {"forbidden_robot_robot_penetration"}
 
 
 def test_bucket_contact_alone_does_not_count_as_handoff_success(scene):
@@ -264,6 +272,38 @@ def test_aabb_broadphase_never_culls_actual_penetration_at_fixture_poses(scene):
                     assert overlap[r,e]
                     found+=1
     assert found>0
+
+
+def test_body_bounds_cull_no_pair_the_geom_bounds_keep(scene):
+    # The audit and the demonstrator's clearance cull body against body first. At the fixture's poses (its handoff
+    # passes the arms through each other) and one in the table, they keep exactly the pairs that geom bounds alone
+    # keep: at the audit's margin and the demonstrator's, with every geom moved or every other one.
+    from robot_platform.simulation.task_scene import _world_aabbs
+    ids, environment = scene._collision_ids, scene._environment_ids
+    left, right = scene._arm_rows["left"], scene._arm_rows["right"]
+    poses = [np.array(point["q"]) for point in FIXTURE["waypoints"]]
+    invalid = poses[0].copy(); invalid[1] -= .12; poses.append(invalid)
+    found = {"forbidden_robot_environment_penetration": 0, "forbidden_robot_robot_penetration": 0}
+    for q in poses:
+        scene._pose(q); mujoco.mj_forward(scene.model, scene.data)
+        centers, halves = _world_aabbs(scene.model, scene.data, ids)
+        env_centers, env_halves = _world_aabbs(scene.model, scene.data, environment)
+        for margin in (1e-12, .05):
+            for moved in (None, np.arange(len(ids)) % 2 == 0):
+                every = np.ones(len(ids), dtype=bool) if moved is None else moved
+                overlap = np.all(np.abs(centers[:, None]-env_centers[None]) <= halves[:, None]+env_halves[None]+margin,
+                                 axis=2) & every[:, None]
+                expected = [(ids[r], environment[e], "forbidden_robot_environment_penetration")
+                            for r, e in np.argwhere(overlap)]
+                overlap = np.all(np.abs(centers[left][:, None]-centers[right][None]) <=
+                                 halves[left][:, None]+halves[right][None]+margin, axis=2)
+                overlap &= every[left][:, None] | every[right][None]
+                expected += [(ids[left[i]], ids[right[j]], "forbidden_robot_robot_penetration")
+                             for i, j in np.argwhere(overlap)]
+                assert scene._overlapping(margin, moved) == expected
+                for *_, kind in expected:
+                    found[kind] += 1
+    assert all(found.values())
 
 
 def test_renderer_deadline_is_independent_of_status_heartbeat():

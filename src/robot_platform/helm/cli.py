@@ -56,6 +56,9 @@ def main(argv=None):
                         help="Teleop's virtual receiver drives a simulated Minerva in a MuJoCo window (loop on this PC)")
     parser.add_argument('--sim-visual-mode', choices=('cad', 'collision_proxy'),
                         help='Task camera appearance: collision_proxy (default) or full CAD; contact physics is unchanged')
+    parser.add_argument('--sim-workcell',
+                        help="Task table, bucket and cube: a workcell file, or 'synthetic'. Default: the asset's "
+                             "file in config/devices/simulation/ when there is one, else 'synthetic'")
     parser.add_argument('--capture-profile', type=Path,
                         help='JSON camera identity/clock configuration for bimanual live task recording')
     parser.add_argument('--episodes', type=Path,
@@ -99,6 +102,8 @@ def main(argv=None):
         parser.error('--sim needs --teleop')
     if args.sim_visual_mode is not None and not args.sim:
         parser.error('--sim-visual-mode needs --sim')
+    if args.sim_workcell is not None and not args.sim:
+        parser.error('--sim-workcell needs --sim')
     from aiohttp import web
     from .server import create_app
     from .session import HelmSession
@@ -150,8 +155,15 @@ def main(argv=None):
                 # The simulator's actuator file, beside the servo calibration: the motors it matches take the values
                 # sim2real fitted on real teleop.
                 from robot_platform.simulation.minerva_sim import actuators_path
+                from robot_platform.simulation.workcell import resolve, workcell_path
+                workcell = args.sim_workcell
+                if workcell is None:
+                    # The measured workcell, beside the actuator file, when someone has described it.
+                    measured = workcell_path(session.profile_path, session.asset_id)
+                    workcell = str(measured) if measured.is_file() else 'synthetic'
+                resolve(workcell)  # A bad workcell file stops Helm here, not at Start session.
                 simulation = {'actuators': str(actuators_path(session.profile_path, session.asset_id)),
-                              'visual_mode': args.sim_visual_mode or 'collision_proxy'}
+                              'visual_mode': args.sim_visual_mode or 'collision_proxy', 'workcell': workcell}
             teleop = TeleopSession(session, args.teleop, runs=args.runs, leaders=leaders,
                                    target='pc' if args.sim else 'jetson' if args.on_robot else args.loop,
                                    simulation=simulation, capture_profile=args.capture_profile, episodes=args.episodes,

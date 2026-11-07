@@ -19,18 +19,23 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from . import room
+from .fiducials import cell_center, grid, white_runs
 from .minerva_sim import ModelPose, SCENE
+from .workcell import APPEARANCE, LEG_HALF, SYNTHETIC, bucket_frame, resolve as resolve_workcell
 
 CAMERAS = ("left_wrist", "right_wrist", "head")
 JAW_BODIES = {"right": ("carriage_lwl7b", "carriage_lwl7b_2"),
               "left": ("carriage_lwl7b_3", "carriage_lwl7b_4")}
 WRISTS = {"right": "1_1_02_eb571_960_stp", "left": "1_1_02_eb571_960_stp_2"}
-TABLE_TOP = .28
-CUBE_HALF = .018
-CUBE_START = (.18, -.34, TABLE_TOP + CUBE_HALF + .002)
-BUCKET_CENTER = (-.20, -.40)
-BUCKET_HALF = .085
-BUCKET_HEIGHT = .08
+# The synthetic layout's values, which the frozen fixture and older callers use. A scene's own layout
+# is its `workcell` (simulation.workcell).
+TABLE_TOP = SYNTHETIC.table_top
+CUBE_HALF = SYNTHETIC.cube_half
+CUBE_START = (SYNTHETIC.cube_start[0], SYNTHETIC.cube_start[1], TABLE_TOP + CUBE_HALF + .002)
+BUCKET_CENTER = SYNTHETIC.bucket_center
+BUCKET_HALF = SYNTHETIC.bucket_inner[0] / 2
+BUCKET_HEIGHT = SYNTHETIC.bucket_height
 PHYSICS_DT = .0005
 MAX_SOURCE_GAP_S = .25
 # The simulated robot has no neck: its head camera is fixed where the real one looks with the neck at zero. Episodes
@@ -39,10 +44,62 @@ SIMULATED_HEAD = "fixed at the neck's zero: the simulation has no neck; no head 
 
 
 def with_fixed_head(frame):
-    """A rendered frame for the 16-axis episode writer: the arms' 14 axes, then the head's at the neck's zero."""
+    """A rendered frame for the 16-axis episode writer: the arms' 14 axes, then the head's at the neck's zero. Efforts,
+    if the frame has them, are the arms' alone: the head has none (NaN, masked)."""
     from robot_platform.data.roster import HEAD_AXES
     zero = (0.,)*len(HEAD_AXES)
-    return dict(frame, q=tuple(frame["q"])+zero, qcmd=tuple(frame["qcmd"])+zero)
+    result = dict(frame, q=tuple(frame["q"])+zero, qcmd=tuple(frame["qcmd"])+zero)
+    if frame.get("torques") is not None:
+        result["torques"] = tuple(frame["torques"])+(float("nan"),)*len(HEAD_AXES)
+    return result
+
+
+# Driven grippers: the rotor's inertia rides on the drive hinge as armature. The rotor and jaw bodies need some mass
+# to move at all; these are deliberately tiny next to the reflected rotor inertia (0.002 kg m2 at the motor is about
+# 24 kg at a jaw through 9.2 mm/rad). The gear train is held as stiff as the physics step resolves.
+DRIVE_BODY_MASS, DRIVE_BODY_INERTIA = 1e-3, 1e-8
+JAW_BODY_MASS, JAW_BODY_INERTIA = 1e-3, 1e-8
+# MuJoCo's soft constraints are acceleration-level: with a light jaw, a default-impedance coupling stretches
+# millimetres under a few newtons. Near-unit impedance holds the gear train, and a 1 ms contact time constant keeps
+# the pads within a fraction of a millimetre of the cube at hundreds of newtons. Numerical choices, not measurements.
+TRANSMISSION_SOLREF, TRANSMISSION_SOLIMP = (2 * PHYSICS_DT, 1.), (.9999, .9999, .001)
+GRIP_SOLREF, GRIP_SOLIMP = (2 * PHYSICS_DT, 1.), (.99, .999, .001)
+# A finger's paddle collides as convex pieces of its CAD surface, FINGER_SLICE slabs along it. The paddle ends where
+# the finger's cross-section narrows below FINGER_NECK of its widest: above it, its rack and pinion mount sits inside
+# the gripper.
+FINGER_SLICE, FINGER_NECK = .005, .8  # m, share
+_FINGER_PIECES = {}  # _finger_pieces by posed finger surface.
+DRIVE_FIELDS = ("inertia", "friction", "viscous", "max_effort")
+# A fiducial tag is drawn as flat boxes stacked this far apart on the table top: its white label, the black square on
+# that and the code's white cells on top, so the renderer draws each over the one below. A drawing order, not the
+# paper's thickness, which is not modelled.
+FIDUCIAL_LAYER = .0001  # m
+# The real Minerva is black all over, but drawn pitch black its grippers vanished against the black table (the user,
+# 2026-10-18: "The whole robot shouldn't be pitch black, make it a rather dark gray"). Every robot geom, its CAD visuals
+# and its collision proxies alike, is drawn in the look's dark grey (room.LOOK['robot_grey'], or the workcell's own look)
+# with a little specular, so that its edges read, and no reflection. The source model's colours are not used.
+ROBOT_MATERIAL = "task/robot/dark_grey"
+ROBOT_RGBA = (room.LOOK["robot_grey"],) * 3 + (1.,)
+ROBOT_FINISH = {"rgba": list(ROBOT_RGBA), "specular": room.ROBOT_SPECULAR, "shininess": room.ROBOT_SHININESS,
+                "reflectance": 0., "source": room.LOOK_SOURCE}
+# How the scene renders: no shadows or reflections (each camera's image costs one pass), no fog; the room backdrop
+# (skybox) and its horizon haze, which fades the floor plane's far edge into the backdrop.
+RENDER_FLAGS = {"mjRND_SHADOW": False, "mjRND_REFLECTION": False, "mjRND_FOG": False, "mjRND_SKYBOX": True,
+                "mjRND_HAZE": True}
+ROOM_BACKDROP = "task/room/backdrop"
+ROOM_FLOOR = "task/room/floor"
+
+
+def scene_look(workcell):
+    """The scene's look: room.LOOK with the workcell's own values over it."""
+    return dict(room.LOOK, **workcell.look)
+
+
+def robot_finish(workcell):
+    """The robot's finish in `workcell`'s look (ROBOT_FINISH with its grey)."""
+    grey = scene_look(workcell)["robot_grey"]
+    return dict(ROBOT_FINISH, rgba=[grey, grey, grey, 1.], source=room.LOOK_SOURCE if "robot_grey" not in workcell.look
+                else workcell.sources.get("look.robot_grey", "the workcell's look"))
 
 
 def _world_aabbs(model, data, ids):
@@ -58,12 +115,180 @@ def _numbers(values):
     return " ".join(str(float(v)) for v in values)
 
 
-def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
+def _yaw_quat(yaw):
+    return (math.cos(yaw / 2), 0., 0., math.sin(yaw / 2))
+
+
+def _environment(world, workcell, grip_contact=False):
+    """The workcell's floor, table (with its trim and legs), open bucket and free cube. Returns the static geoms.
+    `grip_contact` gives the cube the driven grippers' stiff contact (GRIP_SOLREF, GRIP_SOLIMP)."""
+    w = workcell
+    # The floor is the room's wood (room.floor_texture), its colour the look's floor tone: the workcell's floor colour
+    # is not used.
+    floor = ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05",
+                          rgba=_numbers((*scene_look(w)["floor_tone"], 1.)), material=ROOM_FLOOR, contype="1",
+                          conaffinity="3")
+    if w.floor_z:
+        floor.set("pos", _numbers((0, 0, w.floor_z)))
+    environment = []
+
+    def box(name, pos, size, rgba, yaw=0.):
+        environment.append(name)
+        geom = ET.SubElement(world, "geom", name=name, type="box", pos=_numbers(pos), size=_numbers(size),
+                             rgba=_numbers(rgba), contype="1", conaffinity="3", friction="1 .005 .0001")
+        if yaw:
+            geom.set("quat", _numbers(_yaw_quat(yaw)))
+
+    top, (cx, cy), (sx, sy), thick = w.table_top, w.table_center, w.table_size, w.table_thickness
+    turn = w.table_yaw  # The table, its trim and its legs turn about the table's centre (legs placed already).
+    tc, ts = math.cos(turn), math.sin(turn)
+    inner = (sx/2 - w.trim_width, sy/2 - w.trim_width)
+    box("task/table", (cx, cy, top - thick/2), (inner[0], inner[1], thick/2), w.color("table"), turn)
+    if w.trim_width:
+        # A border strip flush with the top: the x-side strips run the full depth, the y-side strips between them.
+        for axis in (0, 1):
+            for sign in (-1, 1):
+                offset = [0., 0.]
+                offset[axis] = sign * (inner[axis] + w.trim_width/2)
+                pos = (cx + tc*offset[0] - ts*offset[1], cy + ts*offset[0] + tc*offset[1], top - thick/2)
+                size = [w.trim_width/2, sy/2, thick/2] if axis == 0 else [inner[0], w.trim_width/2, thick/2]
+                box(f"task/table/trim/{axis}/{sign}", pos, size, w.color("trim"), turn)
+    under = top - thick
+    for x, y in w.table_legs:
+        box(f"task/leg/{x}/{y}", (x, y, (w.floor_z + under)/2), (LEG_HALF, LEG_HALF, (under - w.floor_z)/2),
+            w.color("leg"), turn)
+    (bx, by), yaw = w.bucket_center, w.bucket_yaw
+    c, s = math.cos(yaw), math.sin(yaw)
+    half = (w.bucket_inner[0]/2, w.bucket_inner[1]/2)
+
+    def at(dx, dy, z):
+        return (bx + c*dx - s*dy, by + s*dx + c*dy, z)
+    box("task/bucket/bottom", at(0., 0., top + w.bucket_bottom/2), (half[0], half[1], w.bucket_bottom/2),
+        w.color("bucket_bottom"), yaw)
+    for axis in (0, 1):
+        for sign in (-1, 1):
+            offset = [0., 0.]
+            offset[axis] = sign * (half[axis] + w.bucket_wall/2)
+            size = [half[0] + w.bucket_wall, half[1] + w.bucket_wall, w.bucket_height/2]
+            size[axis] = w.bucket_wall/2
+            box(f"task/bucket/wall/{axis}/{sign}", at(*offset, top + w.bucket_height/2), size,
+                w.color("bucket_wall"), yaw)
+    start = (w.cube_start[0], w.cube_start[1], top + w.cube_half + .002)
+    cube = ET.SubElement(world, "body", name="task/cube", pos=_numbers(start))
+    if w.cube_start[2]:
+        cube.set("quat", _numbers(_yaw_quat(w.cube_start[2])))
+    ET.SubElement(cube, "freejoint", name="task/cube/free")
+    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([edge/2 for edge in w.block]),
+                  mass=str(w.cube_mass), rgba=_numbers(w.color("cube")), contype="1", conaffinity="3",
+                  friction=_numbers(w.cube_friction), condim="4",
+                  solref=_numbers(GRIP_SOLREF) if grip_contact else ".004 1",
+                  solimp=_numbers(GRIP_SOLIMP) if grip_contact else ".95 .99 .001")
+    return environment
+
+
+def _fiducials(world, workcell):
+    """The workcell's fiducial tags, visual only: no contacts, no mass, and not among the audited environment. Each tag
+    is a body in its marker frame (simulation.fiducials), flat on the table top or upright on a bucket wall, holding
+    its white label, the black square and the code's white cells, one box per run of white cells along a row. The
+    scene adds them after every other body, so every other body and geom keeps its index."""
+    f = workcell.fiducials
+    if not f:
+        return
+    family, square = f["family"], f["square"]
+    size = square / grid(family)
+    paper, ink = workcell.color("fiducial_label"), workcell.color("fiducial_print")
+    for tag_id, x, y, z, yaw, tilt in f["tags"]:
+        # Turned `yaw` about z, then tipped `tilt` about the marker's own x axis (fiducials.marker_axes).
+        quat = (math.cos(yaw / 2) * math.cos(tilt / 2), math.cos(yaw / 2) * math.sin(tilt / 2),
+                math.sin(yaw / 2) * math.sin(tilt / 2), math.sin(yaw / 2) * math.cos(tilt / 2))
+        body = ET.SubElement(world, "body", name=f"task/fiducial/{tag_id}", pos=_numbers((x, y, z)),
+                             quat=_numbers(quat))
+
+        def flat(name, center, half, layer, rgba):
+            ET.SubElement(body, "geom", name=f"task/fiducial/{tag_id}/{name}", type="box",
+                          pos=_numbers((*center, (layer - .5) * FIDUCIAL_LAYER)),
+                          size=_numbers((*half, FIDUCIAL_LAYER / 2)), rgba=_numbers(rgba), contype="0",
+                          conaffinity="0", mass="0")
+        flat("label", (0., -f["tag_offset"]), (f["label"][0] / 2, f["label"][1] / 2), 1, paper)
+        flat("square", (0., 0.), (square / 2, square / 2), 2, ink)
+        for row, first, last in white_runs(family, tag_id):
+            (x0, y0), (x1, _) = cell_center(family, square, row, first), cell_center(family, square, row, last)
+            flat(f"cells/{row}/{first}", ((x0 + x1) / 2, y0), ((last - first + 1) * size / 2, size / 2), 3, paper)
+
+
+def _drive_body(wrist, side, drive):
+    """A gripper's motor as a hinge on its wrist: the rotor's inertia as armature, its friction and damping."""
+    body = ET.SubElement(wrist, "body", name=f"task/{side}_gripper/drive")
+    # The rotor's inertia rides on the joint (armature); the body only needs a nonzero mass to move.
+    ET.SubElement(body, "inertial", pos="0 0 0", mass=str(DRIVE_BODY_MASS), diaginertia=_numbers([DRIVE_BODY_INERTIA]*3))
+    ET.SubElement(body, "joint", name=f"task/{side}_gripper/drive", type="hinge", axis="0 0 1",
+                  armature=str(drive["inertia"]), frictionloss=str(drive["friction"]),
+                  damping=str(drive["viscous"]))
+
+
+def _edges(vertices, faces):
+    """Each face edge's two end points."""
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    return vertices[edges[:, 0]], vertices[edges[:, 1]]
+
+
+def _surface_points(vertices, edges, z0, z1):
+    """A mesh's surface points in the slab z0..z1: its vertices inside, and its edges' crossings of the slab's planes
+    (a long straight face has no vertices inside a slab)."""
+    a, b = edges
+    points = [vertices[(vertices[:, 2] >= z0) & (vertices[:, 2] <= z1)]]
+    for plane in (z0, z1):
+        crossing = (a[:, 2] - plane) * (b[:, 2] - plane) < 0
+        share = (plane - a[crossing, 2]) / (b[crossing, 2] - a[crossing, 2])
+        points.append(a[crossing] + share[:, None] * (b[crossing] - a[crossing]))
+    return np.unique(np.round(np.concatenate(points), 7), axis=0)
+
+
+def _paddle_top(vertices, edges):
+    """Where a finger's paddle ends: going up from its tip in 1 mm slabs (the finger points down in the model's
+    default pose), the first whose cross-section is narrower than FINGER_NECK of the widest below it. The paddle
+    widens all the way up (12 to 54 mm); the rack and pinion mount above it is a 22-30 mm neck."""
+    bottom, top = vertices[:, 2].min(), vertices[:, 2].max()
+    widest, z = 0., bottom
+    while z < top - .001:
+        points = _surface_points(vertices, edges, z, z + .001)
+        if len(points):
+            width = (points[:, :2].max(axis=0) - points[:, :2].min(axis=0)).max()
+            if width < FINGER_NECK * widest:
+                return z
+            widest = max(widest, width)
+        z += .001
+    return top
+
+
+def _finger_pieces(vertices, faces):
+    """A finger's paddle as convex pieces: its surface points slab by slab from the tip (FINGER_SLICE). Each piece's
+    convex hull follows the paddle's taper and chamfers, where axis-aligned boxes over the same slabs stuck out up to
+    15 mm. Built once per posed finger surface in a process (a trial's scene and its planner's share them)."""
+    key = hashlib.sha256(vertices.tobytes() + faces.tobytes()).digest()
+    if key not in _FINGER_PIECES:
+        edges = _edges(vertices, faces)
+        bottom, end = vertices[:, 2].min(), _paddle_top(vertices, edges)
+        pieces, z = [], bottom
+        while z < end - 1e-9:
+            points = _surface_points(vertices, edges, z, min(z + FINGER_SLICE, end))
+            if len(points) >= 4 and np.all(points.max(axis=0) - points.min(axis=0) > 1e-4):
+                pieces.append(points)
+            z = min(z + FINGER_SLICE, end)
+        _FINGER_PIECES[key] = tuple(pieces)
+    return _FINGER_PIECES[key]
+
+
+def _scene_xml(source, fk_model, fk_data, visual_mode="cad", workcell=SYNTHETIC, drives=None):
     """Flatten CAD bodies into mocap bodies, preserving local visual/collision geometry.
 
     The source's placeholder inertias and joints are deliberately not copied. All
     CAD collision geoms collide with the cube. Robot/environment penetration is
     measured separately because two kinematic bodies cannot react to each other.
+
+    With `drives` ({side: inertia, friction, viscous, max_effort, scale, offset, mimic}), each gripper's two jaws
+    instead slide on their wrist, coupled to a motor hinge by the gripper's transmission, so contact pushes back
+    on the motor. The arms stay kinematic.
     """
     import mujoco
     mujoco.mj_kinematics(fk_model, fk_data)
@@ -77,45 +302,64 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
     ET.SubElement(root, "compiler", angle="radian", meshdir=str((source.parent / "..").resolve()))
     ET.SubElement(root, "option", timestep=str(PHYSICS_DT), gravity="0 0 -9.81", integrator="implicitfast")
     ET.SubElement(root, "size", njmax="4000", nconmax="1000")
+    look = scene_look(workcell)
+    warm = room.kelvin_rgb(look["light_kelvin"])  # The lights' colour, as bright as white light.
     visual = ET.SubElement(root, "visual")
-    ET.SubElement(visual, "headlight", ambient=".35 .35 .35", diffuse=".7 .7 .7")
+    ET.SubElement(visual, "headlight", ambient=_numbers(.35 * warm), diffuse=_numbers(.7 * warm))
     ET.SubElement(visual, "global", offwidth="1280", offheight="960", azimuth="90", elevation="-20")
+    # The floor plane's far edge fades into the backdrop's colour at the floor's horizon (room.HAZE).
+    ET.SubElement(visual, "map", haze=str(room.HAZE_SPAN))
+    ET.SubElement(visual, "rgba", haze=_numbers((*(np.asarray(room.HAZE) * look["room_tone"]), 1.)))
+    # The look in the XML, so that the scene's hash tells looks apart: the backdrop's tone is applied after compiling.
+    root.append(ET.Comment(" look " + json.dumps({k: v if isinstance(v, float) else list(v) for k, v in look.items()},
+                                                 sort_keys=True) + " "))
     ET.SubElement(root, "statistic", center="0 -.15 .65", extent="1.3")
     root.append(copy.deepcopy(original.find("asset")))
+    asset = root.find("asset")
+    finish = robot_finish(workcell)
+    ET.SubElement(asset, "material", name=ROBOT_MATERIAL, rgba=_numbers(finish["rgba"]),
+                  specular=str(finish["specular"]), shininess=str(finish["shininess"]),
+                  reflectance=str(finish["reflectance"]))
+    # The room: its backdrop as the skybox (room.backdrop, painted and blurred), and its wood on the floor plane.
+    ET.SubElement(asset, "texture", name=ROOM_BACKDROP, type="skybox",
+                  **{f"file{face}": (room.ASSETS / f"{face}.png").as_posix() for face in room.FACES})
+    ET.SubElement(asset, "texture", name=ROOM_FLOOR, type="2d", file=(room.ASSETS / "floor.png").as_posix())
+    ET.SubElement(asset, "material", name=ROOM_FLOOR, texture=ROOM_FLOOR, texrepeat="1 1", texuniform="false",
+                  specular=".15", shininess=".2", reflectance="0")
     world = ET.SubElement(root, "worldbody")
-    ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true")
-    ET.SubElement(world, "geom", name="task/floor", type="plane", size="2 2 .05", rgba=".17 .21 .24 1",
-                  contype="1", conaffinity="3")
-    environment = []
-    def box(name, pos, size, rgba):
-        environment.append(name)
-        ET.SubElement(world, "geom", name=name, type="box", pos=_numbers(pos), size=_numbers(size),
-                      rgba=rgba, contype="1", conaffinity="3", friction="1 .005 .0001")
-    box("task/table", (0, -.38, TABLE_TOP - .025), (.48, .26, .025), ".46 .34 .23 1")
-    for x in (-.42, .42):
-        for y in (-.60, -.16):
-            box(f"task/leg/{x}/{y}", (x, y, (TABLE_TOP-.05)/2), (.022, .022, (TABLE_TOP-.05)/2), ".3 .3 .32 1")
-    bx, by = BUCKET_CENTER
-    box("task/bucket/bottom", (bx, by, TABLE_TOP+.007), (BUCKET_HALF, BUCKET_HALF, .007), ".10 .35 .64 1")
-    for axis in (0, 1):
-        for sign in (-1, 1):
-            pos = [bx, by, TABLE_TOP + BUCKET_HEIGHT/2]
-            pos[axis] += sign * (BUCKET_HALF + .006)
-            size = [BUCKET_HALF + .012, BUCKET_HALF + .012, BUCKET_HEIGHT/2]
-            size[axis] = .006
-            box(f"task/bucket/wall/{axis}/{sign}", pos, size, ".12 .42 .74 1")
-    cube = ET.SubElement(world, "body", name="task/cube", pos=_numbers(CUBE_START))
-    ET.SubElement(cube, "freejoint", name="task/cube/free")
-    ET.SubElement(cube, "geom", name="task/cube/geom", type="box", size=_numbers([CUBE_HALF]*3),
-                  mass=".035", rgba=".95 .30 .06 1", contype="1", conaffinity="3",
-                  friction="1 .005 .0001", condim="4", solref=".004 1", solimp=".95 .99 .001")
-    bodies, collision_names = [], []
+    ET.SubElement(world, "light", pos="0 -1 2.5", dir="0 .3 -1", directional="true", diffuse=_numbers(.7 * warm))
+    environment = _environment(world, workcell, grip_contact=drives is not None)
+    bodies, collision_names, pieces = [], [], None
+    flats = {}
+    jaw_side = {jaw: side for side, pair in JAW_BODIES.items() for jaw in pair}
     for body in original.find("worldbody").iter("body"):
         name = body.get("name")
         if not body.findall("geom"):
             continue
-        flat = ET.SubElement(world, "body", name=name, mocap="true")
-        bodies.append(name)
+        if drives is not None and name in jaw_side:
+            # A driven jaw keeps its CAD placement on the wrist and its slide joint; it is not a mocap body.
+            side = jaw_side[name]
+            bid = mujoco.mj_name2id(fk_model, mujoco.mjtObj.mjOBJ_BODY, name)
+            parent = mujoco.mj_id2name(fk_model, mujoco.mjtObj.mjOBJ_BODY, int(fk_model.body_parentid[bid]))
+            if parent != WRISTS[side] or parent not in flats:
+                raise ValueError(f"driven jaw {name} must hang directly from the {side} wrist, not {parent}")
+            flat = ET.SubElement(flats[parent], "body", name=name, pos=_numbers(fk_model.body_pos[bid]),
+                                 quat=_numbers(fk_model.body_quat[bid]))
+            joints = body.findall("joint")
+            if len(joints) != 1 or joints[0].get("type") != "slide":
+                raise ValueError(f"driven jaw {name} needs exactly one slide joint")
+            slide = ET.SubElement(flat, "joint", name=joints[0].get("name"), type="slide",
+                                  axis=joints[0].get("axis", "0 0 1"), limited="true",
+                                  range=_numbers(fk_model.jnt_range[mujoco.mj_name2id(
+                                      fk_model, mujoco.mjtObj.mjOBJ_JOINT, joints[0].get("name"))]))
+            if joints[0].get("pos"):
+                slide.set("pos", joints[0].get("pos"))
+            ET.SubElement(flat, "inertial", pos="0 0 0", mass=str(JAW_BODY_MASS),
+                          diaginertia=_numbers([JAW_BODY_INERTIA]*3))
+        else:
+            flat = ET.SubElement(world, "body", name=name, mocap="true")
+            bodies.append(name)
+        flats[name] = flat
         for geom in body.findall("geom"):
             item = copy.deepcopy(geom)
             collides = "/collision/" in item.get("name", "")
@@ -125,8 +369,10 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
             item.set("conaffinity", "1" if collides else "0")
             if collides and name in {n for pair in JAW_BODIES.values() for n in pair} and \
                     Path(item.get("mesh", "")).name.startswith(("part_40", "part_41")):
-                # A convex hull of the concave one-piece finger fills the open jaw.
-                # Fit only the straight terminal 30 mm pad from the actual CAD vertices.
+                # A convex hull of the concave one-piece finger fills the open jaw. The finger's paddle collides as
+                # convex pieces of its CAD surface instead (_finger_pieces), so the cube cannot pass through it, nor
+                # one gripper's fingers through the other's. The straight terminal 30 mm keeps a box (terminal_pad)
+                # that only marks the grasp frame (evaluation.reach) and collides with nothing.
                 gid = mujoco.mj_name2id(fk_model, mujoco.mjtObj.mjOBJ_GEOM, item.get("name"))
                 bid = int(fk_model.geom_bodyid[gid])
                 mid = int(fk_model.geom_dataid[gid])
@@ -139,26 +385,72 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
                 center = rotation.T @ ((lo+hi)/2 - fk_data.xpos[bid])
                 quat = np.empty(4)
                 mujoco.mju_mat2Quat(quat, rotation.T.reshape(9))
-                item.attrib.pop("mesh")
-                item.set("name", item.get("name") + "/terminal_pad")
-                item.set("type", "box")
-                item.set("pos", _numbers(center))
-                item.set("quat", _numbers(quat))
-                item.set("size", _numbers((hi-lo)/2))
-            if collides:
-                collision_names.append(item.get("name"))
-                item.set("friction", "1 .005 .0001")
-                item.set("condim", "4")
-                item.set("solref", ".004 1")
-            flat.append(item)
+                faces = fk_model.mesh_face[int(fk_model.mesh_faceadr[mid]):
+                                           int(fk_model.mesh_faceadr[mid]) + int(fk_model.mesh_facenum[mid])]
+                pieces = []
+                for k, points in enumerate(_finger_pieces(vertices, faces)):
+                    piece_name = f"{item.get('name')}/finger/{k}"
+                    # Body-frame vertices with no faces: MuJoCo makes the piece their convex hull.
+                    ET.SubElement(asset, "mesh", name=piece_name,
+                                  vertex=_numbers(((points - fk_data.xpos[bid]) @ rotation).ravel()))
+                    piece = copy.deepcopy(item)
+                    for key in ("pos", "quat"):
+                        piece.attrib.pop(key, None)
+                    piece.set("name", piece_name)
+                    piece.set("mesh", piece_name)
+                    pieces.append(piece)
+                ET.SubElement(flat, "geom", name=item.get("name") + "/terminal_pad", type="box", pos=_numbers(center),
+                              quat=_numbers(quat), size=_numbers((hi-lo)/2), contype="0", conaffinity="0",
+                              group="5", rgba="0 0 0 0")
+            for element in pieces if pieces is not None else [item]:
+                # Dark grey (robot_finish). Colour only: no contact or mass changes.
+                element.set("rgba", _numbers(finish["rgba"]))
+                element.set("material", ROBOT_MATERIAL)
+                if collides:
+                    collision_names.append(element.get("name"))
+                    element.set("friction", "1 .005 .0001")
+                    element.set("condim", "4")
+                    element.set("solref", ".004 1")
+                    if drives is not None and "/finger/" in element.get("name", ""):
+                        element.set("solref", _numbers(GRIP_SOLREF))
+                        element.set("solimp", _numbers(GRIP_SOLIMP))
+                flat.append(element)
+            pieces = None
         for side, wrist in WRISTS.items():
             if name == wrist:
                 # The wrist camera's local optical direction follows the tool.
                 ET.SubElement(flat, "camera", name=f"{side}_wrist", pos="0 .035 .035",
                               xyaxes="1 0 0 0 .606 .795", fovy="85")
-    # Head overview is fixed to the unactuated torso, aimed at the workspace.
-    ET.SubElement(world, "camera", name="head", pos="0 -.18 1.10",
-                  xyaxes="1 0 0 0 .975 -.222", fovy="75")
+    # Head overview is fixed to the unactuated torso, aimed at the workspace; the workcell places it.
+    head = workcell.head_camera
+    camera = ET.SubElement(world, "camera", name="head", pos=_numbers(head["pos"]), xyaxes=_numbers(head["xyaxes"]))
+    if head.get("intrinsics"):
+        # The real camera's pixel intrinsics, for the image as published; its fovy follows from them. MuJoCo takes
+        # pixel intrinsics only with a sensor size, of which only the ratio to the focal length matters: 1 um pixels.
+        # MuJoCo's principalpixel is the image centre's offset from the principal point (workcell.head_pinhole).
+        intrinsics = head["intrinsics"]
+        camera.set("resolution", " ".join(str(round(v)) for v in intrinsics["resolution"]))
+        camera.set("sensorsize", _numbers(np.multiply(intrinsics["resolution"], 1e-6)))
+        camera.set("focalpixel", _numbers(intrinsics["focalpixel"]))
+        camera.set("principalpixel", _numbers(intrinsics["principalpixel"]))
+    else:
+        camera.set("fovy", str(head["fovy"]))
+    if drives is not None:
+        equality = ET.SubElement(root, "equality")
+        actuator = ET.SubElement(root, "actuator")
+        for side, drive in drives.items():
+            _drive_body(flats[WRISTS[side]], side, drive)
+            first, second = (f"{side}_gripper_finger_a_slide", f"{side}_gripper_finger_b_slide")
+            # The transmission (jaw a = offset + scale * motor) and the mimic jaw (b = a0 + a1 * a), held stiff.
+            ET.SubElement(equality, "joint", name=f"task/{side}_gripper/transmission", joint1=first,
+                          joint2=f"task/{side}_gripper/drive", polycoef=_numbers((drive["offset"], drive["scale"], 0, 0, 0)),
+                          solref=_numbers(TRANSMISSION_SOLREF), solimp=_numbers(TRANSMISSION_SOLIMP))
+            ET.SubElement(equality, "joint", name=f"task/{side}_gripper/mimic", joint1=second, joint2=first,
+                          polycoef=_numbers((*drive["mimic"], 0, 0, 0)), solref=_numbers(TRANSMISSION_SOLREF),
+                          solimp=_numbers(TRANSMISSION_SOLIMP))
+            ET.SubElement(actuator, "motor", name=f"task/{side}_gripper/drive", joint=f"task/{side}_gripper/drive",
+                          ctrllimited="true", ctrlrange=_numbers((-drive["max_effort"], drive["max_effort"])))
+    _fiducials(world, workcell)
     # Hidden CAD meshes still allocate/upload GPU assets in MuJoCo. Remove them
     # from the explicit proxy model; the full CAD mode retains every visual.
     used_meshes = {g.get("mesh") for g in world.iter("geom") if g.get("mesh")}
@@ -172,7 +464,11 @@ def _scene_xml(source, fk_model, fk_data, visual_mode="cad"):
 class MinervaTaskScene:
     """Single-thread-owned MuJoCo scene. q uses receiver motor coordinates/names."""
 
-    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy"):
+    def __init__(self, joint_map, names, *, scene=SCENE, seed=1, width=320, height=240, visual_mode="collision_proxy",
+                 workcell=None, grippers=None):
+        """`grippers` ({left_gripper: {inertia, friction, viscous, max_effort, source}, right_gripper: ...}) makes
+        the grippers driven: their jaws move under the drive's MIT law (step_driven) and stall on what they hold.
+        Without it every robot body, the jaws included, is posed kinematically (update)."""
         import mujoco
         if tuple(int(x) for x in mujoco.__version__.split(".")[:2]) < (3, 15):
             raise RuntimeError("Minerva task contacts require MuJoCo >=3.15 with native geom_surfacevel support")
@@ -180,6 +476,7 @@ class MinervaTaskScene:
             raise ValueError("visual_mode must be collision_proxy or cad")
         self.source = Path(scene).resolve()
         self.visual_mode = visual_mode
+        self.workcell = resolve_workcell(workcell)
         self.mj = mujoco
         self.names = tuple(names)
         if len(set(self.names)) != len(self.names) or not self.names:
@@ -190,9 +487,31 @@ class MinervaTaskScene:
         self.fk_model = mujoco.MjModel.from_xml_path(str(scene))
         self.fk_data = mujoco.MjData(self.fk_model)
         self.pose = ModelPose(self.fk_model, joint_map, self.names)
-        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode)
+        self.driven = grippers is not None
+        drives = self._drive_parameters(joint_map, grippers) if self.driven else None
+        xml, bodies, collision_names, environment = _scene_xml(scene, self.fk_model, self.fk_data, visual_mode,
+                                                               self.workcell, drives)
         self.model = mujoco.MjModel.from_xml_string(xml)
+        tone = np.asarray(scene_look(self.workcell)["room_tone"], dtype=float)
+        if np.any(tone != 1.):
+            # The backdrop's tone (the look's room_tone) on its pixels; a renderer uploads textures when it opens.
+            texture = self._id("texture", ROOM_BACKDROP)
+            channels = int(self.model.tex_nchannel[texture])
+            start = int(self.model.tex_adr[texture])
+            count = int(self.model.tex_width[texture]) * int(self.model.tex_height[texture]) * channels
+            pixels = self.model.tex_data[start:start + count].reshape(-1, channels)
+            pixels[:, :3] = np.clip(np.round(pixels[:, :3] * tone), 0, 255)
         self.data = mujoco.MjData(self.model)
+        self._drives = {}
+        for side, drive in (drives or {}).items():
+            hinge = self._id("joint", f"task/{side}_gripper/drive")
+            slides = [self._id("joint", f"{side}_gripper_finger_{jaw}_slide") for jaw in "ab"]
+            self._drives[side] = dict(drive, index=self.names.index(drive["motor"]),
+                                      qpos=int(self.model.jnt_qposadr[hinge]), dof=int(self.model.jnt_dofadr[hinge]),
+                                      slides=[(int(self.model.jnt_qposadr[j]), int(self.model.jnt_dofadr[j]))
+                                              for j in slides],
+                                      actuator=self._id("actuator", f"task/{side}_gripper/drive"),
+                                      wrist=self._id("body", WRISTS[side]), torque=0.)
         self.model.flg_surfacevel = True
         self.model.vis.quality.offsamples = 0
         self._body_pairs = [(self._id("body", n, self.fk_model),
@@ -202,8 +521,8 @@ class MinervaTaskScene:
         self.cube_id = self._id("body", "task/cube")
         self.cube_geom = self._id("geom", "task/cube/geom")
         self.cube_qadr = int(self.model.jnt_qposadr[self._id("joint", "task/cube/free")])
-        self._collision_ids = [self._id("geom", n) for n in collision_names]
-        self._environment_ids = [self._id("geom", n) for n in environment]
+        self._collision_ids = np.array([self._id("geom", n) for n in collision_names], dtype=int)
+        self._environment_ids = np.array([self._id("geom", n) for n in environment], dtype=int)
         contact_hash = hashlib.sha256()
         for gid, name in zip(self._collision_ids, collision_names):
             contact_hash.update(name.encode())
@@ -217,23 +536,63 @@ class MinervaTaskScene:
                 first, count = int(self.model.mesh_faceadr[mid]), int(self.model.mesh_facenum[mid])
                 contact_hash.update(self.model.mesh_face[first:first+count].tobytes())
 
-        self._audit_radii = (self.model.geom_rbound[self._collision_ids, None] +
-                             self.model.geom_rbound[None, self._environment_ids])
+        self._geom_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g) for g in range(self.model.ngeom)]
+        # The penetration audit checks every collision geom against the table and bucket, and one arm's against
+        # the other's. Its bounds cull body against body first (_overlapping): the collision bodies, each row's body,
+        # and each body's bounds in its own frame, holding every corner of its geoms' bounds.
+        bodies = self.model.geom_bodyid[self._collision_ids]
+        arms = [self._arm(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, int(b))) for b in bodies]
+        self._arm_rows = {side: np.array([r for r, arm in enumerate(arms) if arm == side], dtype=int)
+                          for side in ("left", "right")}
+        self._bodies, self._row_body = np.unique(bodies, return_inverse=True)
+        self._arm_bodies = {side: np.unique(self._row_body[rows]) for side, rows in self._arm_rows.items()}
+        corners = np.array([(x, y, z) for x in (-1., 1.) for y in (-1., 1.) for z in (-1., 1.)])
+        low, high = np.full((len(self._bodies), 3), np.inf), np.full((len(self._bodies), 3), -np.inf)
+        frame = np.empty(9)
+        for row, gid in enumerate(self._collision_ids):
+            local, body = self.model.geom_aabb[gid], self._row_body[row]
+            mujoco.mju_quat2Mat(frame, self.model.geom_quat[gid])
+            points = self.model.geom_pos[gid] + (local[:3] + corners * local[3:]) @ frame.reshape(3, 3).T
+            low[body], high[body] = np.minimum(low[body], points.min(axis=0)), np.maximum(high[body], points.max(axis=0))
+        self._body_bounds = (low + high) / 2, (high - low) / 2
         self._jaw_ids = {self._id("body", n): (side, jaw) for side, ns in JAW_BODIES.items()
                          for jaw, n in enumerate(ns)}
+        # Contact tracking, every physics step: each geom's jaw (an index into _jaws, or -1), and the surfaces the
+        # cube can come to rest on.
+        self._jaws = sorted(self._jaw_ids.values())
+        self._pyramidal = self.model.opt.cone == mujoco.mjtCone.mjCONE_PYRAMIDAL
+        self._geom_jaw = np.array([self._jaws.index(self._jaw_ids[int(b)]) if int(b) in self._jaw_ids else -1
+                                   for b in self.model.geom_bodyid], dtype=int)
+        self._table_geoms = {g for g, n in enumerate(self._geom_names)
+                             if n in ("task/floor", "task/table") or (n or "").startswith("task/table/")}
+        self._bucket_bottom = self._id("geom", "task/bucket/bottom")
+        # Driven jaws move on their own slides: their surface velocity carries only their wrist's motion.
+        self._jaw_rows = {side: np.array([row for row, gid in enumerate(self._collision_ids)
+                                          if self._jaw_ids.get(int(self.model.geom_bodyid[gid]), ("",))[0] == side],
+                                         dtype=int)
+                          for side in self._drives}
         self._renderer = None
         self._q = None
         self.seed = int(seed)
+        workcell = self.workcell
+        placeholders = workcell.placeholders()
+        gripper_drives = {drive["motor"]: {key: drive[key] for key in (*DRIVE_FIELDS, "scale", "offset", "source")}
+                          for drive in self._drives.values()}
         self.capabilities = {
             "schema": 1, "data_source": "simulation", "evidence": "synthetic",
             "joint_names": list(self.names), "motor_to_model_joint_map": copy.deepcopy(joint_map),
-            "robot_motion": "ArmPlant motor response; FK-posed MuJoCo mocap bodies",
+            "robot_motion": ("ArmPlant motor response; FK-posed MuJoCo mocap arms; grippers driven in MuJoCo by the "
+                             "drive's MIT law through their transmission" if self.driven else
+                             "ArmPlant motor response; FK-posed MuJoCo mocap bodies"),
             "object_physics": "MuJoCo free cube with robot, table and bucket contacts",
-            "finger_collision": "straight terminal 30mm pad boxes fitted to CAD vertex bounds; concave finger stems omitted",
+            "finger_collision": "convex pieces of each finger paddle's CAD surface in 5 mm slices (its rack and pinion "
+                                "mount, inside the gripper, omitted); a terminal 30 mm pad box marks the grasp frame only",
             "other_robot_collision": "source CAD convex meshes",
-            "attachment_assistance": False, "coupled_robot_dynamics": False,
+            "attachment_assistance": False,
+            "coupled_robot_dynamics": "grippers only: contact pushes back on the gripper drives" if self.driven else False,
+            "gripper_drives": gripper_drives or None,
             "robot_self_collision": False, "robot_environment_response": False,
-            "robot_environment_penetration_audit": True,
+            "robot_environment_penetration_audit": True, "robot_robot_penetration_audit": True,
             "collision_geometries": collision_names,
             "contact_geometry_sha256": contact_hash.hexdigest(),
             "mesh_vertices": int(self.model.nmeshvert), "mesh_faces": int(self.model.nmeshface),
@@ -241,18 +600,37 @@ class MinervaTaskScene:
             "scene_sha256": hashlib.sha256(xml.encode()).hexdigest(),
             "physics_timestep_s": PHYSICS_DT, "mujoco_version": mujoco.__version__,
             "moving_contact_velocity": "native MuJoCo geom_surfacevel from finite-difference FK poses",
-            "task_parameters": {"cube_edge_m": CUBE_HALF*2, "cube_mass_kg": .035,
-                                "friction": [1., .005, .0001], "table_top_m": TABLE_TOP,
-                                "cube_start_m": CUBE_START, "bucket_center_m": BUCKET_CENTER},
+            "task_parameters": {"cube_edge_m": workcell.cube_edge, "cube_size_m": list(workcell.block),
+                                "cube_mass_kg": workcell.cube_mass,
+                                "friction": list(workcell.cube_friction), "table_top_m": workcell.table_top,
+                                "cube_start_m": [workcell.cube_start[0], workcell.cube_start[1],
+                                                 workcell.table_top + workcell.cube_half + .002],
+                                "bucket_center_m": list(workcell.bucket_center),
+                                "bucket_inner_m": list(workcell.bucket_inner),
+                                "bucket_height_m": workcell.bucket_height},
+            "workcell": workcell.describe(), "workcell_placeholders": placeholders,
             "contact_parameters_measured": False, "sim2real_validated": False,
             "cameras": list(CAMERAS), "camera_calibration": "synthetic task viewpoints",
             "visual_mode": visual_mode,
             "visual_geometry": "source collision meshes" if visual_mode == "collision_proxy" else "full CAD visuals",
+            "robot_finish": dict(robot_finish(workcell),
+                                 note="every robot geom; appearance variation leaves the robot alone"),
+            "look": {key: value if isinstance(value, float) else list(value)
+                     for key, value in scene_look(workcell).items()},
+            "room_backdrop": room.provenance(),
             "render_shadows": False, "render_reflections": False, "offscreen_msaa": 0,
-            "limitations": ["Robot motion ignores contact reaction and motor force limits at the fingers",
-                            "Finger stems are omitted from contact; terminal pads use CAD-bounds boxes; other meshes are convex",
+            "limitations": (["Arm motion ignores contact reaction; the grippers feel it through their drives, whose "
+                             "inertia and friction are nominal and whose torque limit is the receiver's max_effort"]
+                            if self.driven else
+                            ["Robot motion ignores contact reaction and motor force limits at the fingers"]) + [
+                            "Fingers collide by their paddles, as convex 5 mm slices of the CAD surface; other meshes are convex",
                             "Real contact properties are unmeasured",
-                            "Kinematic robot/environment penetration invalidates episode eligibility"],
+                            "Kinematic robot/environment penetration, or one arm's into the other's, invalidates episode "
+                            "eligibility"]
+                           + (["Fiducial tags are drawn as their codes on plain white labels, without the labels' "
+                               "text and scale; they are visual only"] if workcell.fiducials else [])
+                           + ([f"Workcell {workcell.name}: not yet measured: {', '.join(placeholders)}"]
+                              if placeholders else []),
         }
         self.reset()
 
@@ -262,10 +640,63 @@ class MinervaTaskScene:
             raise ValueError(f"scene lacks {kind} {name}")
         return value
 
+    def _arm(self, body):
+        """'left' or 'right' for a body on that arm of the robot model (its own or an ancestor's joint says so)."""
+        m = self.fk_model
+        bid = self.mj.mj_name2id(m, self.mj.mjtObj.mjOBJ_BODY, body or "")
+        while bid > 0:
+            for j in range(int(m.body_jntadr[bid]), int(m.body_jntadr[bid]) + int(m.body_jntnum[bid])):
+                name = self.mj.mj_id2name(m, self.mj.mjtObj.mjOBJ_JOINT, j) or ""
+                if name.startswith(("left_", "right_")):
+                    return name.split("_", 1)[0]
+            bid = int(m.body_parentid[bid])
+        return None
+
+    def _drive_parameters(self, joint_map, grippers):
+        """{side: drive values} for driven grippers: the receiver's drive values and the model's transmission."""
+        mj, drives = self.mj, {}
+        for side in ("left", "right"):
+            motor, first, second = f"{side}_gripper", f"{side}_gripper_finger_a_slide", f"{side}_gripper_finger_b_slide"
+            spec = (grippers or {}).get(motor)
+            if motor not in self.names or not isinstance(spec, dict):
+                raise ValueError(f"driven grippers need {motor} among the joints and its drive values")
+            row = joint_map.get(first)
+            if not row or row.get("actuator") != motor:
+                raise ValueError(f"the joint map does not drive {first} from {motor}")
+            mimic = [(float(self.fk_model.eq_data[e][0]), float(self.fk_model.eq_data[e][1]))
+                     for e in range(self.fk_model.neq) if self.fk_model.eq_type[e] == mj.mjtEq.mjEQ_JOINT
+                     and mj.mj_id2name(self.fk_model, mj.mjtObj.mjOBJ_JOINT, self.fk_model.eq_obj1id[e]) == second
+                     and mj.mj_id2name(self.fk_model, mj.mjtObj.mjOBJ_JOINT, self.fk_model.eq_obj2id[e]) == first]
+            if len(mimic) != 1:
+                raise ValueError(f"the model needs one mimic equality from {first} to {second}")
+            values = {key: float(spec[key]) for key in DRIVE_FIELDS}
+            if not all(math.isfinite(v) for v in values.values()) or values["inertia"] <= 0 or \
+                    values["friction"] < 0 or values["viscous"] < 0 or values["max_effort"] <= 0:
+                raise ValueError(f"{motor} drive values must be finite, with positive inertia and torque limit")
+            drives[side] = dict(values, motor=motor, scale=float(row["scale"]), offset=float(row["offset"]),
+                                mimic=mimic[0], source=str(spec.get("source", "")))
+        return drives
+
     def _pose(self, q):
         self.pose.apply(self.fk_data, q)
         self.data.mocap_pos[self._mocap_ids] = self.fk_data.xpos[self._fk_ids]
         self.data.mocap_quat[self._mocap_ids] = self.fk_data.xquat[self._fk_ids]
+
+    def _place_drives(self, q):
+        """Set each driven gripper to its motor coordinate in `q` at rest, its jaws where the transmission puts them."""
+        for drive in self._drives.values():
+            motor = float(q[drive["index"]])
+            first = drive["offset"] + drive["scale"] * motor
+            self.data.qpos[drive["qpos"]] = motor
+            self.data.qvel[drive["dof"]] = 0.
+            for (address, dof), value in zip(drive["slides"], (first, drive["mimic"][0] + drive["mimic"][1] * first)):
+                self.data.qpos[address], self.data.qvel[dof] = value, 0.
+            self.data.ctrl[drive["actuator"]] = drive["torque"] = 0.
+
+    def gripper_state(self):
+        """{motor: (q, v, torque)} of each driven gripper: its motor coordinate, speed and last drive torque."""
+        return {drive["motor"]: (float(self.data.qpos[drive["qpos"]]), float(self.data.qvel[drive["dof"]]),
+                                 float(drive["torque"])) for drive in self._drives.values()}
 
     def reset(self, seed=None):
         if seed is not None:
@@ -287,7 +718,9 @@ class MinervaTaskScene:
         self._audited_poses = None
         self._contacts = {"left": [], "right": []}
         self._contact_names = []
-        self._pose(self._q if self._q is not None else np.zeros(len(self.names)))
+        q = self._q if self._q is not None else np.zeros(len(self.names))
+        self._pose(q)
+        self._place_drives(q)
         self.mj.mj_forward(self.model, self.data)
         self._emit("reset")
         return self.snapshot()
@@ -306,24 +739,18 @@ class MinervaTaskScene:
             raise ValueError("scene dt must be an integer number of physics steps")
         if self._q is None:
             self._pose(q)
+            self._place_drives(q)
             self.mj.mj_kinematics(self.model, self.data)
         start = self._q if self._q is not None else q
         warning = int(self.data.warning.number.sum())
         for step in range(count):
-            previous_pos = self.data.geom_xpos[self._collision_ids].copy()
-            previous_rot = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3).copy()
-            self._pose(start + (q-start) * ((step+1)/count))
+            previous = self._geom_poses()
+            here = start + (q-start) * ((step+1)/count)
+            self._pose(here)
+            # Posed, not driven: a driven gripper's jaws are placed at their motor coordinate too.
+            self._place_drives(here)
             self.mj.mj_kinematics(self.model, self.data)
-            rotation = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3)
-            linear = (self.data.geom_xpos[self._collision_ids] - previous_pos) / PHYSICS_DT
-            delta = rotation @ previous_rot.transpose(0, 2, 1)
-            angular = np.stack((delta[:, 2, 1]-delta[:, 1, 2], delta[:, 0, 2]-delta[:, 2, 0],
-                                delta[:, 1, 0]-delta[:, 0, 1]), axis=1) / (2*PHYSICS_DT)
-            # Mocap bodies have no generalized velocity. The native surface velocity
-            # contributes moving-boundary friction without attaching the cube or
-            # inventing a robot mass. Normal contact still comes from penetration.
-            self.model.geom_surfacevel[self._collision_ids, :3] = np.einsum("nji,nj->ni", rotation, linear)
-            self.model.geom_surfacevel[self._collision_ids, 3:] = np.einsum("nji,nj->ni", rotation, angular)
+            self._surface_velocity(*previous)
             self.mj.mj_step(self.model, self.data)
             if step == 0 or np.any(q != start):
                 self._audit_penetration()
@@ -335,26 +762,115 @@ class MinervaTaskScene:
         self._audit_penetration()
         return self.snapshot()
 
+    def step_driven(self, start, end, commands, dt):
+        """Advance `dt` with the arms posed from `start` to `end` (receiver motor coordinates) and each driven
+        gripper under its drive's MIT law: kp (position - q) + kd (velocity - v) + effort, clipped to the drive's
+        torque limit, from `commands` ({motor: the receiver's command dict, or None while the drive is limp}).
+        Returns gripper_state(): where the drives actually are, stalled on whatever the jaws hold."""
+        if not self.driven:
+            raise RuntimeError("step_driven needs driven grippers (MinervaTaskScene(grippers=...))")
+        start, end = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+        if start.shape != (len(self.names),) or end.shape != start.shape or not np.all(np.isfinite(start)) or \
+                not np.all(np.isfinite(end)):
+            raise ValueError("start and end must hold one finite motor coordinate per named joint")
+        count = round(dt / PHYSICS_DT) if math.isfinite(dt) else 0
+        if count < 1 or abs(count*PHYSICS_DT - dt) > 1e-8 or dt > .1:
+            raise ValueError("a driven step is a whole number of physics steps, at most 0.1 s")
+        warning = int(self.data.warning.number.sum())
+        for step in range(count):
+            previous = self._geom_poses()
+            wrists = {side: (self.data.xpos[d["wrist"]].copy(), self.data.xmat[d["wrist"]].reshape(3, 3).copy())
+                      for side, d in self._drives.items()}
+            self._pose(start + (end-start) * ((step+1)/count))
+            self.mj.mj_kinematics(self.model, self.data)
+            self._surface_velocity(*previous, wrists=wrists)
+            for drive in self._drives.values():
+                command = commands.get(drive["motor"])
+                torque = 0.
+                if command is not None:
+                    q, v = self.data.qpos[drive["qpos"]], self.data.qvel[drive["dof"]]
+                    torque = (command["kp"] * (command["position"] - q) + command["kd"] * (command["velocity"] - v)
+                              + command["effort"])
+                    torque = min(drive["max_effort"], max(-drive["max_effort"], torque))
+                self.data.ctrl[drive["actuator"]] = drive["torque"] = torque
+            self.mj.mj_step(self.model, self.data)
+            self._audit_penetration()
+            self._track_contacts()
+        state = self.gripper_state()
+        self._q = end.copy()
+        for drive in self._drives.values():
+            self._q[drive["index"]] = state[drive["motor"]][0]
+        self.mj.mj_forward(self.model, self.data)
+        if not np.all(np.isfinite(self.data.qpos)) or int(self.data.warning.number.sum()) > warning:
+            raise RuntimeError("MuJoCo numerical warning; episode must be quarantined")
+        self._audit_penetration()
+        return state
+
+    def _geom_poses(self):
+        return (self.data.geom_xpos[self._collision_ids].copy(),
+                self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3).copy())
+
+    def _surface_velocity(self, previous_pos, previous_rot, wrists=None):
+        """Set each robot collision geom's surface velocity from its pose change over the coming physics step.
+
+        Mocap bodies have no generalized velocity. The native surface velocity contributes moving-boundary friction
+        without attaching the cube or inventing a robot mass; normal contact still comes from penetration. A driven
+        jaw already moves on its slide, so `wrists` ({side: (position, rotation) before}) gives it only its wrist's
+        motion."""
+        rotation = self.data.geom_xmat[self._collision_ids].reshape(-1, 3, 3)
+        linear = (self.data.geom_xpos[self._collision_ids] - previous_pos) / PHYSICS_DT
+        delta = rotation @ previous_rot.transpose(0, 2, 1)
+        angular = np.stack((delta[:, 2, 1]-delta[:, 1, 2], delta[:, 0, 2]-delta[:, 2, 0],
+                            delta[:, 1, 0]-delta[:, 0, 1]), axis=1) / (2*PHYSICS_DT)
+        for side, (position, frame) in (wrists or {}).items():
+            body = self._drives[side]["wrist"]
+            now = self.data.xpos[body]
+            turn = self.data.xmat[body].reshape(3, 3) @ frame.T
+            spin = np.array((turn[2, 1]-turn[1, 2], turn[0, 2]-turn[2, 0], turn[1, 0]-turn[0, 1])) / (2*PHYSICS_DT)
+            rows = self._jaw_rows[side]
+            # spin x (geom - wrist), written out: np.cross cost more than the rest of this method.
+            arm = self.data.geom_xpos[self._collision_ids[rows]] - now
+            swept = np.stack((spin[1]*arm[:, 2] - spin[2]*arm[:, 1], spin[2]*arm[:, 0] - spin[0]*arm[:, 2],
+                              spin[0]*arm[:, 1] - spin[1]*arm[:, 0]), axis=1)
+            linear[rows] = (now - position) / PHYSICS_DT + swept
+            angular[rows] = spin
+        self.model.geom_surfacevel[self._collision_ids, :3] = np.einsum("nji,nj->ni", rotation, linear)
+        self.model.geom_surfacevel[self._collision_ids, 3:] = np.einsum("nji,nj->ni", rotation, angular)
+
+    def _normal_forces(self, contact, rows):
+        """mj_contactForce's normal force for these contacts, by array. A pyramidal cone's is the sum of its edges'
+        forces, added in the order mju_decodePyramid adds them; an elliptic cone's, or a frictionless contact's, is
+        its first constraint row's. An inactive contact's is 0."""
+        address, dim = contact.efc_address[rows], contact.dim[rows]
+        edges = np.where(dim > 1, 2 * (dim - 1), 1) if self._pyramidal else np.ones_like(dim)
+        force, efc, active = np.zeros(len(rows)), self.data.efc_force, address >= 0
+        for count in np.unique(edges[active]):
+            take = active & (edges == count)
+            rows_of, total = efc[address[take, None] + np.arange(count)], np.zeros(int(take.sum()))
+            for k in range(count):
+                total += rows_of[:, k]
+            force[take] = total
+        return force
+
     def _track_contacts(self):
+        # The cube's contacts that bear force, by array: a loop over them (the jaws' pieces on the cube make dozens)
+        # cost more than the physics step.
+        contact = self.data.contact
+        first, second = contact.geom1, contact.geom2
+        rows = np.flatnonzero((first == self.cube_geom) | (second == self.cube_geom))
+        rows = rows[self._normal_forces(contact, rows) > .001]
+        others = np.where(first[rows] == self.cube_geom, second[rows], first[rows])
         jaws = {"left": set(), "right": set()}
-        touched = []
-        force = np.zeros(6)
-        for i in range(self.data.ncon):
-            c = self.data.contact[i]
-            if self.cube_geom not in (c.geom1, c.geom2):
-                continue
-            other = int(c.geom2 if c.geom1 == self.cube_geom else c.geom1)
-            self.mj.mj_contactForce(self.model, self.data, i, force)
-            if force[0] <= .001:
-                continue
-            touched.append(self.mj.mj_id2name(self.model, self.mj.mjtObj.mjOBJ_GEOM, other))
-            jaw = self._jaw_ids.get(int(self.model.geom_bodyid[other]))
-            if jaw:
-                jaws[jaw[0]].add(jaw[1])
+        for code in np.unique(self._geom_jaw[others]):
+            if code >= 0:
+                side, jaw = self._jaws[code]
+                jaws[side].add(jaw)
+        touched = set(others.tolist())
         self._contacts = {side: sorted(value) for side, value in jaws.items()}
-        self._contact_names = sorted(set(touched))
+        self._contact_names = sorted({self._geom_names[g] for g in touched})
         xyz = self.data.xpos[self.cube_id]
-        raised = xyz[2] > TABLE_TOP + CUBE_HALF + .025
+        w = self.workcell
+        raised = xyz[2] > w.table_top + w.cube_half + .025
         grasped = set()
         for side, value in jaws.items():
             self._grasp_time[side] = self._grasp_time[side] + PHYSICS_DT if len(value) == 2 and raised else 0.
@@ -370,16 +886,19 @@ class MinervaTaskScene:
             if receiver in grasped and not jaws[self.first_gripper]:
                 self.handoff = True
                 self._emit("handoff", giver=self.first_gripper, receiver=receiver)
-        returned_to_surface = self.first_gripper and ("task/table" in touched or "task/floor" in touched)
+        returned_to_surface = self.first_gripper and not self._table_geoms.isdisjoint(touched)
         self._drop_time = self._drop_time + PHYSICS_DT if returned_to_surface else 0.
         if self._drop_time >= .03 and not self.dropped:
             self.dropped = True
             self._overlap = False
             self._emit("dropped_outside_bucket")
-        inside = (abs(xyz[0]-BUCKET_CENTER[0]) < BUCKET_HALF-CUBE_HALF and
-                  abs(xyz[1]-BUCKET_CENTER[1]) < BUCKET_HALF-CUBE_HALF and
-                  TABLE_TOP < xyz[2] < TABLE_TOP + .014 + CUBE_HALF + .008)
-        settled = (inside and "task/bucket/bottom" in touched and not any(jaws.values()) and
+        along_x, along_y = bucket_frame(w, xyz[0], xyz[1])
+        # A block may come to rest on any face: its centre within the inside by its shortest half edge, and no
+        # higher than its longest half edge above the bottom (a cube: its half edge either way).
+        inside = (abs(along_x) < w.bucket_inner[0]/2 - min(w.block)/2 and
+                  abs(along_y) < w.bucket_inner[1]/2 - min(w.block)/2 and
+                  w.table_top < xyz[2] < w.table_top + w.bucket_bottom + max(w.block)/2 + .008)
+        settled = (inside and self._bucket_bottom in touched and not any(jaws.values()) and
                    np.linalg.norm(self.data.qvel[:3]) < .04)
         self._bucket_time = self._bucket_time + PHYSICS_DT if settled else 0.
         if self._bucket_time >= .25 and not self.bucket_settled:
@@ -387,32 +906,74 @@ class MinervaTaskScene:
             self.success = bool(self.first_gripper and self.handoff and not self.dropped and not self._invalid_contacts)
             self._emit("bucket_settled", task_success=self.success)
 
+    def _overlapping(self, margin, moved=None):
+        """[(robot geom, other geom, event kind)] for each pair whose world bounds come within `margin` of each
+        other: every robot collision geom against the table and bucket, and one arm's against the other's. With
+        `moved` (a flag per collision geom), only the pairs with a geom that moved.
+
+        Bounds cull body against body first. A body's bounds hold all of its geoms', so a pair of geoms within
+        `margin` always has its bodies' bounds within it too: the pairs are the same as geom against geom alone."""
+        ids, environment, body = self._collision_ids, self._environment_ids, self._row_body
+        # Each body's world bounds: its own frame's bounds turned by its pose, with room for rounding.
+        rotation = self.data.xmat[self._bodies].reshape(-1, 3, 3)
+        center, half = self._body_bounds
+        center = self.data.xpos[self._bodies] + np.einsum("nij,nj->ni", rotation, center)
+        half = np.einsum("nij,nj->ni", np.abs(rotation), half) + 1e-9
+        low, high = center - half, center + half
+        fixed, fixed_halves = _world_aabbs(self.model, self.data, environment)
+        near = np.all((low[:, None] <= (fixed + fixed_halves)[None] + margin) &
+                      ((fixed - fixed_halves)[None] <= high[:, None] + margin), axis=2).any(axis=1)
+        rows = np.flatnonzero(near[body] if moved is None else near[body] & moved)
+        # One arm into the other: the arms are posed, so MuJoCo makes no contact between them either.
+        left, right = self._arm_bodies["left"], self._arm_bodies["right"]
+        near = np.all((low[left][:, None] <= high[right][None] + margin) &
+                      (low[right][None] <= high[left][:, None] + margin), axis=2)
+        hit = np.zeros(len(self._bodies), dtype=bool)
+        hit[left[near.any(axis=1)]] = True
+        hit[right[near.any(axis=0)]] = True
+        left, right = self._arm_rows["left"], self._arm_rows["right"]
+        left, right = left[hit[body[left]]], right[hit[body[right]]]
+        # Geom bounds only for the geoms of bodies that came near something.
+        pairs = []
+        if not len(rows) and not len(left):
+            return pairs
+        centers, halves = _world_aabbs(self.model, self.data, ids[np.concatenate((rows, left, right))])
+        a, b = len(rows), len(rows) + len(left)
+        if a:
+            overlap = np.all(np.abs(centers[:a, None]-fixed[None, :]) <=
+                             halves[:a, None]+fixed_halves[None, :]+margin, axis=2)
+            pairs += [(int(ids[rows[r]]), int(environment[e]), "forbidden_robot_environment_penetration")
+                      for r, e in np.argwhere(overlap)]
+        if len(left):
+            overlap = np.all(np.abs(centers[a:b, None]-centers[None, b:]) <=
+                             halves[a:b, None]+halves[None, b:]+margin, axis=2)
+            if moved is not None:
+                overlap &= moved[left][:, None] | moved[right][None, :]
+            pairs += [(int(ids[left[i]]), int(ids[right[j]]), "forbidden_robot_robot_penetration")
+                      for i, j in np.argwhere(overlap)]
+        return pairs
+
     def _audit_penetration(self):
-        # MuJoCo does not resolve mocap-vs-world contacts. Rotated world AABBs
-        # conservatively cull separated pairs; every overlapping changed substep
-        # still uses the same exact signed-distance query and verdict.
-        centers, halves = _world_aabbs(self.model, self.data, self._collision_ids)
-        env_centers, env_halves = _world_aabbs(self.model, self.data, self._environment_ids)
-        overlap = np.all(np.abs(centers[:, None]-env_centers[None, :]) <=
-                         halves[:, None]+env_halves[None, :]+1e-12, axis=2)
-        # Environment is fixed. Reuse only exactly identical robot geometry poses;
-        # every changed interpolated substep still gets the penetration audit.
-        poses = np.concatenate((self.data.geom_xpos[self._collision_ids],
-                                self.data.geom_xmat[self._collision_ids]), axis=1)
-        changed = np.ones(len(poses), dtype=bool) if self._audited_poses is None else np.any(poses != self._audited_poses, axis=1)
-        self._audited_poses = poses.copy()
-        candidates = np.argwhere(overlap & changed[:, None])
-        for r, e in candidates:
-            robot, env = self._collision_ids[r], self._environment_ids[e]
-            key = (robot, env)
+        # MuJoCo does not resolve mocap-vs-world contacts, nor contacts between the posed arms. Bounds cull
+        # separated pairs (_overlapping); every overlapping pair with a geom whose pose changed since the last audit
+        # still gets the same exact signed-distance query and verdict. Unchanged poses were audited already.
+        ids = self._collision_ids
+        poses = np.concatenate((self.data.geom_xpos[ids], self.data.geom_xmat[ids]), axis=1)
+        changed = (np.ones(len(poses), dtype=bool) if self._audited_poses is None else
+                   np.any(poses != self._audited_poses, axis=1))
+        self._audited_poses = poses
+        if not changed.any():
+            return
+        for robot, other, kind in self._overlapping(1e-12, changed):
+            key = (robot, other)
             if key in self._invalid_contacts:
                 continue
-            distance = self.mj.mj_geomDistance(self.model, self.data, robot, env, .002, None)
+            distance = self.mj.mj_geomDistance(self.model, self.data, robot, other, .002, None)
             if distance < -.002:
-                names = [self.mj.mj_id2name(self.model, self.mj.mjtObj.mjOBJ_GEOM, i) for i in key]
+                names = [self._geom_names[i] for i in key]
                 self._invalid_contacts[key] = names
                 self.success = False
-                self._emit("forbidden_robot_environment_penetration", geoms=names, depth_m=-distance)
+                self._emit(kind, geoms=names, depth_m=-distance)
 
     def snapshot(self):
         return {"run_id": self.run_id, "scene_time": float(self.data.time), "seed": self.seed,
@@ -423,7 +984,9 @@ class MinervaTaskScene:
                 "bucket_settled": self.bucket_settled, "success": self.success, "dropped": self.dropped,
                 "training_eligible": not bool(self._invalid_contacts),
                 "sim2real_validated": False,
-                "forbidden_contacts": list(self._invalid_contacts.values()), "events": copy.deepcopy(self.events)}
+                "forbidden_contacts": list(self._invalid_contacts.values()), "events": copy.deepcopy(self.events),
+                **({"grippers": {motor: dict(zip(("q", "v", "torque"), values))
+                                 for motor, values in self.gripper_state().items()}} if self.driven else {})}
 
     @property
     def visual_groups(self):
@@ -441,10 +1004,67 @@ class MinervaTaskScene:
         options.geomgroup[:] = self.visual_groups
         for name in camera_roles:
             self._renderer.update_scene(data, camera=name, scene_option=options)
-            for flag in (self.mj.mjtRndFlag.mjRND_SHADOW, self.mj.mjtRndFlag.mjRND_REFLECTION, self.mj.mjtRndFlag.mjRND_FOG):
-                self._renderer.scene.flags[flag] = False
+            for flag, value in RENDER_FLAGS.items():
+                self._renderer.scene.flags[getattr(self.mj.mjtRndFlag, flag)] = value
             images[name] = self._renderer.render().copy()
         return images, {name: float(data.time) for name in camera_roles}
+
+    def randomize_appearance(self, rng, *, light=.3, color=.1, camera_shift=.01, camera_turn_deg=2., cameras=None):
+        """Vary what the cameras see, not the physics: the lights' strength (x U[1-light, 1+light]), the workcell's
+        and the cube's colours (each channel x U[1-color, 1+color]), and each camera's place (+/- camera_shift m per
+        axis) and aim (a turn of up to camera_turn_deg about a random axis): every camera, or those named in
+        `cameras` (a drawn layout places the head camera itself). The robot keeps its black (ROBOT_FINISH). Each call
+        starts from the scene's own appearance. Returns what it chose, for the episode's metadata."""
+        mj, model = self.mj, self.model
+        if not hasattr(self, "_appearance"):
+            self._appearance = {"light_diffuse": model.light_diffuse.copy(), "light_ambient": model.light_ambient.copy(),
+                                "headlight": (np.array(model.vis.headlight.ambient), np.array(model.vis.headlight.diffuse)),
+                                "geom_rgba": model.geom_rgba.copy(), "cam_pos": model.cam_pos.copy(),
+                                "cam_quat": model.cam_quat.copy()}
+        self.restore_appearance()
+        original = self._appearance
+        scale = rng.uniform(1 - light, 1 + light)
+        model.light_diffuse[:] = np.clip(original["light_diffuse"] * scale, 0, 1)
+        model.light_ambient[:] = np.clip(original["light_ambient"] * scale, 0, 1)
+        model.vis.headlight.ambient[:] = np.clip(original["headlight"][0] * scale, 0, 1)
+        model.vis.headlight.diffuse[:] = np.clip(original["headlight"][1] * scale, 0, 1)
+        tinted = {}
+        for gid in [*self._environment_ids, self.cube_geom, self._id("geom", "task/floor")]:
+            factor = rng.uniform(1 - color, 1 + color, size=3)
+            model.geom_rgba[gid, :3] = np.clip(original["geom_rgba"][gid, :3] * factor, 0, 1)
+            tinted[mj.mj_id2name(model, mj.mjtObj.mjOBJ_GEOM, gid)] = factor.round(4).tolist()
+        moved, cameras = cameras, {}
+        if moved is not None and not set(moved) <= set(CAMERAS):
+            raise ValueError(f"cameras are some of {CAMERAS}")
+        for cid in range(model.ncam):
+            if moved is not None and mj.mj_id2name(model, mj.mjtObj.mjOBJ_CAMERA, cid) not in moved:
+                continue
+            shift = rng.uniform(-camera_shift, camera_shift, size=3)
+            axis = rng.normal(size=3)
+            axis /= np.linalg.norm(axis)
+            angle = math.radians(rng.uniform(0, camera_turn_deg))
+            turn = np.array([math.cos(angle / 2), *(math.sin(angle / 2) * axis)])
+            quat = np.empty(4)
+            mj.mju_mulQuat(quat, original["cam_quat"][cid], turn)
+            model.cam_pos[cid] = original["cam_pos"][cid] + shift
+            model.cam_quat[cid] = quat / np.linalg.norm(quat)
+            cameras[mj.mj_id2name(model, mj.mjtObj.mjOBJ_CAMERA, cid)] = {
+                "shift_m": shift.round(5).tolist(), "turn_deg": round(math.degrees(angle), 4),
+                "axis": axis.round(4).tolist()}
+        return {"light_scale": round(float(scale), 4), "color_factors": tinted, "cameras": cameras,
+                "bounds": {"light": light, "color": color, "camera_shift_m": camera_shift,
+                           "camera_turn_deg": camera_turn_deg, "cameras": None if moved is None else list(moved)}}
+
+    def restore_appearance(self):
+        """The scene's own lights, colours and camera places."""
+        original = getattr(self, "_appearance", None)
+        if original is None:
+            return
+        model = self.model
+        model.light_diffuse[:], model.light_ambient[:] = original["light_diffuse"], original["light_ambient"]
+        model.vis.headlight.ambient[:], model.vis.headlight.diffuse[:] = original["headlight"]
+        model.geom_rgba[:] = original["geom_rgba"]
+        model.cam_pos[:], model.cam_quat[:] = original["cam_pos"], original["cam_quat"]
 
     def close(self):
         if self._renderer is not None:
@@ -482,7 +1102,7 @@ class _ThreadTaskSceneView:
 
     def __init__(self, scene, joint_map, names, *, directory, metadata=None, seed=1,
                  viewer=True, rate_hz=30., record_hz=20., width=320, height=240,
-                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy"):
+                 camera_roles=("right_wrist", "head"), visual_mode="collision_proxy", workcell=None):
         if rate_hz <= 0 or record_hz <= 0 or record_hz > rate_hz:
             raise ValueError("rates must satisfy 0 < record_hz <= rate_hz")
         if isinstance(camera_roles, str) or not camera_roles or len(set(camera_roles)) != len(camera_roles) or \
@@ -490,7 +1110,8 @@ class _ThreadTaskSceneView:
             raise ValueError("capture camera roles must be a distinct supported nonempty subset")
         self.camera_roles = tuple(camera_roles)
         self._args = (joint_map, tuple(names))
-        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height, visual_mode=visual_mode)
+        self._kwargs = dict(scene=scene, seed=seed, width=width, height=height, visual_mode=visual_mode,
+                            workcell=workcell)
         self.directory = Path(directory)
         self.metadata = copy.deepcopy(metadata or {})
         self.metadata["camera_roles"] = list(self.camera_roles)

@@ -30,18 +30,17 @@ def armplant():
     return 'armplant'
 
 
-def test_fixture_replay_succeeds_from_its_own_start_with_exact_tracking(stack):
+def test_fixture_replay_from_its_own_start_passes_the_arms_through_each_other(stack):
+    # With exact tracking the fixture picks the cube up, then drives the two arms through each other on its way to
+    # the handoff (it predates the arm-to-arm audit): the scene's verdict, carried into the record unchanged.
     report = evaluate(FixtureReplayPolicy(), RunConfig(plant='ideal', timeout_s=20., trials=(0,)), stack=stack)
     trial = report['trials_detail'][0]
     assert trial['cube_start']['cell'] == 'nominal'
-    assert trial['outcome'] == 'success' and trial['eligible']
-    # The scene's own events, in order, carried into the record unchanged.
-    assert [e['kind'] for e in trial['events']] == ['reset', 'pickup', 'handoff', 'bucket_settled']
-    assert trial['stages'] == {stage: next(e['scene_time'] for e in trial['events'] if e['kind'] == kind)
-                               for stage, kind in (('pickup', 'pickup'), ('handoff', 'handoff'),
-                                                   ('bucket', 'bucket_settled'))}
-    assert report['success']['count'] == 1 and report['stage_completion']['score'] == 1.
-    assert report['time_to_complete_s']['median'] == trial['stages']['bucket'] < 12.5
+    assert trial['outcome'] == 'forbidden_penetration' and not trial['eligible']
+    kinds = [e['kind'] for e in trial['events']]
+    assert kinds[:2] == ['reset', 'pickup'] and kinds[2] == 'forbidden_robot_robot_penetration'
+    assert trial['stages'] == {'pickup': trial['events'][1]['scene_time'], 'handoff': None, 'bucket': None}
+    assert report['success']['count'] == 0 and report['outcomes']['forbidden_penetration'] == 1
     assert report['provenance']['plant'] == 'ideal'
     assert not report['provenance']['sim2real_validated'] and not report['provenance']['training_promoted']
 
@@ -58,8 +57,7 @@ def test_fixture_replay_through_the_receiver_reports_what_the_scene_says(stack):
     assert checked['counted'] and trial['staging']['duration_s'] > 0
     assert (trial['stages'], trial['outcome'], trial['eligible']) == trial_records.outcome_from_events(
         trial['events'], timed_out=trial['outcome'] == 'timeout')[:3]
-    assert trial['eligible'] == (not any(e['kind'] == 'forbidden_robot_environment_penetration'
-                                         for e in trial['events']))
+    assert trial['eligible'] == (not any(e['kind'] in trial_records.FORBIDDEN_EVENTS for e in trial['events']))
 
 
 def test_hold_still_scores_zero_with_timeouts(stack):

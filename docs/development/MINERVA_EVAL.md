@@ -38,7 +38,21 @@ The `armplant` clock is stepped: runs are deterministic and faster than real tim
 3. **Place the cube** at the trial's grid pose, 2 mm above the table as the scene's own start. If the cube would sit inside the robot at that start pose, the trial is an `invalid_start` and is not counted. This happens when a policy starts with an open gripper near a grid pose.
 4. **Run** the policy in closed loop. Commands outside the receiver's joint limits are clipped, as the leader mapping clips its targets, and counted per trial. The trial stops at the scene's first terminal verdict (success, dropped cube, forbidden penetration, or the cube settled in the bucket out of sequence) or at the timeout. A receiver fault, policy exception, malformed chunk or MuJoCo numerical quarantine aborts that trial. The plant is rebuilt and the run goes on.
 
-Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
+Outcomes are read from the scene's events (`pickup`, `handoff`, `bucket_settled`, `dropped_outside_bucket`, `forbidden_robot_environment_penetration`, `forbidden_robot_robot_penetration`), never re-derived; `trials.jsonl` keeps those events verbatim.
+
+## Cameras
+
+A policy with `camera_roles` gets them rendered into its observation at `--camera-size` (default 160x120) in `--visual-mode` (default `collision_proxy`). Generated episodes record 320x240 CAD views ([SIM_GENERATION.md](SIM_GENERATION.md)), so evaluate a checkpoint trained on them with `--camera-size 320x240 --visual-mode cad`.
+
+## Disturbances
+
+A policy that passes in a sim exactly like its training data can still fail on the robot. Three disturbances, each drawn per trial from `--disturbance-seed` and the trial's index, test how much margin it has:
+
+- **`--latency S`**: a chunk takes effect S seconds after the observation it answers, with one inference in flight at a time. Rows for times already past are skipped, and the previous chunk runs on (holding its last row) until the next one arrives. Before the first chunk arrives, the receiver holds its current command. Through the receiver at 0.2 s, the command does not move before 0.2 s. Without latency it ramps within 20 ms.
+- **`--actuator-spread s`**: each armplant joint's inertia, friction (with stiction) and damping take their own factor from U[1-s, 1+s]. The receiver keeps the values it was derived with, as on a robot that differs from its model. Driven grippers keep their scene drives. The sim2real fits pin some joints only loosely, for example left J2's inertia 0.15-0.5 kg m2, so a spread of about 0.3-0.5 covers them.
+- **`--vary-look`**: varies each trial's lights (x U[0.7, 1.3]), the workcell's and cube's colours (each channel x U[0.9, 1.1]) and every camera's place (+/-1 cm per axis, up to 2 degrees of turn). The camera poses are not calibrated, so this tests a policy against that uncertainty. Physics is untouched.
+
+Each trial record keeps the values it drew under `disturbances`. The plant and the scene return to their own values after every trial.
 
 ## Cube start grid
 
@@ -54,7 +68,7 @@ The area is kinematically reachable. An IK sweep over the table (`evaluation.rea
 |---|---|---|
 | `success` | Pickup, handoff and bucket placement all reached, in order; eligible | yes |
 | `dropped_cube` | The cube returned to the table or floor after pickup | yes |
-| `forbidden_penetration` | The robot went into the table or bucket by more than 2 mm. The trial is ineligible (`eligible: false`), and this outranks every other outcome, including a success it revokes | yes |
+| `forbidden_penetration` | The robot went into the table or bucket, or one arm into the other, by more than 2 mm. The trial is ineligible (`eligible: false`), and this outranks every other outcome, including a success it revokes | yes |
 | `incomplete_sequence` | The cube settled in the bucket without the stages before it | yes |
 | `timeout` | No terminal event before the timeout | yes |
 | `source_gap_or_abort` | The run stopped: receiver fault, lifecycle left TELEOP, command source gap, policy error or bad chunk, numerical quarantine; on the robot, an operator stop | yes |

@@ -27,7 +27,7 @@ mapping clips its targets.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import subprocess
@@ -35,13 +35,15 @@ import time
 
 import numpy as np
 
-from robot_platform.simulation.task_scene import CUBE_HALF, MAX_SOURCE_GAP_S, PHYSICS_DT, TABLE_TOP, MinervaTaskScene
+from robot_platform.simulation.task_scene import MAX_SOURCE_GAP_S, PHYSICS_DT, MinervaTaskScene
+from robot_platform.simulation.workcell import resolve as resolve_workcell
 
 from . import report as reports, trials as trial_records
 from .grid import GridSpec, cube_poses
 from .plants import PlantFault, derive_stack, open_plant
 
 MAX_SCENE_STEP_S = .1  # MinervaTaskScene.update's largest dt.
+GRIPPERS = ('kinematic', 'driven')
 
 
 @dataclass
@@ -55,12 +57,34 @@ class RunConfig:
     scene_pose: str = 'plant'
     camera_size: tuple = (160, 120)
     visual_mode: str = 'collision_proxy'
+    workcell: object = None  # simulation.workcell: None or 'synthetic', a Workcell, or a workcell file's path.
+    # 'kinematic': the grippers are posed like the arms. 'driven': the armplant's grippers move in the scene under
+    # their drives, stall on the cube, and the receiver reads that back (MinervaTaskScene.step_driven).
+    grippers: str = 'kinematic'
+    # Disturbances, each drawn per trial from disturbance_seed and the trial's index:
+    latency_s: float = 0.  # A chunk takes effect this long after its observation; one inference at a time.
+    actuator_spread: float = 0.  # Each armplant joint's inertia, friction and damping x U[1-s, 1+s], unknown to the receiver.
+    appearance: dict | None = None  # MinervaTaskScene.randomize_appearance bounds: lights, colours, camera places.
+    disturbance_seed: int = 0
+
+    def __post_init__(self):
+        if self.grippers not in GRIPPERS:
+            raise ValueError(f'grippers is one of {GRIPPERS}')
+        if self.grippers == 'driven' and self.plant != 'armplant':
+            raise ValueError('driven grippers need the armplant plant: the ideal plant sends no drive commands')
+        if not (math.isfinite(self.latency_s) and 0 <= self.latency_s <= 1):
+            raise ValueError('latency_s is in [0, 1] s')
+        if not 0 <= self.actuator_spread < 1 or (self.actuator_spread and self.plant != 'armplant'):
+            raise ValueError('actuator_spread is in [0, 1) and needs the armplant plant')
 
     def describe(self):
         return {'plant': self.plant, 'timeout_s': self.timeout_s, 'staging_timeout_s': self.staging_timeout_s,
                 'grid': self.grid.describe(), 'trials': None if self.trials is None else list(self.trials),
                 'plant_seed': self.plant_seed, 'scene_pose': self.scene_pose,
-                'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode}
+                'camera_size': list(self.camera_size), 'visual_mode': self.visual_mode,
+                'workcell': resolve_workcell(self.workcell).name, 'grippers': self.grippers,
+                'latency_s': self.latency_s, 'actuator_spread': self.actuator_spread,
+                'appearance': self.appearance, 'disturbance_seed': self.disturbance_seed}
 
 
 @dataclass
@@ -74,6 +98,8 @@ class TrialContext:
     home: np.ndarray
     period_s: float
     plant: str
+    workcell: object = None  # The scene's Workcell (simulation.workcell): the table, bucket and cube it judges.
+    lead: np.ndarray | None = None  # How far following lets a command lead each joint (rad), the lifecycle's max_lead.
 
 
 class _PolicyError(Exception):
@@ -155,8 +181,10 @@ class TrialRunner:
     def _open_scene(self):
         if self.scene is None:
             width, height = self.config.camera_size
+            drives = self._open_plant().gripper_drives() if self.config.grippers == 'driven' else None
             self.scene = MinervaTaskScene(self.stack['derived']['joint_map'], self.stack['names'], width=width,
-                                          height=height, visual_mode=self.config.visual_mode)
+                                          height=height, visual_mode=self.config.visual_mode,
+                                          workcell=self.config.workcell, grippers=drives)
         return self.scene
 
     def close(self):
@@ -166,6 +194,29 @@ class TrialRunner:
             if self.scene is not None:
                 self.scene.close()
                 self.scene = None
+
+    def use_workcell(self, workcell):
+        """Run the next trials on `workcell` (a drawn layout's, say): the scene is rebuilt for it, the plant kept."""
+        if self.scene is not None:
+            self.scene.close()
+            self.scene = None
+        self.config = replace(self.config, workcell=workcell)
+
+    def plan(self, policy, pose, workcell):
+        """None if `policy` plans a trial from `pose` on `workcell` (its reset, with the context run_trial gives it),
+        else why not. Nothing moves and no scene is built."""
+        plant = self._open_plant()
+        context = TrialContext(index=int(pose.get('index', 0)), cube_start=dict(pose), joint_names=tuple(plant.names),
+                               joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
+                               home=plant.home.copy(), period_s=plant.period_s, plant=self.config.plant,
+                               workcell=resolve_workcell(workcell), lead=plant.lead.copy())
+        if not hasattr(policy, 'reset'):
+            return None
+        try:
+            policy.reset(context)
+        except Exception as exc:
+            return f'{type(exc).__name__}: {exc}'
+        return None
 
     # -- one trial ---------------------------------------------------------
 
@@ -181,7 +232,8 @@ class TrialRunner:
         """Put the cube at the trial's start, 2 mm above the table as the scene's own start; None, or why not."""
         scene, mj = self.scene, self.scene.mj
         address = scene.cube_qadr
-        scene.data.qpos[address:address + 3] = (pose['x'], pose['y'], TABLE_TOP + CUBE_HALF + .002)
+        workcell = scene.workcell
+        scene.data.qpos[address:address + 3] = (pose['x'], pose['y'], workcell.table_top + workcell.cube_half + .002)
         scene.data.qpos[address + 3:address + 7] = _quat_yaw(pose['yaw'])
         scene.data.qvel[:] = 0.
         mj.mj_forward(scene.model, scene.data)
@@ -193,12 +245,21 @@ class TrialRunner:
                 return f'cube placed inside {name} ({-contact.dist * 1000:.1f} mm) at the start pose'
         return None
 
-    def run_trial(self, policy, pose, index):
+    def run_trial(self, policy, pose, index, recorder=None):
+        """One trial's record. A `recorder` (generate.EpisodeRecorder) starts once the scene is reset with the cube in
+        place, samples after every control cycle, and is finished with the record."""
+        record = self._run_trial(policy, pose, index, recorder)
+        if recorder is not None:
+            recorder.finish(record)
+        return record
+
+    def _run_trial(self, policy, pose, index, recorder):
         config, name = self.config, policy_name(policy)
         plant, scene = self._open_plant(), self._open_scene()
         context = TrialContext(index=index, cube_start=dict(pose), joint_names=tuple(plant.names),
                                joint_map=plant.joint_map, lower=plant.lower.copy(), upper=plant.upper.copy(),
-                               home=plant.home.copy(), period_s=plant.period_s, plant=config.plant)
+                               home=plant.home.copy(), period_s=plant.period_s, plant=config.plant,
+                               workcell=scene.workcell, lead=plant.lead.copy())
         record = {'schema': trial_records.SCHEMA, 'trial': index, 'source': 'simulation', 'policy': name,
                   'cube_start': {k: pose[k] for k in ('x', 'y', 'yaw', 'cell')}, 'seed': config.grid.seed}
         aborted = timed_out = False
@@ -206,6 +267,8 @@ class TrialRunner:
         clipped = calls = 0
         tracking = np.zeros(len(plant.names))
         started = time.perf_counter()
+        rng = np.random.default_rng([config.disturbance_seed, index])
+        record['disturbances'] = {'latency_s': config.latency_s, 'actuator_factors': self._vary_actuators(plant, rng)}
         try:
             try:
                 if hasattr(policy, 'reset'):
@@ -227,34 +290,51 @@ class TrialRunner:
                 pass
             scene.reset(seed=config.grid.seed * 1000 + index)
             ready = True
+            if config.appearance:
+                record['disturbances']['appearance'] = scene.randomize_appearance(rng, **config.appearance)
             problem = self._place_cube(pose)
             if problem:
                 return self._excluded(record, problem, staged)
+            if scene.driven:
+                # The reset placed the scene's gripper drives where the plant's grippers are; from here on the
+                # scene moves them, tick by tick, inside plant.step.
+                plant.couple(scene)
+            if recorder is not None:
+                recorder.start(scene, plant, context, policy)
             action_dt = float(getattr(policy, 'action_dt', None) or plant.period_s)
             execute = getattr(policy, 'execute_steps', None)
             roles = tuple(getattr(policy, 'camera_roles', None) or ())
             chunk, chunk_t, horizon = None, 0., 0
+            pending = None  # One inference in flight: (chunk, observed at, takes effect at).
+            held = np.asarray(plant.observation()['qcmd'], dtype=float)  # Until the first chunk takes effect.
             t = 0.
             while True:
-                if chunk is None or t - chunk_t >= horizon * action_dt - 1e-9:
+                if pending is None and (chunk is None or t - chunk_t >= horizon * action_dt - 1e-9):
                     observation = dict(plant.observation(), t=t, joint_names=plant.names)
                     if roles:
                         observation['images'] = scene.render(roles)[0]
                     try:
-                        chunk = _chunk(policy(observation), len(plant.names))
+                        pending = (_chunk(policy(observation), len(plant.names)), t, t + config.latency_s)
                     except Exception as exc:
                         aborted = f'policy error: {type(exc).__name__}: {exc}'
                         break
                     calls += 1
-                    chunk_t = t
+                if pending is not None and t >= pending[2] - 1e-9:
+                    # Rows are meant for times after the observation: those already past are skipped.
+                    chunk, chunk_t, _ = pending
+                    pending = None
                     horizon = min(len(chunk), int(execute)) if execute else len(chunk)
-                command = _command(chunk, t - chunk_t, action_dt)
+                command = held.copy() if chunk is None else _command(chunk, t - chunk_t, action_dt)
                 bounded = plant.clip(command)
                 clipped += int(np.any(bounded != command))
                 q, dt = plant.step(bounded)
                 tracking = np.maximum(tracking, np.abs(q - bounded))
-                if dt > 0:
+                if getattr(plant, 'coupled', False):
+                    state = scene.snapshot()  # The plant's ticks already stepped the scene.
+                elif dt > 0:
                     state = self._advance_scene(q, dt)
+                if recorder is not None:
+                    recorder.sample(scene, plant)
                 t = float(scene.data.time)
                 if state and (state['forbidden_contacts'] or state['dropped'] or state['bucket_settled']):
                     break
@@ -269,6 +349,12 @@ class TrialRunner:
         except RuntimeError as exc:
             # MuJoCo numerical warning: the scene quarantines the episode.
             aborted = f'scene: {exc}'
+        finally:
+            if self.plant is not None and getattr(self.plant, 'coupled', False):
+                self.plant.decouple()
+            if self.plant is not None:
+                self._restore_actuators(self.plant)
+            scene.restore_appearance()
         # Events belong to this trial only once its reset happened.
         state = scene.snapshot() if ready else {'events': [], 'scene_time': 0., 'run_id': None}
         stages, outcome, eligible, detail = trial_records.outcome_from_events(state['events'], timed_out=timed_out,
@@ -283,6 +369,31 @@ class TrialRunner:
                                                           'max_abs_error_rad': float(np.max(np.abs(staged['error'])))},
                       wall_s=time.perf_counter() - started)
         return record
+
+    def _vary_actuators(self, plant, rng):
+        """Scale each armplant joint's inertia, friction (and stiction) and damping by its own U[1-s, 1+s]; the
+        receiver keeps the values it was derived with. {joint: [inertia, friction, damping factors]}, or None."""
+        spread = self.config.actuator_spread
+        if not spread:
+            return None
+        specs = plant.plant.specs
+        if not hasattr(plant, '_nominal_specs'):
+            plant._nominal_specs = [dict(spec) for spec in specs]
+        factors = {}
+        for spec, nominal in zip(specs, plant._nominal_specs):
+            f = rng.uniform(1 - spread, 1 + spread, size=3)
+            spec['inertia'] = nominal['inertia'] * f[0]
+            spec['friction'] = nominal['friction'] * f[1]
+            spec['static'] = nominal.get('static', nominal['friction']) * f[1]
+            spec['viscous'] = nominal.get('viscous', 0.) * f[2]
+            factors[spec['name']] = f.round(4).tolist()
+        return factors
+
+    @staticmethod
+    def _restore_actuators(plant):
+        for spec, nominal in zip(getattr(getattr(plant, 'plant', None), 'specs', ()), getattr(plant, '_nominal_specs', ())):
+            spec.clear()
+            spec.update(nominal)
 
     def _excluded(self, record, detail, staged):
         record.update(outcome='invalid_start', eligible=True, stages=dict.fromkeys(trial_records.STAGES),
@@ -317,8 +428,8 @@ class TrialRunner:
                                    policy=getattr(policy, 'describe', lambda: {})(),
                                    scene={key: capabilities[key] for key in
                                           ('scene_sha256', 'contact_geometry_sha256', 'mujoco_version',
-                                           'visual_mode', 'task_parameters', 'contact_parameters_measured',
-                                           'limitations')})}
+                                           'visual_mode', 'task_parameters', 'workcell', 'workcell_placeholders',
+                                           'contact_parameters_measured', 'limitations')})}
 
 
 def evaluate(policy, config=None, out=None, *, stack=None, progress=None):
